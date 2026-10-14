@@ -13,6 +13,7 @@ use brim_semantic::ModuleAst;
 /// compiler: `import std.net`.
 pub const STD_MODULES: &[(&str, &str)] = &[
     ("std.http", include_str!("../std/http.brim")),
+    ("std.json", include_str!("../std/json.brim")),
     ("std.net", include_str!("../std/net.brim")),
 ];
 

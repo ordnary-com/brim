@@ -268,6 +268,24 @@ pub const BUILTINS: &[Builtin] = &[
         }],
     },
     Builtin {
+        name: "__char_from_code",
+        summary: "std.json: the character with a code point.",
+        overloads: &[Overload {
+            params: &[Prim::I64],
+            ret: Prim::String,
+            runtime: RuntimeFn::CharFromCode,
+        }],
+    },
+    Builtin {
+        name: "__char_code",
+        summary: "std.json: the code point of a character.",
+        overloads: &[Overload {
+            params: &[Prim::String],
+            ret: Prim::I64,
+            runtime: RuntimeFn::CharCode,
+        }],
+    },
+    Builtin {
         name: "__net_set_timeout",
         summary: "std.net: set a read and write timeout.",
         overloads: &[Overload {

@@ -1,0 +1,508 @@
+// JSON: reading JSON text into values, and writing values as JSON text.
+//
+//   import std.json
+//
+//   let value: json.Json = json.parse("{\"name\": \"Ada\", \"tags\": [\"x\"]}")?
+//   match value.get("name") {
+//       Some(name) => print(json.stringify(name))
+//       None => print("no name")
+//   }
+//   let reply: json.Json = json.object(["ok": json.from_bool(true)])
+//   print(json.stringify(reply))     // {"ok":true}
+//
+// Numbers are kept as they are written (`42`, `-1.5e3`); `as_int` reads
+// whole numbers.
+
+// A JSON value.
+pub enum Json {
+    Null,
+    Bool(bool),
+    // A number, as written in the JSON text.
+    Number(string),
+    Str(string),
+    Array(List[Json]),
+    // Members keep the order of the text; a repeated key keeps its last
+    // value.
+    Object(Map[string, Json]),
+}
+
+// ---- building values ---------------------------------------------------
+
+pub fn null() -> Json {
+    return Json.Null
+}
+
+pub fn from_bool(value: bool) -> Json {
+    return Json.Bool(value)
+}
+
+pub fn from_int(value: i64) -> Json {
+    return Json.Number(to_string(value))
+}
+
+pub fn from_string(value: string) -> Json {
+    return Json.Str(value)
+}
+
+pub fn array(items: List[Json]) -> Json {
+    return Json.Array(items)
+}
+
+pub fn object(members: Map[string, Json]) -> Json {
+    return Json.Object(members)
+}
+
+// ---- reading values ----------------------------------------------------
+
+impl Json {
+    // A member of an object.
+    pub fn get(self, key: string) -> Option[Json] {
+        match self {
+            Json.Object(members) => return members.get(key)
+            _ => return None
+        }
+    }
+
+    // An element of an array.
+    pub fn at(self, index: i64) -> Option[Json] {
+        match self {
+            Json.Array(items) => return items.get(index)
+            _ => return None
+        }
+    }
+
+    pub fn as_string(self) -> Option[string] {
+        match self {
+            Json.Str(text) => return Some(text)
+            _ => return None
+        }
+    }
+
+    // A whole number; `None` for other values and for numbers with a
+    // fraction or exponent.
+    pub fn as_int(self) -> Option[i64] {
+        match self {
+            Json.Number(text) => return text.parse_int()
+            _ => return None
+        }
+    }
+
+    pub fn as_bool(self) -> Option[bool] {
+        match self {
+            Json.Bool(value) => return Some(value)
+            _ => return None
+        }
+    }
+
+    pub fn as_array(self) -> Option[List[Json]] {
+        match self {
+            Json.Array(items) => return Some(items)
+            _ => return None
+        }
+    }
+
+    pub fn as_object(self) -> Option[Map[string, Json]] {
+        match self {
+            Json.Object(members) => return Some(members)
+            _ => return None
+        }
+    }
+
+    pub fn is_null(self) -> bool {
+        match self {
+            Json.Null => return true
+            _ => return false
+        }
+    }
+
+    // "null", "bool", "number", "string", "array" or "object".
+    pub fn kind(self) -> string {
+        match self {
+            Json.Null => return "null"
+            Json.Bool(_) => return "bool"
+            Json.Number(_) => return "number"
+            Json.Str(_) => return "string"
+            Json.Array(_) => return "array"
+            Json.Object(_) => return "object"
+        }
+    }
+}
+
+// ---- writing -----------------------------------------------------------
+
+// The value as compact JSON text.
+pub fn stringify(value: Json) -> string {
+    match value {
+        Json.Null => return "null"
+        Json.Bool(b) => return to_string(b)
+        Json.Number(text) => return text
+        Json.Str(text) => return quote(text)
+        Json.Array(items) => {
+            let mut parts: List[string] = []
+            for item in items {
+                parts.push(stringify(item))
+            }
+            return "[" + parts.join(",") + "]"
+        }
+        Json.Object(members) => {
+            let mut parts: List[string] = []
+            for key in members.keys() {
+                parts.push(quote(key) + ":" + stringify(members[key]))
+            }
+            return "{" + parts.join(",") + "}"
+        }
+    }
+}
+
+// The value as JSON text indented by two spaces per level.
+pub fn pretty(value: Json) -> string {
+    return indented(value, "")
+}
+
+fn indented(value: Json, indent: string) -> string {
+    let inner: string = indent + "  "
+    match value {
+        Json.Array(items) => {
+            if items.is_empty() {
+                return "[]"
+            }
+            let mut parts: List[string] = []
+            for item in items {
+                parts.push(inner + indented(item, inner))
+            }
+            return "[\n" + parts.join(",\n") + "\n" + indent + "]"
+        }
+        Json.Object(members) => {
+            if members.is_empty() {
+                return "{}"
+            }
+            let mut parts: List[string] = []
+            for key in members.keys() {
+                parts.push(inner + quote(key) + ": " + indented(members[key], inner))
+            }
+            return "{\n" + parts.join(",\n") + "\n" + indent + "}"
+        }
+        _ => return stringify(value)
+    }
+}
+
+// A JSON string literal.
+pub fn quote(text: string) -> string {
+    let mut parts: List[string] = ["\""]
+    for c in text.chars() {
+        if c == "\"" {
+            parts.push("\\\"")
+        } else if c == "\\" {
+            parts.push("\\\\")
+        } else if c == "\n" {
+            parts.push("\\n")
+        } else if c == "\r" {
+            parts.push("\\r")
+        } else if c == "\t" {
+            parts.push("\\t")
+        } else {
+            let code: i64 = __char_code(c)
+            if code < 32 {
+                parts.push("\\u00" + hex_digit(code / 16) + hex_digit(code % 16))
+            } else {
+                parts.push(c)
+            }
+        }
+    }
+    parts.push("\"")
+    return parts.join("")
+}
+
+fn hex_digit(n: i64) -> string {
+    return "0123456789abcdef".slice(n, n + 1)
+}
+
+// ---- parsing -----------------------------------------------------------
+
+// Parses JSON text. Errors say what is wrong and where, counting
+// characters from 1: "expected ':' at character 9".
+pub fn parse(text: string) -> Result[Json, string] {
+    let mut p: Parser = Parser { chars: text.chars(), pos: 0, depth: 0 }
+    let value: Json = p.value()?
+    p.skip_space()
+    if p.pos < p.chars.len() {
+        return Err(p.error("unexpected text after the value"))
+    }
+    return Ok(value)
+}
+
+struct Parser {
+    chars: List[string],
+    pos: i64,
+    depth: i64,
+}
+
+impl Parser {
+    fn peek(self) -> string {
+        if self.pos < self.chars.len() {
+            return self.chars[self.pos]
+        }
+        return ""
+    }
+
+    fn error(self, message: string) -> string {
+        if self.pos >= self.chars.len() {
+            return message + " at the end of the text"
+        }
+        return message + " at character " + to_string(self.pos + 1)
+    }
+
+    fn skip_space(mut self) {
+        while self.pos < self.chars.len() {
+            let c: string = self.chars[self.pos]
+            if c == " " || c == "\n" || c == "\r" || c == "\t" {
+                self.pos += 1
+            } else {
+                break
+            }
+        }
+    }
+
+    fn value(mut self) -> Result[Json, string] {
+        self.skip_space()
+        let c: string = self.peek()
+        if c == "{" {
+            return self.object()
+        }
+        if c == "[" {
+            return self.array()
+        }
+        if c == "\"" {
+            return Ok(Json.Str(self.string()?))
+        }
+        if c == "t" {
+            return self.word("true", Json.Bool(true))
+        }
+        if c == "f" {
+            return self.word("false", Json.Bool(false))
+        }
+        if c == "n" {
+            return self.word("null", Json.Null)
+        }
+        if c == "-" || is_digit(c) {
+            return self.number()
+        }
+        if c.is_empty() {
+            return Err(self.error("expected a value"))
+        }
+        return Err(self.error("unexpected character '" + c + "'"))
+    }
+
+    fn word(mut self, word: string, value: Json) -> Result[Json, string] {
+        for expected in word.chars() {
+            if self.peek() != expected {
+                return Err(self.error("expected " + word))
+            }
+            self.pos += 1
+        }
+        return Ok(value)
+    }
+
+    fn enter(mut self) -> Result[i64, string] {
+        self.depth += 1
+        if self.depth > 128 {
+            return Err(self.error("nested too deeply"))
+        }
+        self.pos += 1
+        return Ok(self.depth)
+    }
+
+    fn array(mut self) -> Result[Json, string] {
+        self.enter()?
+        let mut items: List[Json] = []
+        self.skip_space()
+        if self.peek() == "]" {
+            self.pos += 1
+            self.depth -= 1
+            return Ok(Json.Array(items))
+        }
+        while true {
+            items.push(self.value()?)
+            self.skip_space()
+            let c: string = self.peek()
+            self.pos += 1
+            if c == "]" {
+                break
+            }
+            if c != "," {
+                self.pos -= 1
+                return Err(self.error("expected ',' or ']'"))
+            }
+        }
+        self.depth -= 1
+        return Ok(Json.Array(items))
+    }
+
+    fn object(mut self) -> Result[Json, string] {
+        self.enter()?
+        let mut members: Map[string, Json] = [:]
+        self.skip_space()
+        if self.peek() == "}" {
+            self.pos += 1
+            self.depth -= 1
+            return Ok(Json.Object(members))
+        }
+        while true {
+            self.skip_space()
+            if self.peek() != "\"" {
+                return Err(self.error("expected a string key"))
+            }
+            let key: string = self.string()?
+            self.skip_space()
+            if self.peek() != ":" {
+                return Err(self.error("expected ':'"))
+            }
+            self.pos += 1
+            members[key] = self.value()?
+            self.skip_space()
+            let c: string = self.peek()
+            self.pos += 1
+            if c == "}" {
+                break
+            }
+            if c != "," {
+                self.pos -= 1
+                return Err(self.error("expected ',' or '}'"))
+            }
+        }
+        self.depth -= 1
+        return Ok(Json.Object(members))
+    }
+
+    // A string literal, after which `pos` is past its closing quote.
+    fn string(mut self) -> Result[string, string] {
+        self.pos += 1
+        let mut parts: List[string] = []
+        while true {
+            let c: string = self.peek()
+            if c.is_empty() {
+                return Err(self.error("unterminated string"))
+            }
+            self.pos += 1
+            if c == "\"" {
+                break
+            }
+            if c == "\\" {
+                parts.push(self.escape()?)
+            } else {
+                if __char_code(c) < 32 {
+                    self.pos -= 1
+                    return Err(self.error("control character in a string"))
+                }
+                parts.push(c)
+            }
+        }
+        return Ok(parts.join(""))
+    }
+
+    fn escape(mut self) -> Result[string, string] {
+        let c: string = self.peek()
+        self.pos += 1
+        match c {
+            "\"" => return Ok("\"")
+            "\\" => return Ok("\\")
+            "/" => return Ok("/")
+            "b" => return Ok("\u{8}")
+            "f" => return Ok("\u{c}")
+            "n" => return Ok("\n")
+            "r" => return Ok("\r")
+            "t" => return Ok("\t")
+            "u" => {
+                let mut code: i64 = self.hex4()?
+                // A surrogate pair: 😀.
+                if code >= 55296 && code <= 56319 {
+                    if self.peek() != "\\" {
+                        return Err(self.error("unpaired surrogate"))
+                    }
+                    self.pos += 1
+                    if self.peek() != "u" {
+                        return Err(self.error("unpaired surrogate"))
+                    }
+                    self.pos += 1
+                    let low: i64 = self.hex4()?
+                    if low < 56320 || low > 57343 {
+                        return Err(self.error("unpaired surrogate"))
+                    }
+                    code = 65536 + (code - 55296) * 1024 + (low - 56320)
+                }
+                let text: string = __char_from_code(code)
+                if !__last_error().is_empty() {
+                    return Err(self.error("unpaired surrogate"))
+                }
+                return Ok(text)
+            }
+            _ => {
+                self.pos -= 1
+                return Err(self.error("invalid escape"))
+            }
+        }
+    }
+
+    fn hex4(mut self) -> Result[i64, string] {
+        let mut value: i64 = 0
+        for i in 0..4 {
+            match "0123456789abcdef".find(self.peek().to_lower()) {
+                Some(digit) => {
+                    if self.peek().is_empty() {
+                        return Err(self.error("expected four hex digits"))
+                    }
+                    value = value * 16 + digit
+                }
+                None => return Err(self.error("expected four hex digits"))
+            }
+            self.pos += 1
+        }
+        return Ok(value)
+    }
+
+    fn number(mut self) -> Result[Json, string] {
+        let start: i64 = self.pos
+        if self.peek() == "-" {
+            self.pos += 1
+        }
+        if self.peek() == "0" {
+            self.pos += 1
+        } else if is_digit(self.peek()) {
+            self.digits()
+        } else {
+            return Err(self.error("expected a digit"))
+        }
+        if self.peek() == "." {
+            self.pos += 1
+            if !is_digit(self.peek()) {
+                return Err(self.error("expected a digit"))
+            }
+            self.digits()
+        }
+        if self.peek() == "e" || self.peek() == "E" {
+            self.pos += 1
+            if self.peek() == "+" || self.peek() == "-" {
+                self.pos += 1
+            }
+            if !is_digit(self.peek()) {
+                return Err(self.error("expected a digit"))
+            }
+            self.digits()
+        }
+        let mut parts: List[string] = []
+        for i in start..self.pos {
+            parts.push(self.chars[i])
+        }
+        return Ok(Json.Number(parts.join("")))
+    }
+
+    fn digits(mut self) {
+        while is_digit(self.peek()) {
+            self.pos += 1
+        }
+    }
+}
+
+fn is_digit(c: string) -> bool {
+    return !c.is_empty() && c >= "0" && c <= "9"
+}

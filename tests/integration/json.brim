@@ -1,0 +1,57 @@
+// std.json: parsing, reading values, building values and writing them.
+import std.json
+
+fn show(text: string) {
+    match json.parse(text) {
+        Ok(value) => print(value.kind() + " " + json.stringify(value))
+        Err(e) => print("error: " + e)
+    }
+}
+
+fn run() -> Result[i64, string] {
+    show("{\"name\": \"Ada\", \"age\": 36, \"langs\": [\"en\", \"fr\"], \"x\": null}")
+    show("[1, -2.5e3, true, false, \"tab\\tquote\\\" \\u00e9 \\ud83d\\ude00\"]")
+    show("  42  ")
+    show("[1, 2,]")
+    show("{\"a\" 1}")
+    show("\"unterminated")
+    let user: json.Json = json.parse("{\"name\": \"Ada\", \"age\": 36, \"tags\": [\"x\", \"y\"]}")?
+    match user.get("age") {
+        Some(age) => {
+            match age.as_int() {
+                Some(n) => print("age next year: " + to_string(n + 1))
+                None => print("age is not a whole number")
+            }
+        }
+        None => print("no age")
+    }
+    match user.get("tags") {
+        Some(tags) => {
+            match tags.at(1) {
+                Some(tag) => print("second tag: " + json.stringify(tag))
+                None => print("one tag")
+            }
+        }
+        None => print("no tags")
+    }
+    match user.get("missing") {
+        Some(_) => print("unexpected")
+        None => print("no member missing")
+    }
+    let reply: json.Json = json.object([
+        "ok": json.from_bool(true),
+        "count": json.from_int(3),
+        "items": json.array([json.from_string("a\nb"), json.null()]),
+        "empty": json.object([:]),
+    ])
+    print(json.stringify(reply))
+    print(json.pretty(reply))
+    return Ok(0)
+}
+
+fn main() {
+    match run() {
+        Ok(_) => print("done")
+        Err(e) => print("error: " + e)
+    }
+}

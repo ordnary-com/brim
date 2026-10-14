@@ -192,6 +192,11 @@ runtime_fns! {
     /// Percent-encodes everything but unreserved characters
     /// (`A-Z a-z 0-9 - . _ ~`).
     UrlEncode = "brim_rt_url_encode" (Str) -> Str;
+    /// The character with a Unicode code point, as a string. Sets the last
+    /// error for surrogates and values outside Unicode.
+    CharFromCode = "brim_rt_char_from_code" (I64) -> Str;
+    /// The code point of the first character of a string; -1 if empty.
+    CharCode = "brim_rt_char_code" (Str) -> I64;
 }
 
 impl RuntimeFn {

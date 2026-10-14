@@ -126,6 +126,7 @@ Brim is at **version 0.1**. It is a working foundation, **not ready for producti
 - `List[T]` and `Map[K, V]` with indexing and methods, and `for` loops over lists and ranges
 - Methods in `impl` blocks, including `mut self` methods that change the caller's value
 - A standard library for command-line tools: string methods, `read_line`, `read_file`, `write_file`, `args`, `env`, `exit`
+- Networking for backend services: `std.net` (TCP), `std.http` (HTTP/1.1 server and client) and `std.json`
 - Programs of several files: modules with `import` and `pub`; dependencies on other packages from a directory or git repository, locked in `brim.lock`
 - Builtins `print` and `to_string`, and `assert`/`assert_eq` for tests: `brim test` runs every `fn test_...()`
 - Full static type checking, return checking on all paths, and detailed diagnostics

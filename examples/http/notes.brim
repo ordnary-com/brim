@@ -1,0 +1,129 @@
+// A small JSON API for notes, kept in memory.
+//
+//   brim run examples/http/notes.brim
+//   curl -X POST localhost:8080/notes -d '{"text": "buy milk"}'
+//   curl localhost:8080/notes
+//   curl localhost:8080/notes/1
+//   curl -X DELETE localhost:8080/notes/1
+import std.http
+import std.json
+
+struct Notes {
+    texts: Map[i64, string],
+    next_id: i64,
+}
+
+impl Notes {
+    fn handle(mut self, request: http.Request) -> http.Response {
+        let parts: List[string] = request.path.split("/")
+        // "/notes" splits into ["", "notes"]; "/notes/7" into ["", "notes", "7"].
+        if parts.len() < 2 || parts[1] != "notes" {
+            return error(404, "no such page")
+        }
+        if parts.len() == 2 {
+            if request.method == "GET" {
+                return self.list()
+            }
+            if request.method == "POST" {
+                return self.create(request.body)
+            }
+            return error(405, "use GET or POST")
+        }
+        match parts[2].parse_int() {
+            Some(id) => {
+                if request.method == "GET" {
+                    return self.show(id)
+                }
+                if request.method == "DELETE" {
+                    return self.delete(id)
+                }
+                return error(405, "use GET or DELETE")
+            }
+            None => return error(404, "no such note")
+        }
+    }
+
+    fn list(self) -> http.Response {
+        let mut items: List[json.Json] = []
+        for id in self.texts.keys() {
+            items.push(note(id, self.texts[id]))
+        }
+        return http.json(200, json.stringify(json.array(items)))
+    }
+
+    fn show(self, id: i64) -> http.Response {
+        match self.texts.get(id) {
+            Some(text) => return http.json(200, json.stringify(note(id, text)))
+            None => return error(404, "no such note")
+        }
+    }
+
+    fn create(mut self, body: string) -> http.Response {
+        match json.parse(body) {
+            Ok(value) => {
+                match value.get("text") {
+                    Some(text) => {
+                        match text.as_string() {
+                            Some(t) => {
+                                let id: i64 = self.next_id
+                                self.next_id += 1
+                                self.texts[id] = t
+                                return http.json(201, json.stringify(note(id, t)))
+                            }
+                            None => return error(400, "\"text\" must be a string")
+                        }
+                    }
+                    None => return error(400, "the body needs a \"text\" member")
+                }
+            }
+            Err(e) => return error(400, "the body is not JSON: " + e)
+        }
+    }
+
+    fn delete(mut self, id: i64) -> http.Response {
+        match self.texts.remove(id) {
+            Some(_) => return http.response(204, "text/plain", "")
+            None => return error(404, "no such note")
+        }
+    }
+}
+
+fn note(id: i64, text: string) -> json.Json {
+    return json.object(["id": json.from_int(id), "text": json.from_string(text)])
+}
+
+fn error(status: i64, message: string) -> http.Response {
+    return http.json(status, json.stringify(json.object(["error": json.from_string(message)])))
+}
+
+fn serve(port: i64) -> Result[i64, string] {
+    let server: http.Server = http.serve("127.0.0.1", port)?
+    print("listening on http://127.0.0.1:" + to_string(server.port()))
+    let mut notes: Notes = Notes { texts: [:], next_id: 1 }
+    while true {
+        let request: http.Request = server.next()?
+        let response: http.Response = notes.handle(request)
+        eprint(request.method + " " + request.path + " " + to_string(response.status))
+        request.respond(response)?
+    }
+}
+
+fn main() {
+    let mut port: i64 = 8080
+    match env("PORT") {
+        Some(text) => {
+            match text.parse_int() {
+                Some(n) => port = n
+                None => {}
+            }
+        }
+        None => {}
+    }
+    match serve(port) {
+        Ok(_) => {}
+        Err(e) => {
+            eprint("error: " + e)
+            exit(1)
+        }
+    }
+}

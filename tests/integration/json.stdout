@@ -1,0 +1,20 @@
+object {"name":"Ada","age":36,"langs":["en","fr"],"x":null}
+array [1,-2.5e3,true,false,"tab\tquote\" é 😀"]
+number 42
+error: unexpected character ']' at character 7
+error: expected ':' at character 6
+error: unterminated string at the end of the text
+age next year: 37
+second tag: "y"
+no member missing
+{"ok":true,"count":3,"items":["a\nb",null],"empty":{}}
+{
+  "ok": true,
+  "count": 3,
+  "items": [
+    "a\nb",
+    null
+  ],
+  "empty": {}
+}
+done

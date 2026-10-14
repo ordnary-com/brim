@@ -388,6 +388,53 @@ fn route(request: http.Request) -> http.Response {
 The client supports `http://` URLs; `https://` is planned. `http.encode`
 and `http.decode` percent-encode and decode parts of URLs.
 
+## JSON: std.json
+
+`import std.json` reads and writes JSON. A value is a `json.Json`:
+`Null`, `Bool`, `Number` (kept as the text it was written with), `Str`,
+`Array` or `Object`.
+
+```brim
+import std.json
+
+fn main() {
+    match age_next_year("{\"name\": \"Ada\", \"age\": 36}") {
+        Ok(n) => print(n)
+        Err(e) => print("error: " + e)
+    }
+    let reply: json.Json = json.object([
+        "ok": json.from_bool(true),
+        "items": json.array([json.from_int(1), json.from_string("two")]),
+    ])
+    print(json.stringify(reply))
+}
+
+fn age_next_year(text: string) -> Result[i64, string] {
+    let user: json.Json = json.parse(text)?
+    match user.get("age") {
+        Some(age) => {
+            match age.as_int() {
+                Some(n) => return Ok(n + 1)
+                None => return Err("age is not a whole number")
+            }
+        }
+        None => return Err("no age")
+    }
+}
+```
+
+| | |
+|---|---|
+| `json.parse(text)` | `Result[Json, string]`; errors say where: `expected ':' at character 6` |
+| `json.stringify(value)`, `json.pretty(value)` | compact, or indented by two spaces |
+| `json.null()`, `from_bool(b)`, `from_int(n)`, `from_string(s)`, `array(items)`, `object(members)` | build values |
+| `value.get(key)`, `value.at(index)` | `Option[Json]`: a member, an element |
+| `value.as_string()`, `as_int()`, `as_bool()`, `as_array()`, `as_object()` | `Option` of the contents |
+| `value.is_null()`, `value.kind()` | `"null"`, `"bool"`, `"number"`, `"string"`, `"array"` or `"object"` |
+
+`examples/http/notes.brim` combines `std.http` and `std.json` into a small
+JSON API.
+
 ## Tests
 
 | Function | |

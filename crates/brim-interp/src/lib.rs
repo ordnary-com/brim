@@ -808,6 +808,20 @@ fn call_runtime(
                 }
             }
         }
+        RuntimeFn::CharFromCode => {
+            state.last_error.clear();
+            let c = u32::try_from(args[0].i64()).ok().and_then(char::from_u32);
+            match c {
+                Some(c) => str_value(BrimStr::from(c.to_string())),
+                None => {
+                    state.last_error = "not a Unicode character".into();
+                    str_value(BrimStr::from(""))
+                }
+            }
+        }
+        RuntimeFn::CharCode => Some(Value::I64(
+            s(0).chars().next().map_or(-1, |c| i64::from(u32::from(c))),
+        )),
         RuntimeFn::UrlEncode => str_value(BrimStr::from(brim_runtime::net::url_encode(s(0)))),
         RuntimeFn::Exit => unreachable!("handled by the interpreter loop"),
         RuntimeFn::Assert => {

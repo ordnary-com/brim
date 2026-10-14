@@ -1774,6 +1774,56 @@ BrimStr *brim_rt_url_encode(const BrimStr *text) {
     return buffer_finish(&b);
 }
 
+/* ---- characters (std.json) ------------------------------------------------- */
+
+BrimStr *brim_rt_char_from_code(int64_t code) {
+    set_error(NULL);
+    if (code < 0 || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)) {
+        set_error(str_from_c("not a Unicode character"));
+        return &EMPTY_STR;
+    }
+    char out[4];
+    int64_t n;
+    if (code < 0x80) {
+        out[0] = (char)code;
+        n = 1;
+    } else if (code < 0x800) {
+        out[0] = (char)(0xC0 | (code >> 6));
+        out[1] = (char)(0x80 | (code & 0x3F));
+        n = 2;
+    } else if (code < 0x10000) {
+        out[0] = (char)(0xE0 | (code >> 12));
+        out[1] = (char)(0x80 | ((code >> 6) & 0x3F));
+        out[2] = (char)(0x80 | (code & 0x3F));
+        n = 3;
+    } else {
+        out[0] = (char)(0xF0 | (code >> 18));
+        out[1] = (char)(0x80 | ((code >> 12) & 0x3F));
+        out[2] = (char)(0x80 | ((code >> 6) & 0x3F));
+        out[3] = (char)(0x80 | (code & 0x3F));
+        n = 4;
+    }
+    return str_from(out, n);
+}
+
+int64_t brim_rt_char_code(const BrimStr *s) {
+    if (s->len == 0) {
+        return -1;
+    }
+    const unsigned char *p = (const unsigned char *)s->data;
+    if (p[0] < 0x80) {
+        return p[0];
+    }
+    if (p[0] < 0xE0) {
+        return ((int64_t)(p[0] & 0x1F) << 6) | (p[1] & 0x3F);
+    }
+    if (p[0] < 0xF0) {
+        return ((int64_t)(p[0] & 0x0F) << 12) | ((int64_t)(p[1] & 0x3F) << 6) | (p[2] & 0x3F);
+    }
+    return ((int64_t)(p[0] & 0x07) << 18) | ((int64_t)(p[1] & 0x3F) << 12) |
+           ((int64_t)(p[2] & 0x3F) << 6) | (p[3] & 0x3F);
+}
+
 /* ---- process entry ------------------------------------------------------- */
 
 int main(int argc, char **argv) {
