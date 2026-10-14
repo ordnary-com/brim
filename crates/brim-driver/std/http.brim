@@ -1,0 +1,479 @@
+// HTTP/1.1 servers and clients, for text such as HTML and JSON.
+//
+// A server handles one request at a time:
+//
+//   import std.http
+//
+//   let server: http.Server = http.serve("127.0.0.1", 8080)?
+//   while true {
+//       let request: http.Request = server.next()?
+//       if request.path == "/hello" {
+//           request.respond(http.text(200, "Hello!"))?
+//       } else {
+//           request.respond(http.not_found())?
+//       }
+//   }
+//
+// A client makes a request and reads the whole response:
+//
+//   let response: http.Response = http.get("http://127.0.0.1:8080/hello")?
+//   print(response.body)
+//
+// Header names are kept in lower case. Every connection is closed after
+// one request and its response.
+import std.net
+
+// A request a server received.
+pub struct Request {
+    // `GET`, `POST`, ...
+    method: string,
+    // The path without the query: `/users/7`.
+    path: string,
+    // The query parameters, decoded: `?q=a+b` gives `"q": "a b"`.
+    query: Map[string, string],
+    // Header names in lower case.
+    headers: Map[string, string],
+    body: string,
+    conn: net.Conn,
+}
+
+// A response: from a server, or to a client.
+pub struct Response {
+    status: i64,
+    headers: Map[string, string],
+    body: string,
+}
+
+// A server, waiting for requests.
+pub struct Server {
+    listener: net.Listener,
+}
+
+// ---- responses ---------------------------------------------------------
+
+// A response with a body of the given content type.
+pub fn response(status: i64, content_type: string, body: string) -> Response {
+    return Response { status: status, headers: ["content-type": content_type], body: body }
+}
+
+// A plain text response.
+pub fn text(status: i64, body: string) -> Response {
+    return response(status, "text/plain; charset=utf-8", body)
+}
+
+// A JSON response; `body` is JSON text (see `std.json`).
+pub fn json(status: i64, body: string) -> Response {
+    return response(status, "application/json", body)
+}
+
+// An HTML response.
+pub fn html(status: i64, body: string) -> Response {
+    return response(status, "text/html; charset=utf-8", body)
+}
+
+// 404 Not Found.
+pub fn not_found() -> Response {
+    return text(404, "Not Found")
+}
+
+// A redirect to another location (302 Found).
+pub fn redirect(location: string) -> Response {
+    let mut r: Response = text(302, "")
+    r.headers["location"] = location
+    return r
+}
+
+impl Response {
+    // The response with a header set.
+    pub fn with_header(self, name: string, value: string) -> Response {
+        let mut r: Response = self
+        r.headers[name.to_lower()] = value
+        return r
+    }
+
+    // A header, by name in any case.
+    pub fn header(self, name: string) -> Option[string] {
+        return self.headers.get(name.to_lower())
+    }
+
+    // Whether the status is 2xx.
+    pub fn ok(self) -> bool {
+        return self.status >= 200 && self.status < 300
+    }
+}
+
+// The standard reason phrase of a status code.
+pub fn reason(status: i64) -> string {
+    match status {
+        100 => return "Continue"
+        200 => return "OK"
+        201 => return "Created"
+        202 => return "Accepted"
+        204 => return "No Content"
+        301 => return "Moved Permanently"
+        302 => return "Found"
+        303 => return "See Other"
+        304 => return "Not Modified"
+        307 => return "Temporary Redirect"
+        308 => return "Permanent Redirect"
+        400 => return "Bad Request"
+        401 => return "Unauthorized"
+        403 => return "Forbidden"
+        404 => return "Not Found"
+        405 => return "Method Not Allowed"
+        409 => return "Conflict"
+        410 => return "Gone"
+        413 => return "Content Too Large"
+        415 => return "Unsupported Media Type"
+        422 => return "Unprocessable Content"
+        429 => return "Too Many Requests"
+        500 => return "Internal Server Error"
+        501 => return "Not Implemented"
+        502 => return "Bad Gateway"
+        503 => return "Service Unavailable"
+        504 => return "Gateway Timeout"
+        _ => return "Status " + to_string(status)
+    }
+}
+
+// ---- servers -----------------------------------------------------------
+
+// Starts a server on a host and port (port 0 picks a free one).
+pub fn serve(host: string, port: i64) -> Result[Server, string] {
+    return Ok(Server { listener: net.listen(host, port)? })
+}
+
+impl Server {
+    // The port the server listens on.
+    pub fn port(self) -> i64 {
+        return self.listener.port()
+    }
+
+    // Waits for the next request. A client that sends something that is
+    // not HTTP gets a 400 response, and the server waits for the next one.
+    pub fn next(self) -> Result[Request, string] {
+        while true {
+            let conn: net.Conn = self.listener.accept()?
+            // A client gets ten seconds to send its request.
+            conn.set_timeout(10000)?
+            match read_request(conn) {
+                Ok(request) => {
+                    conn.set_timeout(0)?
+                    return Ok(request)
+                }
+                Err(message) => {
+                    send(conn, text(400, message + "\n"), false)
+                    conn.close()
+                }
+            }
+        }
+    }
+
+    // Stops the server.
+    pub fn close(self) {
+        self.listener.close()
+    }
+}
+
+impl Request {
+    // A header, by name in any case.
+    pub fn header(self, name: string) -> Option[string] {
+        return self.headers.get(name.to_lower())
+    }
+
+    // A query parameter.
+    pub fn param(self, name: string) -> Option[string] {
+        return self.query.get(name)
+    }
+
+    // Sends the response and closes the connection.
+    pub fn respond(self, r: Response) -> Result[i64, string] {
+        let sent: Result[i64, string] = send(self.conn, r, self.method == "HEAD")
+        self.conn.close()
+        return sent
+    }
+}
+
+fn read_request(conn: net.Conn) -> Result[Request, string] {
+    let head: string = conn.read_until("\r\n\r\n")?
+    let lines: List[string] = head.split("\r\n")
+    let parts: List[string] = lines[0].split(" ")
+    if parts.len() != 3 || !parts[2].starts_with("HTTP/1.") {
+        return Err("bad request line")
+    }
+    let method: string = parts[0]
+    let target: string = parts[1]
+    let headers: Map[string, string] = parse_headers(lines)?
+    let mut path: string = target
+    let mut query: Map[string, string] = [:]
+    match target.find("?") {
+        Some(at) => {
+            path = target.slice(0, at)
+            query = parse_query(target.slice(at + 1, target.len()))?
+        }
+        None => {}
+    }
+    path = decode_part(path, false)?
+    let body: string = read_body(conn, headers, false)?
+    return Ok(Request {
+        method: method,
+        path: path,
+        query: query,
+        headers: headers,
+        body: body,
+        conn: conn,
+    })
+}
+
+fn send(conn: net.Conn, r: Response, head_only: bool) -> Result[i64, string] {
+    let mut out: string = "HTTP/1.1 " + to_string(r.status) + " " + reason(r.status) + "\r\n"
+    for name in r.headers.keys() {
+        if name != "content-length" && name != "connection" {
+            out = out + name + ": " + r.headers[name] + "\r\n"
+        }
+    }
+    out = out + "content-length: " + to_string(r.body.len()) + "\r\nconnection: close\r\n\r\n"
+    if !head_only {
+        out = out + r.body
+    }
+    return conn.write(out)
+}
+
+// ---- clients -----------------------------------------------------------
+
+// GET a URL.
+pub fn get(url: string) -> Result[Response, string] {
+    let none: Map[string, string] = [:]
+    return request("GET", url, none, "")
+}
+
+// POST a body of a content type to a URL.
+pub fn post(url: string, content_type: string, body: string) -> Result[Response, string] {
+    return request("POST", url, ["content-type": content_type], body)
+}
+
+// Sends a request and reads the response. Only `http://` URLs for now.
+pub fn request(
+    method: string,
+    url: string,
+    headers: Map[string, string],
+    body: string,
+) -> Result[Response, string] {
+    let target: Url = parse_url(url)?
+    let conn: net.Conn = net.connect(target.host, target.port)?
+    conn.set_timeout(30000)?
+    let mut out: string = method + " " + target.path + " HTTP/1.1\r\nhost: " + target.host_header + "\r\n"
+    let mut has_agent: bool = false
+    for name in headers.keys() {
+        let lower: string = name.to_lower()
+        if lower == "user-agent" {
+            has_agent = true
+        }
+        if lower != "host" && lower != "content-length" && lower != "connection" {
+            out = out + name + ": " + headers[name] + "\r\n"
+        }
+    }
+    if !has_agent {
+        out = out + "user-agent: brim\r\n"
+    }
+    if !body.is_empty() || method == "POST" || method == "PUT" || method == "PATCH" {
+        out = out + "content-length: " + to_string(body.len()) + "\r\n"
+    }
+    out = out + "connection: close\r\n\r\n" + body
+    conn.write(out)?
+    let result: Result[Response, string] = read_response(conn, method == "HEAD")
+    conn.close()
+    return result
+}
+
+fn read_response(conn: net.Conn, head_only: bool) -> Result[Response, string] {
+    let head: string = conn.read_until("\r\n\r\n")?
+    let lines: List[string] = head.split("\r\n")
+    let status_line: string = lines[0]
+    if !status_line.starts_with("HTTP/1.") || status_line.len() < 12 {
+        return Err("not an HTTP response")
+    }
+    let status: i64 = match_int(status_line.slice(9, 12))?
+    let headers: Map[string, string] = parse_headers(lines)?
+    let mut body: string = ""
+    if !head_only && status != 204 && status != 304 && status >= 200 {
+        body = read_body(conn, headers, true)?
+    }
+    return Ok(Response { status: status, headers: headers, body: body })
+}
+
+struct Url {
+    host: string,
+    port: i64,
+    // `host` or `host:port`, for the Host header.
+    host_header: string,
+    // Path and query.
+    path: string,
+}
+
+fn parse_url(url: string) -> Result[Url, string] {
+    if url.starts_with("https://") {
+        return Err("https is not supported yet: " + url)
+    }
+    if !url.starts_with("http://") {
+        return Err("not an http URL: " + url)
+    }
+    let rest: string = url.slice(7, url.len())
+    let mut authority: string = rest
+    let mut path: string = "/"
+    match rest.find("/") {
+        Some(at) => {
+            authority = rest.slice(0, at)
+            path = rest.slice(at, rest.len())
+        }
+        None => match rest.find("?") {
+            Some(at) => {
+                authority = rest.slice(0, at)
+                path = "/" + rest.slice(at, rest.len())
+            }
+            None => {}
+        }
+    }
+    if authority.is_empty() {
+        return Err("no host in " + url)
+    }
+    let mut host: string = authority
+    let mut port: i64 = 80
+    match authority.find(":") {
+        Some(at) => {
+            host = authority.slice(0, at)
+            port = match_int(authority.slice(at + 1, authority.len()))?
+        }
+        None => {}
+    }
+    return Ok(Url { host: host, port: port, host_header: authority, path: path })
+}
+
+// ---- shared ------------------------------------------------------------
+
+fn parse_headers(lines: List[string]) -> Result[Map[string, string], string] {
+    let mut headers: Map[string, string] = [:]
+    for i in 1..lines.len() {
+        let line: string = lines[i]
+        match line.find(":") {
+            Some(at) => {
+                let name: string = line.slice(0, at).trim().to_lower()
+                let value: string = line.slice(at + 1, line.len()).trim()
+                if name.is_empty() {
+                    return Err("bad header line")
+                }
+                match headers.get(name) {
+                    Some(earlier) => headers[name] = earlier + ", " + value
+                    None => headers[name] = value
+                }
+            }
+            None => return Err("bad header line")
+        }
+    }
+    return Ok(headers)
+}
+
+fn read_body(conn: net.Conn, headers: Map[string, string], to_end: bool) -> Result[string, string] {
+    match headers.get("transfer-encoding") {
+        Some(encoding) => {
+            if encoding.to_lower().contains("chunked") {
+                return read_chunked(conn)
+            }
+        }
+        None => {}
+    }
+    match headers.get("content-length") {
+        Some(length) => return conn.read_exact(match_int(length)?)
+        None => {}
+    }
+    if to_end {
+        return conn.read_all()
+    }
+    return Ok("")
+}
+
+fn read_chunked(conn: net.Conn) -> Result[string, string] {
+    let mut body: string = ""
+    while true {
+        let mut size_line: string = conn.read_until("\r\n")?
+        match size_line.find(";") {
+            Some(at) => size_line = size_line.slice(0, at)
+            None => {}
+        }
+        let size: i64 = parse_hex(size_line.trim())?
+        if size == 0 {
+            // Trailers, up to an empty line.
+            while true {
+                let trailer: string = conn.read_until("\r\n")?
+                if trailer.is_empty() {
+                    break
+                }
+            }
+            break
+        }
+        body = body + conn.read_exact(size)?
+        conn.read_until("\r\n")?
+    }
+    return Ok(body)
+}
+
+fn parse_hex(text: string) -> Result[i64, string] {
+    if text.is_empty() || text.len() > 15 {
+        return Err("bad chunk size")
+    }
+    let mut value: i64 = 0
+    for c in text.to_lower().chars() {
+        match "0123456789abcdef".find(c) {
+            Some(digit) => value = value * 16 + digit
+            None => return Err("bad chunk size")
+        }
+    }
+    return Ok(value)
+}
+
+fn match_int(text: string) -> Result[i64, string] {
+    match text.trim().parse_int() {
+        Some(n) => {
+            if n < 0 {
+                return Err("not a valid number: " + text)
+            }
+            return Ok(n)
+        }
+        None => return Err("not a valid number: " + text)
+    }
+}
+
+fn parse_query(text: string) -> Result[Map[string, string], string] {
+    let mut query: Map[string, string] = [:]
+    for pair in text.split("&") {
+        if !pair.is_empty() {
+            match pair.find("=") {
+                Some(at) => {
+                    let name: string = decode_part(pair.slice(0, at), true)?
+                    query[name] = decode_part(pair.slice(at + 1, pair.len()), true)?
+                }
+                None => query[decode_part(pair, true)?] = ""
+            }
+        }
+    }
+    return Ok(query)
+}
+
+fn decode_part(text: string, plus: bool) -> Result[string, string] {
+    let decoded: string = __url_decode(text, plus)
+    let error: string = __last_error()
+    if !error.is_empty() {
+        return Err(error)
+    }
+    return Ok(decoded)
+}
+
+// Percent-decodes text: `a%20b` and `a+b` give `a b`.
+pub fn decode(text: string) -> Result[string, string] {
+    return decode_part(text, true)
+}
+
+// Percent-encodes text for use in a URL: `a b/c` gives `a%20b%2Fc`.
+pub fn encode(text: string) -> string {
+    return __url_encode(text)
+}

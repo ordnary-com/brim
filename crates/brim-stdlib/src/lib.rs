@@ -157,7 +157,131 @@ pub const BUILTINS: &[Builtin] = &[
             },
         ],
     },
+    // Primitives for the standard library modules (`std.net`, ...). Names
+    // starting with `__` can only be used inside `std` modules.
+    Builtin {
+        name: "__last_error",
+        summary: "The error of the last runtime call, or an empty string.",
+        overloads: &[Overload {
+            params: &[],
+            ret: Prim::String,
+            runtime: RuntimeFn::LastError,
+        }],
+    },
+    Builtin {
+        name: "__net_listen",
+        summary: "std.net: listen on a host and port.",
+        overloads: &[Overload {
+            params: &[Prim::String, Prim::I64],
+            ret: Prim::I64,
+            runtime: RuntimeFn::NetListen,
+        }],
+    },
+    Builtin {
+        name: "__net_accept",
+        summary: "std.net: accept a connection.",
+        overloads: &[Overload {
+            params: &[Prim::I64],
+            ret: Prim::I64,
+            runtime: RuntimeFn::NetAccept,
+        }],
+    },
+    Builtin {
+        name: "__net_connect",
+        summary: "std.net: connect to a host and port.",
+        overloads: &[Overload {
+            params: &[Prim::String, Prim::I64],
+            ret: Prim::I64,
+            runtime: RuntimeFn::NetConnect,
+        }],
+    },
+    Builtin {
+        name: "__net_read_until",
+        summary: "std.net: read up to a delimiter.",
+        overloads: &[Overload {
+            params: &[Prim::I64, Prim::String],
+            ret: Prim::String,
+            runtime: RuntimeFn::NetReadUntil,
+        }],
+    },
+    Builtin {
+        name: "__net_read_exact",
+        summary: "std.net: read a number of bytes.",
+        overloads: &[Overload {
+            params: &[Prim::I64, Prim::I64],
+            ret: Prim::String,
+            runtime: RuntimeFn::NetReadExact,
+        }],
+    },
+    Builtin {
+        name: "__net_read_all",
+        summary: "std.net: read until the connection closes.",
+        overloads: &[Overload {
+            params: &[Prim::I64],
+            ret: Prim::String,
+            runtime: RuntimeFn::NetReadAll,
+        }],
+    },
+    Builtin {
+        name: "__net_write",
+        summary: "std.net: write text.",
+        overloads: &[Overload {
+            params: &[Prim::I64, Prim::String],
+            ret: Prim::I64,
+            runtime: RuntimeFn::NetWrite,
+        }],
+    },
+    Builtin {
+        name: "__net_close",
+        summary: "std.net: close a socket.",
+        overloads: &[Overload {
+            params: &[Prim::I64],
+            ret: Prim::Void,
+            runtime: RuntimeFn::NetClose,
+        }],
+    },
+    Builtin {
+        name: "__net_local_port",
+        summary: "std.net: the local port of a socket.",
+        overloads: &[Overload {
+            params: &[Prim::I64],
+            ret: Prim::I64,
+            runtime: RuntimeFn::NetLocalPort,
+        }],
+    },
+    Builtin {
+        name: "__url_decode",
+        summary: "std.http: percent-decode text.",
+        overloads: &[Overload {
+            params: &[Prim::String, Prim::Bool],
+            ret: Prim::String,
+            runtime: RuntimeFn::UrlDecode,
+        }],
+    },
+    Builtin {
+        name: "__url_encode",
+        summary: "std.http: percent-encode text.",
+        overloads: &[Overload {
+            params: &[Prim::String],
+            ret: Prim::String,
+            runtime: RuntimeFn::UrlEncode,
+        }],
+    },
+    Builtin {
+        name: "__net_set_timeout",
+        summary: "std.net: set a read and write timeout.",
+        overloads: &[Overload {
+            params: &[Prim::I64, Prim::I64],
+            ret: Prim::Void,
+            runtime: RuntimeFn::NetSetTimeout,
+        }],
+    },
 ];
+
+/// Whether a builtin is reserved for the standard library modules.
+pub fn is_internal(name: &str) -> bool {
+    name.starts_with("__")
+}
 
 /// Looks up a builtin by name.
 pub fn lookup(name: &str) -> Option<&'static Builtin> {

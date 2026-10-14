@@ -559,6 +559,7 @@ Every `.brim` file is a module. `import a.b` loads the module in `a/b.brim`, rel
 - Modules may import each other in cycles. Every module is loaded once.
 - `main` must be in the root module. Function names of other modules appear qualified (`geometry.area`) in messages and run-time call stacks.
 - Modules can also come from other packages: see `[dependencies]` in Appendix A.
+- `import std.x` imports a module of the standard library, which is built into the compiler (section 10.2). The name `std` is reserved for it.
 
 ### 9.3 Tests
 
@@ -634,6 +635,21 @@ Positions and lengths count **bytes** of the UTF-8 text.
 | `parse_int()` | `Option[i64]` | a decimal integer with an optional `+` or `-`, and nothing else |
 
 Strings can be compared with `<`, `<=`, `>` and `>=`, byte by byte.
+
+### 10.2 Standard library modules
+
+Some of the standard library is written in Brim and built into the compiler. Its modules are imported like any other: `import std.http` makes `http.get(...)`, `http.Request` and so on available.
+
+| Module | Contents |
+|--------|----------|
+| `std.net` | TCP: `listen(host, port) -> Result[Listener, string]`, `connect(host, port) -> Result[Conn, string]`; `Listener.accept()`, `port()`, `close()`; `Conn.read_line()`, `read_until(delimiter)`, `read_exact(count)`, `read_all()`, `write(text)`, `set_timeout(millis)`, `port()`, `close()` |
+| `std.http` | HTTP/1.1. Server: `serve(host, port) -> Result[Server, string]`, `Server.next() -> Result[Request, string]`, `Request.respond(Response)`, `Request.header(name)`, `Request.param(name)`. Client: `get(url)`, `post(url, content_type, body)`, `request(method, url, headers, body)`, each `-> Result[Response, string]`. Responses: `text`, `json`, `html`, `response`, `redirect`, `not_found`, `Response.with_header`, `header`, `ok`. URLs: `encode`, `decode` |
+
+Network data is text: what a connection reads must be valid UTF-8. Network errors are messages such as `cannot connect to example.com:80: connection refused`; the reasons are `connection refused`, `connection reset`, `connection closed`, `timed out`, `host not found`, `address in use`, `address not available`, `permission denied`, `invalid port` and `network error`.
+
+The HTTP server handles one request at a time and closes every connection after its response. Header names are kept in lower case; query parameters and paths are percent-decoded. The client reads bodies with a `content-length`, `chunked` bodies and bodies that last until the connection closes; it supports `http://` URLs (`https://` is planned).
+
+The standard library modules use builtins whose names start with `__` (`__net_listen`, ...). Programs cannot call them (`E0201`).
 
 ## 11. Open design questions
 

@@ -53,7 +53,29 @@ fn site_examples_run() {
         let mut edits = Vec::new();
         for (i, block) in found.iter().enumerate() {
             let code = &text[block.start..block.end];
-            if block.lang != "brim" || !code.contains("fn main") || code.contains("import ") {
+            if block.lang != "brim" || !code.contains("fn main") {
+                continue;
+            }
+            let name = path.file_name().unwrap().to_string_lossy();
+            // Programs that use the network are checked, not run.
+            if code.contains("import std.") {
+                let file = dir.join(format!("example{ran}.brim"));
+                fs::write(&file, code).unwrap();
+                ran += 1;
+                let out = Command::new(env!("CARGO_BIN_EXE_brim"))
+                    .args(["check", file.to_str().unwrap()])
+                    .env("NO_COLOR", "1")
+                    .output()
+                    .unwrap();
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                if !out.status.success() || stderr.contains("warning") {
+                    failures.push(format!(
+                        "{name}: example does not check cleanly:\n{code}\n{stderr}"
+                    ));
+                }
+                continue;
+            }
+            if code.contains("import ") {
                 continue;
             }
             let file = dir.join(format!("example{ran}.brim"));
@@ -65,7 +87,6 @@ fn site_examples_run() {
                 .output()
                 .unwrap();
             let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-            let name = path.file_name().unwrap().to_string_lossy();
             if !out.status.success() {
                 failures.push(format!(
                     "{name}: example fails:\n{code}\n{}",

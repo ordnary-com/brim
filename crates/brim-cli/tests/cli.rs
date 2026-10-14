@@ -689,3 +689,85 @@ fn gen_ts_matches_the_example() {
         stderr(&out)
     );
 }
+
+const HTTP_SERVER: &str = r#"import std.http
+
+fn main() {
+    match serve() {
+        Ok(_) => print("stopped")
+        Err(e) => print("error: " + e)
+    }
+}
+
+fn serve() -> Result[i64, string] {
+    let server: http.Server = http.serve("127.0.0.1", 0)?
+    print(server.port())
+    while true {
+        let request: http.Request = server.next()?
+        if request.path == "/stop" {
+            request.respond(http.text(200, "bye"))?
+            break
+        }
+        let name: string = match_name(request)
+        request.respond(http.json(200, "{\"hello\": \"" + name + "\", \"body\": \"" + request.body + "\"}"))?
+    }
+    server.close()
+    return Ok(0)
+}
+
+fn match_name(request: http.Request) -> string {
+    match request.param("name") {
+        Some(name) => return name
+        None => return "nobody"
+    }
+}
+"#;
+
+const HTTP_CLIENT: &str = r#"import std.http
+
+fn main() {
+    let base: string = "http://127.0.0.1:" + args()[0]
+    match talk(base) {
+        Ok(_) => print("done")
+        Err(e) => print("error: " + e)
+    }
+}
+
+fn talk(base: string) -> Result[i64, string] {
+    let a: http.Response = http.get(base + "/greet?name=" + http.encode("Ada L"))?
+    print(to_string(a.status) + " " + a.body)
+    let b: http.Response = http.post(base + "/greet", "text/plain", "data")?
+    match b.header("Content-Type") {
+        Some(t) => print(t + " " + b.body)
+        None => print("no content type")
+    }
+    let c: http.Response = http.get(base + "/stop")?
+    print(c.body)
+    return Ok(0)
+}
+"#;
+
+#[test]
+fn http_server_and_client() {
+    use std::io::BufRead as _;
+    let dir = scratch("http");
+    fs::write(dir.join("server.brim"), HTTP_SERVER).unwrap();
+    fs::write(dir.join("client.brim"), HTTP_CLIENT).unwrap();
+    let mut server = Command::new(env!("CARGO_BIN_EXE_brim"))
+        .args(["run", "server.brim"])
+        .current_dir(&dir)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut lines = std::io::BufReader::new(server.stdout.take().unwrap()).lines();
+    let port = lines.next().unwrap().unwrap();
+    let client = brim_in(&dir, &["run", "client.brim", &port]);
+    assert_eq!(
+        stdout(&client),
+        "200 {\"hello\": \"Ada L\", \"body\": \"\"}\napplication/json {\"hello\": \"nobody\", \"body\": \"data\"}\nbye\ndone\n",
+        "{}",
+        stderr(&client)
+    );
+    assert_eq!(lines.next().unwrap().unwrap(), "stopped");
+    assert!(server.wait().unwrap().success());
+}

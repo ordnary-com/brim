@@ -6,7 +6,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Standard library modules written in Brim and built into the compiler, imported with `import std.x`.
+- `std.net`: TCP listeners and connections (`listen`, `connect`, `accept`, `read_line`, `read_until`, `read_exact`, `read_all`, `write`, `set_timeout`), in the interpreter and native executables alike.
+- `std.http`: an HTTP/1.1 server (`serve`, `Server.next`, `Request.respond`, text, JSON and HTML responses, query parameters, chunked request bodies, 400 for malformed requests) and client (`get`, `post`, `request` for `http://` URLs, `content-length`, chunked and until-close bodies), plus URL `encode` and `decode`.
 - Structs and enums can contain themselves through `List` and `Map`, for trees and JSON-like values (`enum Json { Array(List[Json]), ... }`). The checker already allowed it; lowering looped forever.
+
+### Fixed
+
+- An assignment to a map entry whose value uses `?` (`m[key] = parse(x)?`) produced invalid IR when the key was not an integer.
 
 ## [0.1.1] - 2026-10-14
 

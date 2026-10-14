@@ -37,6 +37,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <signal.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 typedef struct BrimStr {
     int64_t rc;
@@ -1329,6 +1336,442 @@ BrimStr *brim_rt_env_get(const BrimStr *name) {
 _Noreturn void brim_rt_exit(int64_t code) {
     fflush(stdout);
     exit((int)(code & 0xff));
+}
+
+/* ---- sockets (std.net) ---------------------------------------------------- */
+/* The same functions and error reasons as brim-runtime's net.rs, which the
+ * interpreter uses. Handles start at 1 and are never reused. */
+
+typedef struct Socket {
+    int fd;          /* -1 once closed */
+    int listening;
+    char *buf;       /* bytes read but not yet returned */
+    int64_t len;
+    int64_t cap;
+} Socket;
+
+static Socket *sockets;
+static int64_t socket_count;
+
+static const char *net_reason(int error) {
+    switch (error) {
+    case ECONNREFUSED: return "connection refused";
+    case EADDRINUSE: return "address in use";
+    case EADDRNOTAVAIL: return "address not available";
+    case EACCES:
+    case EPERM: return "permission denied";
+    case ETIMEDOUT:
+    case EAGAIN:
+#if EWOULDBLOCK != EAGAIN
+    case EWOULDBLOCK:
+#endif
+        return "timed out";
+    case ECONNRESET:
+    case ECONNABORTED:
+    case EPIPE: return "connection reset";
+    case ENOTCONN: return "not connected";
+    default: return "network error";
+    }
+}
+
+static void net_fail(const char *reason) {
+    set_error(str_from_c(reason));
+}
+
+/* Prepares a network call: flushes output, clears the last error, and
+ * makes writes to a closed connection an error instead of a signal. */
+static void net_start(void) {
+    static int ready;
+    if (!ready) {
+        signal(SIGPIPE, SIG_IGN);
+        ready = 1;
+    }
+    fflush(stdout);
+    set_error(NULL);
+}
+
+static int64_t socket_add(int fd, int listening) {
+    Socket *grown = realloc(sockets, sizeof(Socket) * (size_t)(socket_count + 1));
+    if (grown == NULL) {
+        fatal("out of memory");
+    }
+    sockets = grown;
+    sockets[socket_count] = (Socket){fd, listening, NULL, 0, 0};
+    socket_count++;
+    return socket_count;
+}
+
+static Socket *socket_get(int64_t handle, int listening) {
+    if (handle < 1 || handle > socket_count) {
+        return NULL;
+    }
+    Socket *s = &sockets[handle - 1];
+    if (s->fd < 0 || s->listening != listening) {
+        return NULL;
+    }
+    return s;
+}
+
+static int port_ok(int64_t port) {
+    return port >= 0 && port <= 65535;
+}
+
+static struct addrinfo *resolve(const BrimStr *host, int64_t port, int passive) {
+    char *name = c_string(host);
+    char service[16];
+    snprintf(service, sizeof service, "%" PRId64, port);
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = passive ? AI_PASSIVE : 0;
+    struct addrinfo *found = NULL;
+    int failed = getaddrinfo(name, service, &hints, &found);
+    free(name);
+    return failed == 0 ? found : NULL;
+}
+
+static void no_delay(int fd) {
+#ifdef TCP_NODELAY
+    int on = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof on);
+#else
+    (void)fd;
+#endif
+}
+
+int64_t brim_rt_net_listen(const BrimStr *host, int64_t port) {
+    net_start();
+    if (!port_ok(port)) {
+        net_fail("invalid port");
+        return 0;
+    }
+    struct addrinfo *found = resolve(host, port, 1);
+    if (found == NULL) {
+        net_fail("host not found");
+        return 0;
+    }
+    int error = EADDRNOTAVAIL;
+    for (struct addrinfo *a = found; a != NULL; a = a->ai_next) {
+        int fd = socket(a->ai_family, a->ai_socktype, a->ai_protocol);
+        if (fd < 0) {
+            error = errno;
+            continue;
+        }
+        int on = 1;
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof on);
+        if (bind(fd, a->ai_addr, a->ai_addrlen) == 0 && listen(fd, 128) == 0) {
+            freeaddrinfo(found);
+            return socket_add(fd, 1);
+        }
+        error = errno;
+        close(fd);
+    }
+    freeaddrinfo(found);
+    net_fail(net_reason(error));
+    return 0;
+}
+
+int64_t brim_rt_net_accept(int64_t listener) {
+    net_start();
+    Socket *l = socket_get(listener, 1);
+    if (l == NULL) {
+        net_fail("invalid socket");
+        return 0;
+    }
+    int fd;
+    do {
+        fd = accept(l->fd, NULL, NULL);
+    } while (fd < 0 && errno == EINTR);
+    if (fd < 0) {
+        net_fail(net_reason(errno));
+        return 0;
+    }
+    no_delay(fd);
+    return socket_add(fd, 0);
+}
+
+int64_t brim_rt_net_connect(const BrimStr *host, int64_t port) {
+    net_start();
+    if (!port_ok(port)) {
+        net_fail("invalid port");
+        return 0;
+    }
+    struct addrinfo *found = resolve(host, port, 0);
+    if (found == NULL) {
+        net_fail("host not found");
+        return 0;
+    }
+    int error = ECONNREFUSED;
+    for (struct addrinfo *a = found; a != NULL; a = a->ai_next) {
+        int fd = socket(a->ai_family, a->ai_socktype, a->ai_protocol);
+        if (fd < 0) {
+            error = errno;
+            continue;
+        }
+        if (connect(fd, a->ai_addr, a->ai_addrlen) == 0) {
+            freeaddrinfo(found);
+            no_delay(fd);
+            return socket_add(fd, 0);
+        }
+        error = errno;
+        close(fd);
+    }
+    freeaddrinfo(found);
+    net_fail(net_reason(error));
+    return 0;
+}
+
+/* Reads more bytes into the buffer: the count, 0 at the end, -1 on error
+ * (with the last error set). */
+static int64_t socket_fill(Socket *s) {
+    if (s->cap - s->len < 8192) {
+        int64_t cap = s->cap * 2 + 8192;
+        char *grown = realloc(s->buf, (size_t)cap);
+        if (grown == NULL) {
+            fatal("out of memory");
+        }
+        s->buf = grown;
+        s->cap = cap;
+    }
+    ssize_t n;
+    do {
+        n = recv(s->fd, s->buf + s->len, 8192, 0);
+    } while (n < 0 && errno == EINTR);
+    if (n < 0) {
+        net_fail(net_reason(errno));
+        return -1;
+    }
+    s->len += n;
+    return n;
+}
+
+/* The first `count` buffered bytes as a string, removed from the buffer. */
+static BrimStr *socket_take(Socket *s, int64_t count, int64_t drop) {
+    if (!valid_utf8(s->buf, count)) {
+        memmove(s->buf, s->buf + count + drop, (size_t)(s->len - count - drop));
+        s->len -= count + drop;
+        net_fail("data is not valid UTF-8");
+        return &EMPTY_STR;
+    }
+    BrimStr *text = str_from(s->buf, count);
+    memmove(s->buf, s->buf + count + drop, (size_t)(s->len - count - drop));
+    s->len -= count + drop;
+    return text;
+}
+
+#define CLOSED_EARLY "connection closed before the end of the message"
+
+BrimStr *brim_rt_net_read_until(int64_t handle, const BrimStr *delimiter) {
+    net_start();
+    Socket *s = socket_get(handle, 0);
+    if (s == NULL) {
+        net_fail("invalid socket");
+        return &EMPTY_STR;
+    }
+    int64_t d = delimiter->len;
+    if (d == 0) {
+        net_fail("empty delimiter");
+        return &EMPTY_STR;
+    }
+    int64_t searched = 0;
+    for (;;) {
+        for (int64_t i = searched; i + d <= s->len; i++) {
+            if (memcmp(s->buf + i, delimiter->data, (size_t)d) == 0) {
+                return socket_take(s, i, d);
+            }
+        }
+        searched = s->len - d + 1 > 0 ? s->len - d + 1 : 0;
+        int64_t n = socket_fill(s);
+        if (n < 0) {
+            return &EMPTY_STR;
+        }
+        if (n == 0) {
+            net_fail(s->len == 0 ? "connection closed" : CLOSED_EARLY);
+            return &EMPTY_STR;
+        }
+    }
+}
+
+BrimStr *brim_rt_net_read_exact(int64_t handle, int64_t count) {
+    net_start();
+    Socket *s = socket_get(handle, 0);
+    if (s == NULL) {
+        net_fail("invalid socket");
+        return &EMPTY_STR;
+    }
+    if (count < 0) {
+        net_fail("invalid length");
+        return &EMPTY_STR;
+    }
+    while (s->len < count) {
+        int64_t n = socket_fill(s);
+        if (n < 0) {
+            return &EMPTY_STR;
+        }
+        if (n == 0) {
+            net_fail(CLOSED_EARLY);
+            return &EMPTY_STR;
+        }
+    }
+    return socket_take(s, count, 0);
+}
+
+BrimStr *brim_rt_net_read_all(int64_t handle) {
+    net_start();
+    Socket *s = socket_get(handle, 0);
+    if (s == NULL) {
+        net_fail("invalid socket");
+        return &EMPTY_STR;
+    }
+    for (;;) {
+        int64_t n = socket_fill(s);
+        if (n < 0) {
+            return &EMPTY_STR;
+        }
+        if (n == 0) {
+            break;
+        }
+    }
+    return socket_take(s, s->len, 0);
+}
+
+int64_t brim_rt_net_write(int64_t handle, const BrimStr *text) {
+    net_start();
+    Socket *s = socket_get(handle, 0);
+    if (s == NULL) {
+        net_fail("invalid socket");
+        return 0;
+    }
+    int64_t sent = 0;
+    while (sent < text->len) {
+        ssize_t n = send(s->fd, text->data + sent, (size_t)(text->len - sent), 0);
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            net_fail(net_reason(errno));
+            return 0;
+        }
+        sent += n;
+    }
+    return text->len;
+}
+
+void brim_rt_net_close(int64_t handle) {
+    net_start();
+    if (handle < 1 || handle > socket_count) {
+        return;
+    }
+    Socket *s = &sockets[handle - 1];
+    if (s->fd >= 0) {
+        if (!s->listening) {
+            shutdown(s->fd, SHUT_RDWR);
+        }
+        close(s->fd);
+        s->fd = -1;
+        free(s->buf);
+        s->buf = NULL;
+        s->len = s->cap = 0;
+    }
+}
+
+int64_t brim_rt_net_local_port(int64_t handle) {
+    net_start();
+    Socket *s = NULL;
+    if (handle >= 1 && handle <= socket_count && sockets[handle - 1].fd >= 0) {
+        s = &sockets[handle - 1];
+    }
+    if (s == NULL) {
+        net_fail("invalid socket");
+        return 0;
+    }
+    struct sockaddr_storage addr;
+    socklen_t size = sizeof addr;
+    if (getsockname(s->fd, (struct sockaddr *)&addr, &size) != 0) {
+        net_fail(net_reason(errno));
+        return 0;
+    }
+    if (addr.ss_family == AF_INET6) {
+        return ntohs(((struct sockaddr_in6 *)&addr)->sin6_port);
+    }
+    return ntohs(((struct sockaddr_in *)&addr)->sin_port);
+}
+
+void brim_rt_net_set_timeout(int64_t handle, int64_t millis) {
+    net_start();
+    Socket *s = socket_get(handle, 0);
+    if (s == NULL) {
+        net_fail("invalid socket");
+        return;
+    }
+    if (millis < 0) {
+        net_fail("invalid timeout");
+        return;
+    }
+    struct timeval tv;
+    tv.tv_sec = (time_t)(millis / 1000);
+    tv.tv_usec = (suseconds_t)((millis % 1000) * 1000);
+    if (setsockopt(s->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv) != 0 ||
+        setsockopt(s->fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv) != 0) {
+        net_fail(net_reason(errno));
+    }
+}
+
+/* ---- URLs (std.http) ------------------------------------------------------ */
+
+static int hex_value(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+BrimStr *brim_rt_url_decode(const BrimStr *text, uint8_t plus) {
+    set_error(NULL);
+    Buffer b = {0};
+    for (int64_t i = 0; i < text->len; i++) {
+        char c = text->data[i];
+        if (c == '%') {
+            int hi = i + 2 < text->len ? hex_value(text->data[i + 1]) : -1;
+            int lo = i + 2 < text->len ? hex_value(text->data[i + 2]) : -1;
+            if (hi < 0 || lo < 0) {
+                free(b.data);
+                set_error(str_from_c("invalid percent escape"));
+                return &EMPTY_STR;
+            }
+            char byte = (char)(hi * 16 + lo);
+            buffer_add(&b, &byte, 1);
+            i += 2;
+        } else if (c == '+' && plus) {
+            buffer_add(&b, " ", 1);
+        } else {
+            buffer_add(&b, &c, 1);
+        }
+    }
+    if (!valid_utf8(b.data, b.len)) {
+        free(b.data);
+        set_error(str_from_c("decoded text is not valid UTF-8"));
+        return &EMPTY_STR;
+    }
+    return buffer_finish(&b);
+}
+
+BrimStr *brim_rt_url_encode(const BrimStr *text) {
+    static const char digits[] = "0123456789ABCDEF";
+    Buffer b = {0};
+    for (int64_t i = 0; i < text->len; i++) {
+        unsigned char c = (unsigned char)text->data[i];
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+            c == '-' || c == '.' || c == '_' || c == '~') {
+            char ch = (char)c;
+            buffer_add(&b, &ch, 1);
+        } else {
+            char escape[3] = {'%', digits[c >> 4], digits[c & 15]};
+            buffer_add(&b, escape, 3);
+        }
+    }
+    return buffer_finish(&b);
 }
 
 /* ---- process entry ------------------------------------------------------- */

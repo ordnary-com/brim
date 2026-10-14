@@ -301,10 +301,11 @@ fn gen_ts(input: Option<&Path>, output: Option<&Path>, ctx: &mut Context<'_>) ->
         .flat_map(|g| &g.packages[1..])
         .map(brim_package::Package::name)
         .collect();
+    // The program's own modules: not those of dependencies or `std`.
     let own = |m: usize| {
         let name = &checked.modules[m];
         let first = name.split('.').next().unwrap_or_default();
-        name.is_empty() || !dependencies.contains(&first)
+        name.is_empty() || (first != "std" && !dependencies.contains(&first))
     };
     let text = match brim_tsgen::generate(&checked, own, input.file.name()) {
         Ok(text) => text,

@@ -1,0 +1,40 @@
+// TCP within one program: it connects to its own listener.
+import std.net
+
+fn run() -> Result[i64, string] {
+    let listener: net.Listener = net.listen("127.0.0.1", 0)?
+    let port: i64 = listener.port()
+    let client: net.Conn = net.connect("127.0.0.1", port)?
+    let server: net.Conn = listener.accept()?
+    client.write("first line\r\nsecond line\nexact: héllo|rest")?
+    print("1: " + server.read_line()?)
+    print("2: " + server.read_line()?)
+    print("3: " + server.read_until(": ")?)
+    print("4: " + server.read_exact(6)?)
+    print("5: " + server.read_until("|")?)
+    server.write("reply")?
+    server.close()
+    print("6: " + client.read_all()?)
+    client.close()
+    match server.read_line() {
+        Ok(_) => print("unexpected")
+        Err(e) => print("7: " + e)
+    }
+    listener.close()
+    match net.connect("127.0.0.1", port) {
+        Ok(_) => print("unexpected")
+        Err(e) => print("8: " + e.replace(":" + to_string(port), ":PORT"))
+    }
+    match net.listen("127.0.0.1", 70000) {
+        Ok(_) => print("unexpected")
+        Err(e) => print("9: " + e)
+    }
+    return Ok(0)
+}
+
+fn main() {
+    match run() {
+        Ok(_) => print("done")
+        Err(e) => print("error: " + e)
+    }
+}

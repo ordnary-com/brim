@@ -1,0 +1,7 @@
+error[E0201]: undefined function `__net_listen`
+ --> tests/diagnostics/std_internals.brim:4:23
+  |
+4 |     let handle: i64 = __net_listen("127.0.0.1", 80)
+  |                       ^^^^^^^^^^^^ not found
+
+error: could not compile tests/diagnostics/std_internals.brim due to 1 error

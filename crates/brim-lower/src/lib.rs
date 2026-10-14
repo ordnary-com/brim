@@ -799,7 +799,9 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             .iter()
             .map(|v| {
                 v.map(|v| {
-                    let slot = self.new_slot("index", IrType::I64);
+                    // List indices are `i64`; map keys can be any key type.
+                    let ty = self.func.values[v.index()];
+                    let slot = self.new_slot("index", ty);
                     self.emit(InstKind::Store(slot, v), None, span);
                     slot
                 })
@@ -810,7 +812,12 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
     fn reload(&mut self, slots: &[Option<SlotId>], span: Span) -> Vec<Option<ValueId>> {
         slots
             .iter()
-            .map(|s| s.map(|s| self.emit_value(InstKind::Load(s), IrType::I64, span)))
+            .map(|s| {
+                s.map(|s| {
+                    let ty = self.func.slots[s.index()].ty;
+                    self.emit_value(InstKind::Load(s), ty, span)
+                })
+            })
             .collect()
     }
 

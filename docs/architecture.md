@@ -128,6 +128,8 @@ bb0:
 }
 ```
 
+**The standard library modules** (`std.net`, `std.http`) are Brim source files in `crates/brim-driver/std`, built into the compiler with `include_str!`; the driver loads them for `import std.x` instead of a file. They call runtime functions through builtins whose names start with `__`, which the checker only accepts inside `std` modules. Sockets live in the runtime as numbered handles, implemented twice with the same behaviour and error texts: `brim-runtime/src/net.rs` for the interpreter and the C runtime for native executables.
+
 **Modules** only matter to semantic analysis. The checker keeps a scope per module (its own items, the items it imports by name, and the modules it imports) and switches to a module's scope while checking it; declarations happen in passes over all modules, so modules can use each other in any order. After checking, the program is one set of functions and types; functions of non-root modules carry their module's name.
 
 Generics do not reach the IR: `brim-lower` **monomorphizes** the checked program. Non-generic functions are lowered in source order, and every generic function is lowered once per combination of concrete type arguments that is called, as an IR function named like `swap[i64, string]`. The checked program's `TypeTable` interns every `Name[args]` type, so equal types are equal values and substitution is cheap.

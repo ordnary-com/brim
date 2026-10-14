@@ -1,0 +1,58 @@
+// An HTTP server within one program: a raw client writes requests, the
+// server parses and answers them, and the client reads the responses.
+import std.http
+import std.net
+
+fn exchange(server: http.Server, raw: string) -> Result[string, string] {
+    let client: net.Conn = net.connect("127.0.0.1", server.port())?
+    client.write(raw)?
+    let request: http.Request = server.next()?
+    let mut seen: string = request.method + " " + request.path
+    for name in request.query.keys() {
+        seen = seen + " " + name + "=" + request.query[name]
+    }
+    match request.header("Content-Type") {
+        Some(t) => seen = seen + " type=" + t
+        None => {}
+    }
+    if !request.body.is_empty() {
+        seen = seen + " body=" + request.body
+    }
+    print("server: " + seen)
+    let mut response: http.Response = http.not_found()
+    if request.path == "/hi" {
+        response = http.text(200, "hello").with_header("X-Answer", "42")
+    }
+    request.respond(response)?
+    let reply: string = client.read_all()?
+    client.close()
+    return Ok(reply.replace("\r\n", " | "))
+}
+
+fn run() -> Result[i64, string] {
+    let server: http.Server = http.serve("127.0.0.1", 0)?
+    print(exchange(server, "GET /hi?name=Ada+L&x=%C3%A9 HTTP/1.1\r\nHost: x\r\n\r\n")?)
+    print(exchange(server, "POST /form HTTP/1.1\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello")?)
+    print(exchange(server, "POST /chunks HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n7\r\n, world\r\n0\r\n\r\n")?)
+    print(exchange(server, "HEAD /hi HTTP/1.1\r\n\r\n")?)
+    // Not HTTP: the client gets 400 and the server waits for the next.
+    let bad: net.Conn = net.connect("127.0.0.1", server.port())?
+    bad.write("nonsense\r\n\r\n")?
+    print(exchange(server, "GET /after-bad HTTP/1.1\r\n\r\n")?)
+    print("bad client: " + bad.read_all()?.replace("\r\n", " | "))
+    server.close()
+    print(http.encode("a b/é"))
+    print(http.decode("a+b%2F%C3%A9")?)
+    match http.decode("%zz") {
+        Ok(_) => print("unexpected")
+        Err(e) => print(e)
+    }
+    return Ok(0)
+}
+
+fn main() {
+    match run() {
+        Ok(_) => print("done")
+        Err(e) => print("error: " + e)
+    }
+}

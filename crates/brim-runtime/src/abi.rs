@@ -162,6 +162,36 @@ runtime_fns! {
     AssertEqBool = "brim_rt_assert_eq_bool" (Bool, Bool) -> Void;
     /// `assert_eq(a, b)` on strings.
     AssertEqStr = "brim_rt_assert_eq_str" (Str, Str) -> Void;
+    /// Network functions for the `std.net` module. Sockets are handles
+    /// (positive integers); every function sets the last error, with a
+    /// short reason such as "connection refused" on failure.
+    ///
+    /// A listening socket on a host and port (0 picks a free port).
+    NetListen = "brim_rt_net_listen" (Str, I64) -> I64;
+    /// The next connection to a listening socket.
+    NetAccept = "brim_rt_net_accept" (I64) -> I64;
+    /// A connection to a host and port.
+    NetConnect = "brim_rt_net_connect" (Str, I64) -> I64;
+    /// The text up to a delimiter, which is read and dropped.
+    NetReadUntil = "brim_rt_net_read_until" (I64, Str) -> Str;
+    /// Exactly this many bytes, as text.
+    NetReadExact = "brim_rt_net_read_exact" (I64, I64) -> Str;
+    /// Everything until the other side closes the connection.
+    NetReadAll = "brim_rt_net_read_all" (I64) -> Str;
+    /// Writes text; returns the number of bytes.
+    NetWrite = "brim_rt_net_write" (I64, Str) -> I64;
+    /// Closes a socket. Closing an unknown or closed handle does nothing.
+    NetClose = "brim_rt_net_close" (I64) -> Void;
+    /// The local port of a socket.
+    NetLocalPort = "brim_rt_net_local_port" (I64) -> I64;
+    /// Read and write timeout in milliseconds; 0 for none.
+    NetSetTimeout = "brim_rt_net_set_timeout" (I64, I64) -> Void;
+    /// Percent-decodes text (`a%20b` and, with the flag, `a+b` to `a b`).
+    /// Sets the last error if the result is not UTF-8 or an escape is bad.
+    UrlDecode = "brim_rt_url_decode" (Str, Bool) -> Str;
+    /// Percent-encodes everything but unreserved characters
+    /// (`A-Z a-z 0-9 - . _ ~`).
+    UrlEncode = "brim_rt_url_encode" (Str) -> Str;
 }
 
 impl RuntimeFn {

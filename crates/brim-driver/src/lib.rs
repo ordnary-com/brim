@@ -9,6 +9,21 @@ use std::path::PathBuf;
 use brim_diagnostics::{Diagnostic, SourceFile, SourceMap, Span};
 use brim_semantic::ModuleAst;
 
+/// The standard library modules, written in Brim and built into the
+/// compiler: `import std.net`.
+pub const STD_MODULES: &[(&str, &str)] = &[
+    ("std.http", include_str!("../std/http.brim")),
+    ("std.net", include_str!("../std/net.brim")),
+];
+
+/// The source of a standard library module.
+pub fn std_module(name: &str) -> Option<&'static str> {
+    STD_MODULES
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, s)| *s)
+}
+
 /// A parsed program, ready for semantic analysis.
 #[derive(Debug)]
 pub struct Loaded {
@@ -61,7 +76,27 @@ pub fn load(
         if !seen.insert(name.clone()) {
             continue;
         }
-        let text = match read(&shown).map(String::from_utf8) {
+        let source = match std_module(&name) {
+            Some(text) => Ok(text.as_bytes().to_vec()),
+            None if name.starts_with("std.") || name == "std" => {
+                diags.push(
+                    Diagnostic::error(format!("the standard library has no module `{name}`"))
+                        .with_code("E0242")
+                        .with_primary(span, "")
+                        .with_note(format!(
+                            "its modules are {}",
+                            STD_MODULES
+                                .iter()
+                                .map(|(n, _)| format!("`{n}`"))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )),
+                );
+                continue;
+            }
+            None => read(&shown),
+        };
+        let text = match source.map(String::from_utf8) {
             Ok(Ok(text)) => text,
             Ok(Err(_)) => {
                 diags.push(
@@ -124,6 +159,8 @@ fn locate_imports(
         let mut target = 0;
         let mut prefix = None;
         let shown = match graph {
+            // The standard library, built into the compiler.
+            _ if parts[0] == "std" => format!("{}.brim", parts.join("/")),
             Some(g) if g.packages[package].dependency(&parts[0]).is_some() => {
                 target = g.packages[package]
                     .dependency(&parts[0])

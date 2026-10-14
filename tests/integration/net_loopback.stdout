@@ -1,0 +1,10 @@
+1: first line
+2: second line
+3: exact
+4: héllo
+5: 
+6: reply
+7: cannot read: invalid socket
+8: cannot connect to 127.0.0.1:PORT: connection refused
+9: cannot listen on 127.0.0.1:70000: invalid port
+done

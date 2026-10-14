@@ -373,6 +373,12 @@ impl<'a> Checker<'a> {
         tests
     }
 
+    /// Whether the current module is part of the standard library
+    /// (`std.net`, ...).
+    fn in_std_module(&self) -> bool {
+        self.module_names[self.module].starts_with("std.")
+    }
+
     /// Makes module `m`'s scope the current one.
     fn enter(&mut self, m: usize) {
         self.module = m;

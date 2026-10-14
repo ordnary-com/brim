@@ -1,0 +1,123 @@
+// TCP connections: listening, connecting, and reading and writing text.
+//
+//   import std.net
+//
+//   let listener: net.Listener = net.listen("127.0.0.1", 8080)?
+//   let conn: net.Conn = listener.accept()?
+//   let line: string = conn.read_line()?
+//   conn.write("you said: " + line + "\n")?
+//   conn.close()
+//
+// Everything that can fail returns a `Result` whose error says what went
+// wrong, for example "cannot connect to example.com:81: timed out".
+
+// A socket that waits for connections.
+pub struct Listener {
+    handle: i64,
+}
+
+// A connection to another program.
+pub struct Conn {
+    handle: i64,
+}
+
+// `value`, or the runtime's last error with `what` in front.
+fn checked[T](value: T, what: string) -> Result[T, string] {
+    let error: string = __last_error()
+    if !error.is_empty() {
+        return Err(what + ": " + error)
+    }
+    return Ok(value)
+}
+
+fn address(host: string, port: i64) -> string {
+    if host.contains(":") {
+        return "[" + host + "]:" + to_string(port)
+    }
+    return host + ":" + to_string(port)
+}
+
+// Listens for connections on a host and port. Use "127.0.0.1" for this
+// computer only, or "0.0.0.0" for every network; port 0 picks a free port
+// (see `Listener.port`).
+pub fn listen(host: string, port: i64) -> Result[Listener, string] {
+    let handle: i64 = __net_listen(host, port)
+    return Ok(Listener { handle: checked(handle, "cannot listen on " + address(host, port))? })
+}
+
+// Connects to a host and port.
+pub fn connect(host: string, port: i64) -> Result[Conn, string] {
+    let handle: i64 = __net_connect(host, port)
+    return Ok(Conn { handle: checked(handle, "cannot connect to " + address(host, port))? })
+}
+
+impl Listener {
+    // Waits for the next connection.
+    pub fn accept(self) -> Result[Conn, string] {
+        let handle: i64 = __net_accept(self.handle)
+        return Ok(Conn { handle: checked(handle, "cannot accept a connection")? })
+    }
+
+    // The port it listens on.
+    pub fn port(self) -> i64 {
+        return __net_local_port(self.handle)
+    }
+
+    // Stops listening.
+    pub fn close(self) {
+        __net_close(self.handle)
+    }
+}
+
+impl Conn {
+    // The text before `delimiter`, which is read and dropped. Waits until
+    // the delimiter arrives.
+    pub fn read_until(self, delimiter: string) -> Result[string, string] {
+        let text: string = __net_read_until(self.handle, delimiter)
+        return checked(text, "cannot read")
+    }
+
+    // The next line, without its line ending (`\n` or `\r\n`).
+    pub fn read_line(self) -> Result[string, string] {
+        let line: string = self.read_until("\n")?
+        if line.ends_with("\r") {
+            return Ok(line.slice(0, line.len() - 1))
+        }
+        return Ok(line)
+    }
+
+    // Exactly `count` bytes, as text.
+    pub fn read_exact(self, count: i64) -> Result[string, string] {
+        let text: string = __net_read_exact(self.handle, count)
+        return checked(text, "cannot read")
+    }
+
+    // Everything until the other side closes the connection.
+    pub fn read_all(self) -> Result[string, string] {
+        let text: string = __net_read_all(self.handle)
+        return checked(text, "cannot read")
+    }
+
+    // Sends text; returns the number of bytes sent.
+    pub fn write(self, text: string) -> Result[i64, string] {
+        let sent: i64 = __net_write(self.handle, text)
+        return checked(sent, "cannot write")
+    }
+
+    // Gives up reading or writing after this many milliseconds (0: wait
+    // forever, the default).
+    pub fn set_timeout(self, millis: i64) -> Result[i64, string] {
+        __net_set_timeout(self.handle, millis)
+        return checked(millis, "cannot set the timeout")
+    }
+
+    // The local port of the connection.
+    pub fn port(self) -> i64 {
+        return __net_local_port(self.handle)
+    }
+
+    // Closes the connection.
+    pub fn close(self) {
+        __net_close(self.handle)
+    }
+}

@@ -1330,7 +1330,10 @@ impl<'a> Checker<'a> {
             return result;
         }
 
-        if let Some(builtin) = brim_stdlib::lookup(name) {
+        // `__` builtins are the standard library modules' own primitives.
+        let builtin = brim_stdlib::lookup(name)
+            .filter(|b| !brim_stdlib::is_internal(b.name) || self.in_std_module());
+        if let Some(builtin) = builtin {
             let args: Vec<CheckedExpr> = args.iter().map(|a| self.check_expr(a, ctx)).collect();
             let arities = builtin.arities();
             if !arities.contains(&args.len()) {
@@ -1428,7 +1431,12 @@ impl<'a> Checker<'a> {
                     .by_name
                     .keys()
                     .copied()
-                    .chain(brim_stdlib::BUILTINS.iter().map(|b| b.name))
+                    .chain(
+                        brim_stdlib::BUILTINS
+                            .iter()
+                            .map(|b| b.name)
+                            .filter(|n| !brim_stdlib::is_internal(n)),
+                    )
                     .chain(super::strings::INTRINSIC_FUNCTIONS.iter().copied());
                 if let Some(similar) = suggest::similar(name, candidates) {
                     diag = diag.with_help(format!(

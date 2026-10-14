@@ -313,6 +313,7 @@ pub fn run_function(
     let mut state = State {
         host,
         last_error: String::new(),
+        sockets: brim_runtime::net::Sockets::default(),
     };
     let result = execute(module, &mut state, limits, &mut stack, &mut cache);
     // Output written before a failure is still delivered.
@@ -341,6 +342,8 @@ struct State<'h, 'a> {
     host: &'h mut Host<'a>,
     /// The error of the last I/O function (`LastError`); empty on success.
     last_error: String,
+    /// Open sockets (`std.net`).
+    sockets: brim_runtime::net::Sockets,
 }
 
 type Failure = (RuntimeError, Option<Span>);
@@ -611,6 +614,25 @@ fn str_list(items: Vec<BrimStr>) -> Value {
     Value::List(Rc::new(items.into_iter().map(Value::Str).collect()))
 }
 
+/// Runs a socket operation, recording its error as the last error.
+fn net<T>(
+    state: &mut State<'_, '_>,
+    op: impl FnOnce(&mut brim_runtime::net::Sockets) -> Result<T, String>,
+    failed: Value,
+    ok: impl FnOnce(T) -> Value,
+) -> Option<Value> {
+    state.last_error.clear();
+    // Output written so far reaches the terminal before the program waits.
+    let _ = state.host.out.flush();
+    Some(match op(&mut state.sockets) {
+        Ok(value) => ok(value),
+        Err(e) => {
+            state.last_error = e;
+            failed
+        }
+    })
+}
+
 fn call_runtime(
     rt: RuntimeFn,
     args: &[&Value],
@@ -716,6 +738,77 @@ fn call_runtime(
         )),
         RuntimeFn::EnvHas => Some(Value::Bool(std::env::var_os(s(0)).is_some())),
         RuntimeFn::EnvGet => str_value(BrimStr::from(std::env::var(s(0)).unwrap_or_default())),
+        RuntimeFn::NetListen => net(
+            state,
+            |n| n.listen(s(0), args[1].i64()),
+            Value::I64(0),
+            Value::I64,
+        ),
+        RuntimeFn::NetAccept => net(
+            state,
+            |n| n.accept(args[0].i64()),
+            Value::I64(0),
+            Value::I64,
+        ),
+        RuntimeFn::NetConnect => net(
+            state,
+            |n| n.connect(s(0), args[1].i64()),
+            Value::I64(0),
+            Value::I64,
+        ),
+        RuntimeFn::NetReadUntil => net(
+            state,
+            |n| n.read_until(args[0].i64(), s(1)),
+            Value::Str(BrimStr::from("")),
+            |t| Value::Str(BrimStr::from(t)),
+        ),
+        RuntimeFn::NetReadExact => net(
+            state,
+            |n| n.read_exact(args[0].i64(), args[1].i64()),
+            Value::Str(BrimStr::from("")),
+            |t| Value::Str(BrimStr::from(t)),
+        ),
+        RuntimeFn::NetReadAll => net(
+            state,
+            |n| n.read_all(args[0].i64()),
+            Value::Str(BrimStr::from("")),
+            |t| Value::Str(BrimStr::from(t)),
+        ),
+        RuntimeFn::NetWrite => net(
+            state,
+            |n| n.write(args[0].i64(), s(1)),
+            Value::I64(0),
+            Value::I64,
+        ),
+        RuntimeFn::NetClose => {
+            state.last_error.clear();
+            state.sockets.close(args[0].i64());
+            None
+        }
+        RuntimeFn::NetLocalPort => net(
+            state,
+            |n| n.local_port(args[0].i64()),
+            Value::I64(0),
+            Value::I64,
+        ),
+        RuntimeFn::NetSetTimeout => {
+            state.last_error.clear();
+            if let Err(e) = state.sockets.set_timeout(args[0].i64(), args[1].i64()) {
+                state.last_error = e;
+            }
+            None
+        }
+        RuntimeFn::UrlDecode => {
+            state.last_error.clear();
+            match brim_runtime::net::url_decode(s(0), args[1].bool()) {
+                Ok(text) => str_value(BrimStr::from(text)),
+                Err(e) => {
+                    state.last_error = e;
+                    str_value(BrimStr::from(""))
+                }
+            }
+        }
+        RuntimeFn::UrlEncode => str_value(BrimStr::from(brim_runtime::net::url_encode(s(0)))),
         RuntimeFn::Exit => unreachable!("handled by the interpreter loop"),
         RuntimeFn::Assert => {
             if !args[0].bool() {

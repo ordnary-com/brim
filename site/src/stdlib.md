@@ -286,6 +286,108 @@ fn main() {
 error: 3 is odd
 ```
 
+## Networking: std.net
+
+`import std.net` gives TCP connections. Everything that can fail returns a
+`Result` whose error says what went wrong, such as
+`cannot connect to example.com:81: connection refused`.
+
+| Function or method | Result | |
+|--------------------|--------|---|
+| `net.listen(host, port)` | `Result[Listener, string]` | port 0 picks a free port |
+| `net.connect(host, port)` | `Result[Conn, string]` | |
+| `listener.accept()` | `Result[Conn, string]` | waits for a connection |
+| `listener.port()` | `i64` | |
+| `conn.read_line()` | `Result[string, string]` | without the line ending |
+| `conn.read_until(delimiter)` | `Result[string, string]` | the delimiter is dropped |
+| `conn.read_exact(count)` | `Result[string, string]` | `count` bytes |
+| `conn.read_all()` | `Result[string, string]` | until the other side closes |
+| `conn.write(text)` | `Result[i64, string]` | the number of bytes |
+| `conn.set_timeout(millis)` | `Result[i64, string]` | 0 waits forever |
+| `close()` | | on a listener or a connection |
+
+```brim
+import std.net
+
+fn main() {
+    match greet() {
+        Ok(_) => print("done")
+        Err(e) => print("error: " + e)
+    }
+}
+
+// Answers one connection on port 7000 with a greeting.
+fn greet() -> Result[i64, string] {
+    let listener: net.Listener = net.listen("127.0.0.1", 7000)?
+    let conn: net.Conn = listener.accept()?
+    let name: string = conn.read_line()?
+    conn.write("Hello, " + name + "!\n")?
+    conn.close()
+    return Ok(0)
+}
+```
+
+## HTTP: std.http
+
+`import std.http` gives an HTTP/1.1 server and client for text, such as
+HTML and JSON. The server handles one request at a time: ask for the next
+request, decide what to answer, and respond.
+
+```brim
+import std.http
+
+fn main() {
+    match serve() {
+        Ok(_) => print("stopped")
+        Err(e) => print("error: " + e)
+    }
+}
+
+fn serve() -> Result[i64, string] {
+    let server: http.Server = http.serve("0.0.0.0", 8080)?
+    while true {
+        let request: http.Request = server.next()?
+        request.respond(route(request))?
+    }
+}
+
+fn route(request: http.Request) -> http.Response {
+    if request.method == "GET" && request.path == "/hello" {
+        match request.param("name") {
+            Some(name) => return http.text(200, "Hello, " + name + "!")
+            None => return http.text(200, "Hello!")
+        }
+    }
+    if request.method == "POST" && request.path == "/echo" {
+        return http.json(200, request.body)
+    }
+    return http.not_found()
+}
+```
+
+| Server | |
+|--------|---|
+| `http.serve(host, port)` | `Result[Server, string]` |
+| `server.next()` | the next `Request`; malformed requests get a 400 automatically |
+| `request.method`, `path`, `query`, `headers`, `body` | the request; header names in lower case, query parameters decoded |
+| `request.param(name)`, `request.header(name)` | `Option[string]` |
+| `request.respond(response)` | sends the response and closes the connection |
+| `http.text(status, body)`, `http.json(...)`, `http.html(...)` | responses with a content type |
+| `http.response(status, content_type, body)`, `http.redirect(url)`, `http.not_found()` | |
+| `response.with_header(name, value)` | the response with one more header |
+
+| Client | |
+|--------|---|
+| `http.get(url)` | `Result[Response, string]` |
+| `http.post(url, content_type, body)` | |
+| `http.request(method, url, headers, body)` | any method, with extra headers |
+| `response.status`, `headers`, `body` | |
+| `response.ok()` | whether the status is 2xx |
+| `response.header(name)` | `Option[string]` |
+
+The client supports `http://` URLs; `https://` is planned. `http.encode`
+and `http.decode` percent-encode and decode parts of URLs.
+
 ## Tests
 
 | Function | |

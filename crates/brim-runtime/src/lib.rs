@@ -20,6 +20,7 @@
 //! that they do.
 
 pub mod abi;
+pub mod net;
 pub mod ops;
 
 use std::fmt;
