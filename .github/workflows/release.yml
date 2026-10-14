@@ -1,0 +1,121 @@
+name: Release
+
+# A tag `vX.Y.Z` builds the release binaries and publishes a GitHub release
+# with the matching CHANGELOG section. Run it by hand for a dry run: it
+# builds and uploads the archives as workflow artifacts only.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `brim` with the interpreter and all tools, without native builds.
+          - { name: linux-x86_64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { name: linux-aarch64, os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+          - { name: macos-aarch64, os: macos-14, target: aarch64-apple-darwin }
+          - { name: windows-x86_64, os: windows-2022, target: x86_64-pc-windows-msvc }
+          # `brim` with the LLVM backend linked in (`brim build`).
+          - { name: linux-x86_64-native, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, llvm: true }
+          - { name: macos-aarch64-native, os: macos-14, target: aarch64-apple-darwin, llvm: true }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install LLVM 22 (Linux)
+        if: matrix.llvm && runner.os == 'Linux'
+        run: |
+          wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 22
+          sudo apt-get install -y libpolly-22-dev libzstd-dev
+          echo "LLVM_SYS_221_PREFIX=/usr/lib/llvm-22" >> "$GITHUB_ENV"
+      - name: Install LLVM 22 (macOS)
+        if: matrix.llvm && runner.os == 'macOS'
+        run: |
+          brew install llvm@22
+          echo "LLVM_SYS_221_PREFIX=$(brew --prefix llvm@22)" >> "$GITHUB_ENV"
+      - name: Build
+        shell: bash
+        run: |
+          features=""
+          if [ "${{ matrix.llvm }}" = "true" ]; then features="--features llvm-static"; fi
+          cargo build --release --locked -p brim-cli --target ${{ matrix.target }} $features
+      - name: Smoke test
+        shell: bash
+        run: |
+          bin="target/${{ matrix.target }}/release/brim"
+          "$bin" --version
+          "$bin" run examples/hello.brim
+          if [ "${{ matrix.llvm }}" = "true" ]; then
+            "$bin" build examples/hello.brim -o target/hello && target/hello
+          fi
+      - name: Package
+        id: package
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then version="dev-${GITHUB_SHA::7}"; fi
+          dir="brim-$version-${{ matrix.name }}"
+          mkdir -p "$dir"
+          exe=""
+          if [ "${{ runner.os }}" = "Windows" ]; then exe=".exe"; fi
+          cp "target/${{ matrix.target }}/release/brim$exe" "$dir/"
+          cp README.md LICENSE CHANGELOG.md "$dir/"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a -tzip "$dir.zip" "$dir" > /dev/null
+            archive="$dir.zip"
+          else
+            tar czf "$dir.tar.gz" "$dir"
+            archive="$dir.tar.gz"
+          fi
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ steps.package.outputs.archive }}
+
+  publish:
+    name: Publish the release
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS
+      - name: Release notes from the CHANGELOG
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            /^## \[/ { if (found) exit; if (index($0, "[" v "]")) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "CHANGELOG.md has no section for $version" >&2
+            exit 1
+          fi
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in v0.*|*-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* --title "Brim $GITHUB_REF_NAME" --notes-file notes.md $prerelease

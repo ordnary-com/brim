@@ -233,6 +233,7 @@ tests/              lexer, parser, diagnostics and integration fixtures
 - [Error handling and diagnostic codes](docs/error-handling.md)
 - [Roadmap](docs/roadmap.md)
 - [Development guide](docs/development.md)
+- [Releasing and stability](docs/releasing.md)
 - [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 ## License

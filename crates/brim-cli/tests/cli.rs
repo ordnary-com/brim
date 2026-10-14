@@ -42,9 +42,10 @@ fn scratch(name: &str) -> PathBuf {
 fn version_and_help() {
     let out = brim(&["--version"]);
     assert_eq!(out.status.code(), Some(0));
-    assert_eq!(
-        stdout(&out),
-        format!("brim {}\n", env!("CARGO_PKG_VERSION"))
+    assert!(
+        stdout(&out).starts_with(&format!("brim {} (", env!("CARGO_PKG_VERSION"))),
+        "{}",
+        stdout(&out)
     );
 
     let out = brim(&["--help"]);

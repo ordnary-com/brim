@@ -73,7 +73,17 @@ pub fn run(args: &[String], ctx: &mut Context<'_>) -> i32 {
     let result = match command {
         Command::Help(None) => write_out(ctx.stdout, args::MAIN_HELP),
         Command::Help(Some(cmd)) => write_out(ctx.stdout, args::command_help(&cmd)),
-        Command::Version => write_out(ctx.stdout, &format!("brim {}\n", env!("CARGO_PKG_VERSION"))),
+        Command::Version => {
+            let backend = if brim_codegen::LlvmBackend::AVAILABLE {
+                "native backend: LLVM 22"
+            } else {
+                "no native backend"
+            };
+            write_out(
+                ctx.stdout,
+                &format!("brim {} ({backend})\n", env!("CARGO_PKG_VERSION")),
+            )
+        }
         Command::Check { input, emit } => check(input.as_deref(), emit, ctx),
         Command::Run { input, args } => run_program(input.as_deref(), args, ctx),
         Command::Build {

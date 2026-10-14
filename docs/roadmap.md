@@ -78,7 +78,7 @@ Still open from this phase: debug information, Windows, cross-compilation, and l
 
 - **Done:** a language server, `brim lsp`: diagnostics for every file of the program, formatting, outline, go to definition and hover. Completion is still open.
 - **Done:** syntax highlighting: a TextMate grammar with a VS Code extension that starts the language server, and a Vim syntax file (`editors/`).
-- Stability guarantees per edition, release process, binary distribution.
+- **Done:** stability rules per edition, a release process and release binaries for Linux, macOS and Windows (`docs/releasing.md`).
 - **Done:** fuzzing: a mutation fuzzer in the test suite (frontend, formatter, interpreter) and cargo-fuzz targets run weekly.
 - Performance work, documentation site.
 

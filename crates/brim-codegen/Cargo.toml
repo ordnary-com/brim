@@ -12,6 +12,8 @@ authors.workspace = true
 default = []
 # The LLVM backend. Needs LLVM 22 installed (see docs/development.md).
 llvm = ["dep:inkwell"]
+# The LLVM backend with LLVM linked statically, for release binaries.
+llvm-static = ["llvm", "inkwell/llvm22-1-force-static"]
 
 [dependencies]
 brim-diagnostics.workspace = true
