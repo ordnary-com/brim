@@ -184,7 +184,7 @@ pub fn resolve(
             std::fs::write(&full, text).map_err(|e| {
                 Failure::new(Diagnostic::error(format!(
                     "cannot write {}: {e}",
-                    lock_path.display()
+                    slash(&lock_path)
                 )))
             })?;
             report.lock_written = true;
@@ -268,7 +268,7 @@ impl Resolver<'_> {
         }
 
         let manifest_path = dir.join(brim_manifest::MANIFEST_FILE);
-        let shown = manifest_path.display().to_string();
+        let shown = slash(&manifest_path);
         let text =
             std::fs::read_to_string(self.options.cwd.join(&manifest_path)).map_err(|_| {
                 Failure::in_file(
@@ -314,8 +314,14 @@ impl Resolver<'_> {
 fn describe(package: &Package) -> String {
     match &package.git {
         Some((url, commit)) => format!("the git repository {url} at {commit}"),
-        None => format!("the package in {}", package.dir.display()),
+        None => format!("the package in {}", slash(&package.dir)),
     }
+}
+
+/// A path as shown in messages: with `/` on every platform, like the
+/// compiler's other paths.
+fn slash(path: &Path) -> String {
+    path.display().to_string().replace('\\', "/")
 }
 
 /// Removes `.` and resolvable `..` components without touching the file

@@ -1,0 +1,17 @@
+[book]
+title = "Brim"
+description = "Brim, the Ordnary programming language"
+authors = ["Ordnary"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+git-repository-url = "https://github.com/ordnary-com/brim"
+edit-url-template = "https://github.com/ordnary-com/brim/edit/main/site/{path}"
+additional-js = ["theme/brim-highlight.js"]
+default-theme = "light"
+preferred-dark-theme = "navy"

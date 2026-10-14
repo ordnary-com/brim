@@ -220,6 +220,7 @@ crates/
 assets/             logo and other project artwork
 docs/               language spec, architecture, error handling, roadmap, development
 editors/            VS Code extension, TextMate grammar and Vim syntax
+site/               documentation site (mdBook)
 examples/           example programs and an example project
 tests/              lexer, parser, diagnostics and integration fixtures
 ```
@@ -228,6 +229,7 @@ tests/              lexer, parser, diagnostics and integration fixtures
 
 ## Documentation
 
+- [Documentation site](site/) (mdBook: a tour of the language, guides and the reference)
 - [Language specification](docs/language-spec.md)
 - [Architecture](docs/architecture.md)
 - [Error handling and diagnostic codes](docs/error-handling.md)

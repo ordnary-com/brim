@@ -62,6 +62,7 @@ To debug memory management in a native executable, run it with `BRIM_RT_CHECK=1`
 | `crates/brim-cli/tests/fixtures.rs` | The harness for the four directories above, plus a check that every program in `examples/` runs. With the `llvm` feature it also builds every integration program and example natively (debug and release) and requires output identical to the interpreter's |
 | `crates/brim-cli/tests/cli.rs` | Runs the real `brim` executable: exit codes, help, manifests, dependencies, `test`, `fmt`, `gen ts` |
 | `crates/brim-cli/tests/fuzz_smoke.rs` | A deterministic mutation fuzzer: mutants of every example and test program go through the whole frontend, the formatter and the interpreter (with a step limit); nothing may panic and checked programs must lower to valid IR |
+| `crates/brim-cli/tests/site.rs` | Every complete program on the documentation site (`site/src`) runs and prints the output shown under it (`BLESS=1` updates the pages) |
 | `fuzz/` | Coverage-guided cargo-fuzz targets (nightly), run weekly by `.github/workflows/fuzz.yml`; see `fuzz/README.md` |
 
 Fixture conventions:
@@ -88,6 +89,17 @@ BRIM_FUZZ_ITERATIONS=500000 BRIM_FUZZ_SEED=7 cargo test --release -p brim-cli --
 ```
 
 It prints how many mutants parsed, passed semantic analysis and ran. A failure shows the smallest failing input; turn it into a fixture in `tests/` once it is fixed.
+
+## Documentation site
+
+The site in `site/` is an [mdBook](https://rust-lang.github.io/mdBook/). Its guide pages are in `site/src`; the reference pages include the files in `docs/`, so those stay the single source. Build it with:
+
+```sh
+cargo install mdbook --version ^0.4
+mdbook serve site --open
+```
+
+`.github/workflows/site.yml` builds it on every change and publishes it to GitHub Pages when the repository variable `SITE_DEPLOY` is `true`.
 
 ## Adding a language feature
 

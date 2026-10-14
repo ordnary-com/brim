@@ -74,13 +74,14 @@ Still open from this phase: debug information, Windows, cross-compilation, and l
 - **Done:** API contracts for web frontends: `brim gen ts` writes TypeScript types for a program's `pub` types.
 - Later: a JSON encoder and decoder with the same mapping, and a generated TypeScript client for Angular.
 
-## Phase 7: Editor support and production readiness (in progress)
+## Phase 7: Editor support and production readiness (done, first version)
 
 - **Done:** a language server, `brim lsp`: diagnostics for every file of the program, formatting, outline, go to definition and hover. Completion is still open.
 - **Done:** syntax highlighting: a TextMate grammar with a VS Code extension that starts the language server, and a Vim syntax file (`editors/`).
 - **Done:** stability rules per edition, a release process and release binaries for Linux, macOS and Windows (`docs/releasing.md`).
 - **Done:** fuzzing: a mutation fuzzer in the test suite (frontend, formatter, interpreter) and cargo-fuzz targets run weekly.
-- Performance work, documentation site.
+- **Done:** a documentation site (`site/`, built with mdBook): introduction, getting started, a tour, projects and tools, and the reference documents. Its examples run in the tests.
+- Performance work, and completion in the language server.
 
 ## Phase 8: Self-hosting (optional)
 

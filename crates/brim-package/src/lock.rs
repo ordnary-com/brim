@@ -67,11 +67,12 @@ pub(crate) fn read(full: &Path, shown: &Path) -> Result<LockFile, Failure> {
     let Ok(text) = std::fs::read_to_string(full) else {
         return Ok(LockFile::default());
     };
-    let file = SourceFile::new(shown.display().to_string(), text);
+    let shown = shown.display().to_string().replace('\\', "/");
+    let file = SourceFile::new(shown.clone(), text);
     let lock: LockFile = toml::from_str(file.text()).map_err(|e| {
         let mut diag = Diagnostic::error(format!("invalid lock file: {}", e.message().trim()))
             .with_code("M0010")
-            .with_help(format!("delete {} to create it again", shown.display()));
+            .with_help(format!("delete {shown} to create it again"));
         if let Some(range) = e.span() {
             diag = diag.with_primary(Span::new(range.start, range.end), "");
         }
@@ -81,7 +82,7 @@ pub(crate) fn read(full: &Path, shown: &Path) -> Result<LockFile, Failure> {
         return Err(Failure::in_file(
             Diagnostic::error(format!("unsupported lock file version {}", lock.version))
                 .with_code("M0010")
-                .with_help(format!("delete {} to create it again", shown.display())),
+                .with_help(format!("delete {shown} to create it again")),
             &file,
         ));
     }
