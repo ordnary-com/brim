@@ -14,11 +14,13 @@ authors = ["Ordnary"]
 brim-ast = { path = "crates/brim-ast" }
 brim-codegen = { path = "crates/brim-codegen" }
 brim-diagnostics = { path = "crates/brim-diagnostics" }
+brim-driver = { path = "crates/brim-driver" }
 brim-fmt = { path = "crates/brim-fmt" }
 brim-interp = { path = "crates/brim-interp" }
 brim-ir = { path = "crates/brim-ir" }
 brim-lexer = { path = "crates/brim-lexer" }
 brim-lower = { path = "crates/brim-lower" }
+brim-lsp = { path = "crates/brim-lsp" }
 brim-manifest = { path = "crates/brim-manifest" }
 brim-package = { path = "crates/brim-package" }
 brim-parser = { path = "crates/brim-parser" }
@@ -29,6 +31,7 @@ brim-tsgen = { path = "crates/brim-tsgen" }
 
 inkwell = { version = "=0.10.0", default-features = false, features = ["llvm22-1", "target-x86", "target-aarch64"] }
 serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
 toml = { version = "=1.1.8", default-features = false, features = ["parse", "serde", "std"] }
 
 [workspace.lints.rust]

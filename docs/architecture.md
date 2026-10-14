@@ -22,7 +22,7 @@ This document describes how the Brim compiler is structured, and why. The langua
       └──► brim-codegen    LLVM backend + C runtime   (`brim build`, opt-in `llvm` feature)
 ```
 
-A program can consist of several files, also from other packages: the driver asks `brim-package` for the project's dependency graph, and an import whose first name is a dependency loads that package's module. Imports in a dependency are rewritten to full module names (`import shapes` in `geometry` becomes `import geometry.shapes`), so semantic analysis sees one set of uniquely named modules and knows nothing about packages. The driver (`brim-cli`) parses the root file, follows its `import`s to the other modules, and puts all files in one `SourceMap`: each file's spans are shifted by a base offset, so a `Span` alone identifies the file. Diagnostics render against the map, with labels in other files shown in their own snippet (`::: file:line:col`). Semantic analysis receives all modules at once.
+A program can consist of several files, also from other packages: the driver (`brim-driver`, used by the command line and the language server) asks `brim-package` for the project's dependency graph, and an import whose first name is a dependency loads that package's module. Imports in a dependency are rewritten to full module names (`import shapes` in `geometry` becomes `import geometry.shapes`), so semantic analysis sees one set of uniquely named modules and knows nothing about packages. The driver (`brim-cli`) parses the root file, follows its `import`s to the other modules, and puts all files in one `SourceMap`: each file's spans are shifted by a base offset, so a `Span` alone identifies the file. Diagnostics render against the map, with labels in other files shown in their own snippet (`::: file:line:col`). Semantic analysis receives all modules at once.
 
 Every stage reports problems as `brim_diagnostics::Diagnostic`s. A stage only runs if the previous stage produced no errors. Warnings never block compilation.
 
@@ -45,11 +45,13 @@ Every stage reports problems as `brim_diagnostics::Diagnostic`s. A stage only ru
 | `brim-package` | Dependency graphs: path and git dependencies, the git cache, `brim.lock` | diagnostics, manifest, serde, toml |
 | `brim-tsgen` | TypeScript declarations for a checked program's `pub` types (`brim gen ts`) | diagnostics, semantic |
 | `brim-fmt` | The formatter (`brim fmt`): works on tokens so comments and line breaks survive, and checks that the tokens are unchanged | diagnostics, lexer, parser |
+| `brim-driver` | Loading a program: the root file and the modules it imports, from its package and dependencies, through a file reader | ast, diagnostics, package, parser, semantic |
+| `brim-lsp` | The language server (`brim lsp`): diagnostics, formatting, symbols, definitions and hover over stdio | driver, fmt, lexer, manifest, package, semantic; `serde_json` |
 | `brim-cli` | The `brim` binary: argument parsing, commands, exit codes | everything above |
 
 `brim-lower` and `brim-manifest` were added beyond the initially sketched layout. `brim-lower` keeps the IR independent of the AST and of semantic analysis: `brim-ir` itself depends on neither. `brim-manifest` keeps project configuration reusable by future tools, such as a package manager or language server, without depending on the CLI. `brim-interp` is separate from `brim-codegen` so the temporary interpreter is never confused with the native backend.
 
-Only `brim-manifest` and `brim-package` (`serde`, `toml`; `brim-package` also runs the `git` program) and, with the `llvm` feature, `brim-codegen` (`inkwell`, which brings `llvm-sys`) have third-party dependencies, all pinned exactly in the workspace `Cargo.toml`. The compiler frontend is dependency-free.
+Only `brim-manifest` and `brim-package` (`serde`, `toml`; `brim-package` also runs the `git` program), `brim-lsp` (`serde_json`) and, with the `llvm` feature, `brim-codegen` (`inkwell`, which brings `llvm-sys`) have third-party dependencies, all pinned exactly in the workspace `Cargo.toml`. The compiler frontend is dependency-free.
 
 ## Source positions
 

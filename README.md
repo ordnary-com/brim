@@ -129,13 +129,14 @@ Brim is at **version 0.1**. It is a working foundation, **not ready for producti
 - Programs of several files: modules with `import` and `pub`; dependencies on other packages from a directory or git repository, locked in `brim.lock`
 - Builtins `print` and `to_string`, and `assert`/`assert_eq` for tests: `brim test` runs every `fn test_...()`
 - Full static type checking, return checking on all paths, and detailed diagnostics
+- Editor support: `brim lsp` (diagnostics, formatting, outline, go to definition, hover) with a VS Code extension, and syntax highlighting for VS Code and Vim
 - `brim build` (native executables via LLVM 22, opt-in at compile time), `brim run` (reference interpreter), `brim check`, `brim test`, `brim fmt`, `brim gen ts` (TypeScript types for a web frontend), `brim.toml` projects created with `brim new`
 
 **Not yet**
 
 - Debug information and Windows builds for native executables
 - Traits (interfaces), networking and HTTP, closures, concurrency
-- A package registry; a language server
+- A package registry; completion in the language server
 
 The [roadmap](docs/roadmap.md) lists the milestones in order.
 
@@ -213,9 +214,12 @@ crates/
   brim-fmt          the formatter
   brim-package      dependencies and brim.lock
   brim-tsgen        TypeScript types for API contracts
+  brim-driver       loads a program's modules (shared by the command and the language server)
+  brim-lsp          the language server
   brim-cli          the `brim` command
 assets/             logo and other project artwork
 docs/               language spec, architecture, error handling, roadmap, development
+editors/            VS Code extension, TextMate grammar and Vim syntax
 examples/           example programs and an example project
 tests/              lexer, parser, diagnostics and integration fixtures
 ```

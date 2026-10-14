@@ -1,0 +1,23 @@
+[package]
+name = "brim-lsp"
+description = "The Brim language server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+brim-ast.workspace = true
+brim-diagnostics.workspace = true
+brim-driver.workspace = true
+brim-fmt.workspace = true
+brim-lexer.workspace = true
+brim-manifest.workspace = true
+brim-package.workspace = true
+brim-semantic.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

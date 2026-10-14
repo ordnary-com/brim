@@ -1,0 +1,103 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Brim",
+  "scopeName": "source.brim",
+  "fileTypes": ["brim"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#declarations" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#calls" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [{ "name": "comment.line.double-slash.brim", "match": "//.*$" }]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.brim",
+          "begin": "\"",
+          "end": "\"|$",
+          "patterns": [
+            { "name": "constant.character.escape.brim", "match": "\\\\[nrt0\"\\\\]" },
+            { "name": "invalid.illegal.escape.brim", "match": "\\\\." }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [{ "name": "constant.numeric.integer.decimal.brim", "match": "\\b[0-9]+\\b" }]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.function.brim" },
+            "2": { "name": "entity.name.function.brim" }
+          }
+        },
+        {
+          "match": "\\b(struct|enum|impl)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.brim" },
+            "2": { "name": "entity.name.type.brim" }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.brim",
+          "match": "\\b(if|else|while|for|in|match|return|break|continue)\\b"
+        },
+        { "name": "storage.type.brim", "match": "\\b(fn|struct|enum|impl|let)\\b" },
+        { "name": "storage.modifier.brim", "match": "\\b(mut|pub)\\b" },
+        { "name": "keyword.other.import.brim", "match": "\\b(import|as)\\b" },
+        { "name": "constant.language.boolean.brim", "match": "\\b(true|false)\\b" },
+        { "name": "variable.language.self.brim", "match": "\\bself\\b" },
+        {
+          "name": "invalid.illegal.reserved.brim",
+          "match": "\\b(async|await|const|loop|trait|type|use)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        { "name": "support.type.primitive.brim", "match": "\\b(i64|bool|string|void)\\b" },
+        { "name": "support.type.builtin.brim", "match": "\\b(Option|Result|List|Map)\\b" },
+        { "name": "support.constant.builtin.brim", "match": "\\b(Some|None|Ok|Err)\\b" },
+        { "name": "entity.name.type.brim", "match": "\\b[A-Z][A-Za-z0-9_]*\\b" }
+      ]
+    },
+    "calls": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.brim",
+          "match": "\\b(print|eprint|to_string|read_line|read_file|write_file|args|env|exit|assert|assert_eq)\\b(?=\\s*\\()"
+        },
+        {
+          "name": "entity.name.function.call.brim",
+          "match": "\\b[a-z_][A-Za-z0-9_]*\\b(?=\\s*(\\[[^\\]]*\\])?\\s*\\()"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.arrow.brim", "match": "->|=>" },
+        { "name": "keyword.operator.range.brim", "match": "\\.\\." },
+        { "name": "keyword.operator.comparison.brim", "match": "==|!=|<=|>=|<|>" },
+        { "name": "keyword.operator.logical.brim", "match": "&&|\\|\\||!" },
+        { "name": "keyword.operator.assignment.brim", "match": "[-+*/%]?=" },
+        { "name": "keyword.operator.arithmetic.brim", "match": "[-+*/%]" },
+        { "name": "keyword.operator.try.brim", "match": "\\?" }
+      ]
+    }
+  }
+}

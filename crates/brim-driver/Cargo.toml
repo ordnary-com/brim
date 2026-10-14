@@ -1,0 +1,19 @@
+[package]
+name = "brim-driver"
+description = "Loads the modules of a Brim program for the compiler and tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+brim-ast.workspace = true
+brim-diagnostics.workspace = true
+brim-package.workspace = true
+brim-parser.workspace = true
+brim-semantic.workspace = true
+
+[lints]
+workspace = true

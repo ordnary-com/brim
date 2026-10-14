@@ -1,0 +1,39 @@
+{
+  "name": "brim",
+  "displayName": "Brim",
+  "description": "Brim language support: syntax highlighting, diagnostics, formatting, outline, go to definition and hover",
+  "version": "0.1.0",
+  "publisher": "ordnary",
+  "license": "Apache-2.0",
+  "repository": { "type": "git", "url": "https://github.com/ordnary-com/brim" },
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages", "Formatters"],
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "languages": [
+      {
+        "id": "brim",
+        "aliases": ["Brim", "brim"],
+        "extensions": [".brim"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      { "language": "brim", "scopeName": "source.brim", "path": "./syntaxes/brim.tmLanguage.json" }
+    ],
+    "configuration": {
+      "title": "Brim",
+      "properties": {
+        "brim.path": {
+          "type": "string",
+          "default": "brim",
+          "description": "The brim executable that runs the language server (`brim lsp`)."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

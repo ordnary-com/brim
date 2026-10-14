@@ -85,6 +85,14 @@ pub fn run(args: &[String], ctx: &mut Context<'_>) -> i32 {
         Command::New { path } => new_project(&path, ctx),
         Command::Fmt { paths, check } => fmt(&paths, check, ctx),
         Command::Update { input } => update(input.as_deref(), ctx),
+        Command::Lsp => match brim_lsp::run(ctx.stdin, ctx.stdout) {
+            Ok(0) => Ok(()),
+            Ok(code) => Err(code),
+            Err(e) => {
+                let _ = writeln!(ctx.stderr, "error: language server: {e}");
+                Err(exit::INTERNAL)
+            }
+        },
         Command::GenTs { input, output } => gen_ts(input.as_deref(), output.as_deref(), ctx),
     };
     match result {
@@ -611,14 +619,21 @@ fn analyze(
             let _ = writeln!(ctx.stdout, "{loc}\t{:?}", token.kind);
         }
     }
-    let mut map = SourceMap::new();
-    map.add(file.clone());
-    let (root, mut diags) = brim_parser::parse_at(file.text(), 0);
-    if emit == Some(Emit::Ast) && !brim_diagnostics::has_errors(&diags) {
-        let _ = writeln!(ctx.stdout, "{root:#?}");
+    let cwd = ctx.cwd.clone();
+    let brim_driver::Loaded {
+        modules,
+        map,
+        mut diags,
+    } = brim_driver::load(file, input.packages.as_ref(), &mut |path| {
+        std::fs::read(cwd.join(path))
+    });
+    // The syntax tree of the root file, if it has no syntax errors.
+    let root_ok = !diags.iter().any(|d| {
+        d.severity == Severity::Error && d.span().is_none_or(|s| s.start <= file.text().len())
+    });
+    if emit == Some(Emit::Ast) && root_ok {
+        let _ = writeln!(ctx.stdout, "{:#?}", modules[0].program);
     }
-    let modules = load_modules(root, input, &mut map, &mut diags, ctx);
-    diags.sort_by_key(|d| d.span().map_or(usize::MAX, |s| s.start));
     if brim_diagnostics::has_errors(&diags) {
         report(&diags, &map, ctx);
         return Err(exit::COMPILE_ERROR);
@@ -635,147 +650,6 @@ fn analyze(
         Some(checked) => Ok((checked, map)),
         None => Err(exit::COMPILE_ERROR),
     }
-}
-
-/// Finds and parses the modules a program imports, directly or through
-/// other modules. In the root package, `import a.b` refers to `a/b.brim` in
-/// the directory of the root file. `import dep` refers to the library root
-/// of a dependency, and `import dep.a.b` to `a/b.brim` next to it.
-///
-/// Imports are rewritten to the full module names: inside the package
-/// `geometry`, `import shapes` becomes `import geometry.shapes`.
-fn load_modules(
-    mut root: brim_ast::Program,
-    input: &Input,
-    map: &mut SourceMap,
-    diags: &mut Vec<Diagnostic>,
-    ctx: &mut Context<'_>,
-) -> Vec<brim_semantic::ModuleAst> {
-    // Paths are shown with `/` on every platform, like the root file's.
-    let name = input.file.name();
-    let root_dir = match name.rfind(['/', '\\']) {
-        Some(i) => name[..=i].to_string(),
-        None => String::new(),
-    };
-    let graph = input.packages.as_ref();
-    let mut pending = std::collections::VecDeque::new();
-    pending.extend(locate_imports(&mut root, 0, graph, &root_dir));
-    let mut modules = vec![brim_semantic::ModuleAst {
-        name: String::new(),
-        program: root,
-    }];
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    while let Some(target) = pending.pop_front() {
-        let ModuleFile {
-            name,
-            shown,
-            span,
-            package,
-        } = target;
-        if !seen.insert(name.clone()) {
-            continue;
-        }
-        let text = match std::fs::read(ctx.cwd.join(&shown)).map(String::from_utf8) {
-            Ok(Ok(text)) => text,
-            Ok(Err(_)) => {
-                diags.push(
-                    Diagnostic::error(format!("module `{name}` is not valid UTF-8"))
-                        .with_code("E0242")
-                        .with_primary(span, "")
-                        .with_note(format!("in `{shown}`")),
-                );
-                continue;
-            }
-            Err(_) => {
-                diags.push(
-                    Diagnostic::error(format!("cannot find module `{name}`"))
-                        .with_code("E0242")
-                        .with_primary(span, "")
-                        .with_note(format!("looked for `{shown}`")),
-                );
-                continue;
-            }
-        };
-        let source = SourceFile::new(shown, text);
-        let base = map.add(source);
-        let file = &map.files()[map.files().len() - 1];
-        let (mut program, module_diags) = brim_parser::parse_at(file.text(), base);
-        diags.extend(module_diags);
-        pending.extend(locate_imports(&mut program, package, graph, &root_dir));
-        modules.push(brim_semantic::ModuleAst { name, program });
-    }
-    modules
-}
-
-/// A module to load.
-struct ModuleFile {
-    /// The full module name.
-    name: String,
-    /// The file, as shown in messages.
-    shown: String,
-    /// The import that needs it.
-    span: Span,
-    /// The package it belongs to (an index into the graph; 0 without one).
-    package: usize,
-}
-
-/// Finds the files of the modules `program` imports, a module of package
-/// `package`, and rewrites its imports to full module names.
-fn locate_imports(
-    program: &mut brim_ast::Program,
-    package: usize,
-    graph: Option<&brim_package::Graph>,
-    root_dir: &str,
-) -> Vec<ModuleFile> {
-    let slash = |p: PathBuf| p.display().to_string().replace('\\', "/");
-    let mut files = Vec::new();
-    for import in &mut program.imports {
-        let parts: Vec<String> = import.path.iter().map(|p| p.name.clone()).collect();
-        let mut target = 0;
-        let mut prefix = None;
-        let shown = match graph {
-            Some(g) if g.packages[package].dependency(&parts[0]).is_some() => {
-                target = g.packages[package]
-                    .dependency(&parts[0])
-                    .unwrap_or_default();
-                let dep = &g.packages[target];
-                if parts.len() == 1 {
-                    slash(dep.lib_file())
-                } else {
-                    format!("{}/{}.brim", slash(dep.lib_dir()), parts[1..].join("/"))
-                }
-            }
-            Some(g) if package != 0 => {
-                target = package;
-                let own = &g.packages[package];
-                prefix = Some(own.name().to_string());
-                format!("{}/{}.brim", slash(own.lib_dir()), parts.join("/"))
-            }
-            _ => format!("{root_dir}{}.brim", parts.join("/")),
-        };
-        if let Some(prefix) = prefix {
-            let span = import.path[0].span;
-            import
-                .path
-                .insert(0, brim_ast::Ident { name: prefix, span });
-        }
-        files.push(ModuleFile {
-            name: module_name(import),
-            shown,
-            span: import.span,
-            package: target,
-        });
-    }
-    files
-}
-
-fn module_name(import: &brim_ast::ImportDecl) -> String {
-    import
-        .path
-        .iter()
-        .map(|p| p.name.as_str())
-        .collect::<Vec<_>>()
-        .join(".")
 }
 
 /// Renders diagnostics followed by a one-line summary.

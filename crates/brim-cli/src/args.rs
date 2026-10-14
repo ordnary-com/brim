@@ -51,6 +51,8 @@ pub enum Command {
         /// `-o`/`--output`: the file to write instead of standard output.
         output: Option<PathBuf>,
     },
+    /// `brim lsp`: the language server, on standard input and output.
+    Lsp,
     /// `brim update [PATH]`: newest commits for git dependencies.
     Update {
         input: Option<PathBuf>,
@@ -78,7 +80,7 @@ impl fmt::Display for UsageError {
 }
 
 const COMMANDS: &[&str] = &[
-    "check", "run", "build", "test", "new", "fmt", "update", "gen", "help", "version",
+    "check", "run", "build", "test", "new", "fmt", "update", "gen", "lsp", "help", "version",
 ];
 
 /// Parses the arguments after the program name.
@@ -164,6 +166,13 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
                 message: format!("unknown target `{target}` for `brim gen` (available: ts)"),
                 command: Some("gen"),
             }),
+        },
+        "lsp" => match rest.first().map(String::as_str) {
+            None => Ok(Command::Lsp),
+            Some("-h" | "--help") => Ok(Command::Help(Some("lsp".into()))),
+            // Editors often pass `--stdio`; it is the only transport.
+            Some("--stdio") if rest.len() == 1 => Ok(Command::Lsp),
+            Some(other) => Err(unexpected(other, Some("lsp"))),
         },
         "update" => {
             let parsed = CommandArgs::parse("update", rest)?;
@@ -326,6 +335,7 @@ Commands:
   fmt [PATH...]  Format source files
   update [PATH]  Update the git dependencies in brim.lock
   gen ts [PATH]  Generate TypeScript types for the program's API
+  lsp            Run the language server for editors
   help [COMMAND] Show help for a command
   version        Show the compiler version
 
@@ -435,6 +445,20 @@ Usage: brim gen ts [OPTIONS] [PATH]
 Options:
   -o, --output <FILE>  Write to FILE instead of standard output
   -h, --help           Show help
+"
+        }
+        "lsp" => {
+            "\
+Run the language server for editors
+
+Speaks the Language Server Protocol on standard input and output:
+diagnostics, formatting, document symbols, go to definition and hover.
+Editors start it themselves; see editors/ in the Brim repository.
+
+Usage: brim lsp [--stdio]
+
+Options:
+  -h, --help  Show help
 "
         }
         "update" => {
@@ -575,6 +599,7 @@ mod tests {
                 output: Some("api.ts".into()),
             })
         );
+        assert_eq!(p(&["lsp", "--stdio"]), Ok(Command::Lsp));
         assert_eq!(
             p(&["new", "hello"]),
             Ok(Command::New {
@@ -604,7 +629,7 @@ mod tests {
         let msg = |args: &[&str]| p(args).unwrap_err().message;
         assert_eq!(
             msg(&["frobnicate"]),
-            "unknown command `frobnicate` (available: check, run, build, test, new, fmt, update, gen, help, version)"
+            "unknown command `frobnicate` (available: check, run, build, test, new, fmt, update, gen, lsp, help, version)"
         );
         assert_eq!(
             msg(&["check", "a.brim", "b.brim"]),
