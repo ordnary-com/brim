@@ -27,7 +27,8 @@ BRIM_TEST_FILE="$example" BRIM_TEST_BROKEN="$tmp/broken/main.brim" \
 
 # ---- Helix: grammar build, queries and language server ------------------
 mkdir -p "$tmp/helix/helix/runtime"
-cp "$root/editors/helix/languages.toml" "$tmp/helix/helix/languages.toml"
+# Only Brim's grammar: Helix would otherwise fetch every grammar it knows.
+{ echo 'use-grammars = { only = ["brim"] }'; cat "$root/editors/helix/languages.toml"; } > "$tmp/helix/helix/languages.toml"
 cp -R "$root/editors/helix/runtime/queries" "$tmp/helix/helix/runtime/"
 export XDG_CONFIG_HOME="$tmp/helix"
 hx --grammar fetch
