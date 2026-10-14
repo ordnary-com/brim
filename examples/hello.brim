@@ -1,0 +1,8 @@
+// The classic first program.
+fn main() {
+    let name: string = "Ordnary"
+    let version: string = "0.1.0"
+
+    print("Hello from " + name)
+    print("Brim version: " + version)
+}

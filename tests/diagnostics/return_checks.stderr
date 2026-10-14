@@ -1,0 +1,26 @@
+error[E0207]: function `missing` may end without returning a value
+ --> tests/diagnostics/return_checks.brim:3:1
+  |
+1 | fn missing() -> i64 {
+  |                 --- `i64` must be returned
+...
+3 | }
+  | ^ missing `return` before the end of the function
+
+error[E0208]: missing return value
+ --> tests/diagnostics/return_checks.brim:6:5
+  |
+5 | fn empty_return() -> string {
+  |                      ------ return type declared here
+6 |     return
+  |     ^^^^^^ expected a `string` value
+
+error[E0208]: cannot return a value from a function without a return type
+  --> tests/diagnostics/return_checks.brim:10:12
+   |
+10 |     return 5
+   |            ^ unexpected return value
+   |
+   = help: declare the return type with `-> i64` after the parameter list
+
+error: could not compile tests/diagnostics/return_checks.brim due to 3 errors

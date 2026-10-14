@@ -1,0 +1,18 @@
+warning[W0002]: unused value
+ --> tests/diagnostics/warnings.brim:3:5
+  |
+3 |     1 + 2
+  |     ^^^^^ this `i64` value is never used
+  |
+  = help: store it with `let`, or remove the expression
+
+warning[W0001]: unreachable code
+ --> tests/diagnostics/warnings.brim:5:5
+  |
+4 |     return
+  |     ------ any code after this is unreachable
+5 |     print("unreachable")
+  |     ^^^^^^^^^^^^^^^^^^^^ this statement will never run
+
+warning: tests/diagnostics/warnings.brim generated 2 warnings
+ok: no errors found in tests/diagnostics/warnings.brim

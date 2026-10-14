@@ -1,0 +1,10 @@
+// exit: 101
+fn double(n: i64) -> i64 {
+    return n * 2
+}
+
+fn main() {
+    print("start")
+    print(double(4611686018427387904))
+    print("never printed")
+}

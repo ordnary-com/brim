@@ -1,0 +1,35 @@
+error[E0202]: function `greet` is defined more than once
+ --> tests/diagnostics/duplicates.brim:3:4
+  |
+1 | fn greet() {}
+  |    ----- first defined here
+...
+3 | fn greet() {}
+  |    ^^^^^ redefined here
+
+error[E0204]: parameter `x` is declared more than once
+ --> tests/diagnostics/duplicates.brim:5:17
+  |
+5 | fn pair(x: i64, x: i64) {}
+  |         ------ first declared here
+  |                 ^ duplicate parameter
+
+error[E0216]: cannot redefine builtin function `print`
+ --> tests/diagnostics/duplicates.brim:7:4
+  |
+7 | fn print() {}
+  |    ^^^^^ this name belongs to a builtin
+  |
+  = help: choose a different name
+
+error[E0203]: variable `a` is already declared in this scope
+  --> tests/diagnostics/duplicates.brim:11:9
+   |
+10 |     let a: i64 = 1
+   |         - first declared here
+11 |     let a: i64 = 2
+   |         ^ declared again here
+   |
+   = help: use a different name, or declare it inside a nested block
+
+error: could not compile tests/diagnostics/duplicates.brim due to 4 errors

@@ -1,0 +1,25 @@
+error[E0205]: function `add` takes 2 arguments but 1 was supplied
+ --> tests/diagnostics/argument_count.brim:6:11
+  |
+1 | fn add(a: i64, b: i64) -> i64 {
+  |    --- `add` is defined here
+...
+6 |     print(add(1))
+  |           ^^^^^^ expected 2 arguments
+
+error[E0205]: function `add` takes 2 arguments but 3 were supplied
+ --> tests/diagnostics/argument_count.brim:7:11
+  |
+1 | fn add(a: i64, b: i64) -> i64 {
+  |    --- `add` is defined here
+...
+7 |     print(add(1, 2, 3))
+  |           ^^^^^^^^^^^^ expected 2 arguments
+
+error[E0205]: `print` takes 1 argument but 0 were supplied
+ --> tests/diagnostics/argument_count.brim:8:5
+  |
+8 |     print()
+  |     ^^^^^^^ expected 1 argument
+
+error: could not compile tests/diagnostics/argument_count.brim due to 3 errors

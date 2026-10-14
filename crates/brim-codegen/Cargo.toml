@@ -1,0 +1,15 @@
+[package]
+name = "brim-codegen"
+description = "Code generation backend interface for the Brim compiler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+brim-ir.workspace = true
+
+[lints]
+workspace = true

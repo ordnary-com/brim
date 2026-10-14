@@ -1,0 +1,15 @@
+error[E0200]: undefined variable `username`
+ --> tests/diagnostics/undefined_variable.brim:4:11
+  |
+4 |     print(username)
+  |           ^^^^^^^^ not found in this scope
+
+error[E0200]: undefined variable `nmae`
+ --> tests/diagnostics/undefined_variable.brim:5:11
+  |
+5 |     print(nmae)
+  |           ^^^^ not found in this scope
+  |
+  = help: a variable with a similar name exists: `name`
+
+error: could not compile tests/diagnostics/undefined_variable.brim due to 2 errors

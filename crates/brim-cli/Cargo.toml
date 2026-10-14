@@ -1,0 +1,27 @@
+[package]
+name = "brim-cli"
+description = "The `brim` command-line tool"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "brim"
+path = "src/main.rs"
+
+[dependencies]
+brim-codegen.workspace = true
+brim-diagnostics.workspace = true
+brim-interp.workspace = true
+brim-ir.workspace = true
+brim-lexer.workspace = true
+brim-lower.workspace = true
+brim-manifest.workspace = true
+brim-parser.workspace = true
+brim-semantic.workspace = true
+
+[lints]
+workspace = true

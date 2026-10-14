@@ -1,0 +1,25 @@
+error[E0214]: `compute` is a function, not a value
+ --> tests/diagnostics/names_and_calls.brim:6:22
+  |
+6 |     let value: i64 = compute
+  |                      ^^^^^^^ functions cannot be used as values
+  |
+  = help: to call it, write `compute(...)`
+
+error[E0214]: `n` is a variable, not a function
+ --> tests/diagnostics/names_and_calls.brim:8:11
+  |
+7 |     let n: i64 = 3
+  |         - `n` is declared here
+8 |     print(n(1))
+  |           ^ cannot be called
+
+error[E0201]: undefined function `prnt`
+ --> tests/diagnostics/names_and_calls.brim:9:5
+  |
+9 |     prnt("typo")
+  |     ^^^^ not found
+  |
+  = help: a function with a similar name exists: `print`
+
+error: could not compile tests/diagnostics/names_and_calls.brim due to 3 errors

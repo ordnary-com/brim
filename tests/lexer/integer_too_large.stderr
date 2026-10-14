@@ -1,0 +1,9 @@
+error[E0004]: integer literal is too large
+ --> tests/lexer/integer_too_large.brim:2:11
+  |
+2 |     print(99999999999999999999)
+  |           ^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: the largest integer type is `i64` (maximum 9223372036854775807)
+
+error: could not compile tests/lexer/integer_too_large.brim due to 1 error

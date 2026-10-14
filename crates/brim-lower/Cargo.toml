@@ -1,0 +1,20 @@
+[package]
+name = "brim-lower"
+description = "Lowering from checked Brim programs to Brim IR"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+brim-ir.workspace = true
+brim-runtime.workspace = true
+brim-semantic.workspace = true
+
+[dev-dependencies]
+brim-parser.workspace = true
+
+[lints]
+workspace = true

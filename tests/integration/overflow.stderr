@@ -1,0 +1,7 @@
+error[R0001]: integer overflow in `*`
+ --> tests/integration/overflow.brim:3:12
+  |
+3 |     return n * 2
+  |            ^^^^^
+  |
+  = note: call stack: main -> double

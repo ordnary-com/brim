@@ -1,0 +1,10 @@
+fn main() {
+    let a: i64 = 3
+    let b: i64 = 7
+    print(a < b)
+    print(a <= 3 && b >= 8)
+    print(a == 3 || b == 3)
+    print(!(a != b))
+    print(true == !false)
+    print(a > b == false)
+}

@@ -1,0 +1,40 @@
+error[E0209]: cannot apply `+` to `string` and `i64`
+ --> tests/diagnostics/invalid_operators.brim:2:21
+  |
+2 |     print("count: " + 3)
+  |           --------- `string`
+  |                     ^ `string + i64` is not defined
+  |                       - `i64`
+  |
+  = note: `+` joins two strings or adds two integers
+  = note: Brim never converts values to strings implicitly
+
+error[E0209]: cannot apply `&&` to `i64` and `bool`
+ --> tests/diagnostics/invalid_operators.brim:3:13
+  |
+3 |     print(1 && true)
+  |           - `i64`
+  |             ^^ `i64 && bool` is not defined
+  |                ---- `bool`
+  |
+  = note: `&&` requires two `bool` operands
+
+error[E0209]: cannot apply unary `-` to a value of type `string`
+ --> tests/diagnostics/invalid_operators.brim:4:12
+  |
+4 |     print(-"text")
+  |            ^^^^^^ this is `string`
+  |
+  = note: unary `-` requires `i64`
+
+error[E0209]: cannot apply `<` to `string` and `string`
+ --> tests/diagnostics/invalid_operators.brim:5:15
+  |
+5 |     print("a" < "b")
+  |           --- `string`
+  |               ^ `string < string` is not defined
+  |                 --- `string`
+  |
+  = note: `<` compares two `i64` values
+
+error: could not compile tests/diagnostics/invalid_operators.brim due to 4 errors

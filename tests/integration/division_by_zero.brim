@@ -1,0 +1,5 @@
+// exit: 101
+fn main() {
+    let zero: i64 = 0
+    print(10 % zero)
+}

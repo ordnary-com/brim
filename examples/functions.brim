@@ -1,0 +1,24 @@
+// Functions can be declared in any order and called before their definition.
+fn main() {
+    let result: i64 = add(10, 32)
+    print(result)
+    print(square(add(1, 2)))
+    greet("Ordnary")
+    print(is_even(result))
+}
+
+fn add(a: i64, b: i64) -> i64 {
+    return a + b
+}
+
+fn square(n: i64) -> i64 {
+    return n * n
+}
+
+fn greet(name: string) {
+    print("Hello, " + name + "!")
+}
+
+fn is_even(n: i64) -> bool {
+    return n % 2 == 0
+}

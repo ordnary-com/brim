@@ -1,0 +1,6 @@
+error[E0210]: no `main` function found
+ --> tests/diagnostics/missing_main.brim
+  = note: every Brim program starts running at its `main` function
+  = help: add an entry point: `fn main() { ... }`
+
+error: could not compile tests/diagnostics/missing_main.brim due to 1 error

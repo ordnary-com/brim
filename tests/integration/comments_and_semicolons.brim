@@ -1,0 +1,7 @@
+// Comments may appear anywhere a newline may.
+fn main() { // trailing comment
+    print(1); print(2);   // semicolons separate statements
+    // a comment line
+
+    print(3) // after a statement
+}

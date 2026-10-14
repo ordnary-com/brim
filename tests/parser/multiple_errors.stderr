@@ -1,0 +1,27 @@
+error[E0100]: expected a variable name, found `=`
+ --> tests/parser/multiple_errors.brim:2:9
+  |
+2 |     let = 5
+  |         ^ expected a variable name
+
+error[E0100]: expected a newline or `;` after the statement, found integer literal
+ --> tests/parser/multiple_errors.brim:4:20
+  |
+4 |     let y: i64 = 1 2
+  |                    ^ expected a newline or `;` after the statement
+
+error[E0101]: `struct` is not supported yet
+ --> tests/parser/multiple_errors.brim:7:1
+  |
+7 | struct Point {}
+  | ^^^^^^ reserved keyword
+  |
+  = note: `struct` is reserved for a future version of Brim and cannot be used as a name
+
+error[E0100]: expected a parameter name, found `{`
+ --> tests/parser/multiple_errors.brim:9:12
+  |
+9 | fn helper( {
+  |            ^ expected a parameter name
+
+error: could not compile tests/parser/multiple_errors.brim due to 4 errors

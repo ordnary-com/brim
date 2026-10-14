@@ -1,0 +1,9 @@
+error[E0215]: integer literal `9223372036854775808` is out of range for `i64`
+ --> tests/diagnostics/integer_range.brim:3:24
+  |
+3 |     let too_big: i64 = 9223372036854775808
+  |                        ^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `i64` values range from -9223372036854775808 to 9223372036854775807
+
+error: could not compile tests/diagnostics/integer_range.brim due to 1 error

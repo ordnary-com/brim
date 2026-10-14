@@ -1,0 +1,17 @@
+error[E0211]: `main` cannot take parameters
+ --> tests/diagnostics/invalid_main.brim:1:9
+  |
+1 | fn main(args: string) -> i64 {
+  |         ^^^^^^^^^^^^ remove these parameters
+  |
+  = note: command-line arguments are not supported yet
+
+error[E0211]: `main` cannot return a value
+ --> tests/diagnostics/invalid_main.brim:1:26
+  |
+1 | fn main(args: string) -> i64 {
+  |                          ^^^ remove this return type
+  |
+  = note: exit codes are not supported yet
+
+error: could not compile tests/diagnostics/invalid_main.brim due to 2 errors

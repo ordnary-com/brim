@@ -1,0 +1,12 @@
+[package]
+name = "brim-diagnostics"
+description = "Source files, spans and compiler diagnostics shared by every Brim compiler phase"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true

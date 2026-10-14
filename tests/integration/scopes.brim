@@ -1,0 +1,13 @@
+fn main() {
+    let x: i64 = 1; let y: i64 = 2
+    {
+        let x: string = "inner"
+        print(x)
+        {
+            let x: bool = true
+            print(x)
+        }
+        print(x)
+    }
+    print(x + y)
+}

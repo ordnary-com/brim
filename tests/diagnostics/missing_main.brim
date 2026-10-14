@@ -1,0 +1,3 @@
+fn helper() {
+    print("no entry point")
+}

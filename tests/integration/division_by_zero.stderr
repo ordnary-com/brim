@@ -1,0 +1,5 @@
+error[R0002]: remainder by zero
+ --> tests/integration/division_by_zero.brim:4:11
+  |
+4 |     print(10 % zero)
+  |           ^^^^^^^^^

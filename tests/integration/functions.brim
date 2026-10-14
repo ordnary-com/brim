@@ -1,0 +1,31 @@
+fn main() {
+    print(sum3(1, 2, 3))
+    print(describe("Brim", 1))
+    log("side effect")
+    print(both(true, false))
+}
+
+fn sum3(a: i64, b: i64, c: i64) -> i64 {
+    return add(add(a, b), c)
+}
+
+fn add(a: i64, b: i64) -> i64 {
+    return a + b
+}
+
+fn describe(name: string, major: i64) -> string {
+    return name + " " + version(major)
+}
+
+fn version(major: i64) -> string {
+    return "v" + "1"
+}
+
+fn log(message: string) {
+    print("[log] " + message)
+    return
+}
+
+fn both(a: bool, b: bool) -> bool {
+    return a && b
+}

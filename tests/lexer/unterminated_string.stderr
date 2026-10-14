@@ -1,0 +1,16 @@
+error[E0002]: unterminated string literal
+ --> tests/lexer/unterminated_string.brim:2:11
+  |
+2 |     print("hello)
+  |           ^ string starts here
+  |
+  = note: string literals must end with `"` on the same line
+  = help: use `\n` to put a line break inside a string
+
+error[E0100]: expected `,` or `)`, found `}`
+ --> tests/lexer/unterminated_string.brim:3:1
+  |
+3 | }
+  | ^ expected `,` or `)`
+
+error: could not compile tests/lexer/unterminated_string.brim due to 2 errors

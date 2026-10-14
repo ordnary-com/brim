@@ -1,0 +1,30 @@
+error[E0206]: mismatched types
+ --> tests/diagnostics/type_mismatch.brim:6:25
+  |
+6 |     let label: string = 42
+  |                ------ expected due to this type
+  |                         ^^ expected `string`, found `i64`
+  |
+  = note: Brim never converts between types implicitly
+
+error[E0206]: mismatched types
+ --> tests/diagnostics/type_mismatch.brim:7:16
+  |
+1 | fn half(n: i64) -> i64 {
+  |         ------ parameter declared here
+...
+7 |     print(half("ten"))
+  |                ^^^^^ expected `i64`, found `string`
+  |
+  = note: Brim never converts between types implicitly
+
+error[E0206]: mismatched types
+ --> tests/diagnostics/type_mismatch.brim:8:22
+  |
+8 |     let flag: bool = half(4)
+  |               ---- expected due to this type
+  |                      ^^^^^^^ expected `bool`, found `i64`
+  |
+  = note: Brim never converts between types implicitly
+
+error: could not compile tests/diagnostics/type_mismatch.brim due to 3 errors

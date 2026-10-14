@@ -1,0 +1,15 @@
+error[E0001]: unexpected character `$`
+ --> tests/lexer/invalid_character.brim:2:24
+  |
+2 |     let price: i64 = 5 $ 3
+  |                        ^
+
+error[E0001]: unexpected character `&`
+ --> tests/lexer/invalid_character.brim:3:25
+  |
+3 |     let ok: bool = true & false
+  |                         ^
+  |
+  = help: logical AND is written `&&`
+
+error: could not compile tests/lexer/invalid_character.brim due to 2 errors

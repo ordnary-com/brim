@@ -1,0 +1,14 @@
+fn missing() -> i64 {
+    print("no return")
+}
+
+fn empty_return() -> string {
+    return
+}
+
+fn unexpected_value() {
+    return 5
+}
+
+fn main() {
+}

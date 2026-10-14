@@ -1,0 +1,21 @@
+[package]
+name = "brim-semantic"
+description = "Name resolution and type checking for the Brim programming language"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+brim-ast.workspace = true
+brim-diagnostics.workspace = true
+brim-runtime.workspace = true
+brim-stdlib.workspace = true
+
+[dev-dependencies]
+brim-parser.workspace = true
+
+[lints]
+workspace = true

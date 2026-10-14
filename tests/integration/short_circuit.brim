@@ -1,0 +1,10 @@
+fn check(label: string, result: bool) -> bool {
+    print("evaluated " + label)
+    return result
+}
+
+fn main() {
+    print(check("a", false) && check("b", true))
+    print(check("c", true) || check("d", true))
+    print(check("e", true) && check("f", true) && check("g", false))
+}

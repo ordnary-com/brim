@@ -1,0 +1,8 @@
+error[R0003]: stack overflow: more than 10000 nested calls
+ --> tests/integration/infinite_recursion.brim:3:12
+  |
+3 |     return forever(n + 1)
+  |            ^^^^^^^^^^^^^^
+  |
+  = note: 9994 calls omitted from the call stack
+  = note: call stack: main -> forever -> forever -> ... -> forever -> forever -> forever

@@ -1,0 +1,6 @@
+fn main() {
+    print("count: " + 3)
+    print(1 && true)
+    print(-"text")
+    print("a" < "b")
+}

@@ -1,0 +1,4 @@
+fn main() {
+    let price: i64 = 5 $ 3
+    let ok: bool = true & false
+}

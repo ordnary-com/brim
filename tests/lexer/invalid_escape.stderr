@@ -1,0 +1,9 @@
+error[E0003]: unknown escape sequence `\a`
+ --> tests/lexer/invalid_escape.brim:2:28
+  |
+2 |     print("tab:\t ok, bell:\a not ok")
+  |                            ^^
+  |
+  = note: supported escapes: \n \r \t \0 \\ \" and \u{...} (1-6 hex digits)
+
+error: could not compile tests/lexer/invalid_escape.brim due to 1 error

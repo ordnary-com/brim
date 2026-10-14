@@ -1,0 +1,3 @@
+fn main(args: string) -> i64 {
+    return 0
+}

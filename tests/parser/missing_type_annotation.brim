@@ -1,0 +1,4 @@
+fn main() {
+    let count = 10
+    print(count)
+}

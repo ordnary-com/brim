@@ -1,0 +1,12 @@
+fn greet() {}
+
+fn greet() {}
+
+fn pair(x: i64, x: i64) {}
+
+fn print() {}
+
+fn main() {
+    let a: i64 = 1
+    let a: i64 = 2
+}

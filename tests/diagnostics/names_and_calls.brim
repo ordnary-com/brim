@@ -1,0 +1,10 @@
+fn compute() -> i64 {
+    return 1
+}
+
+fn main() {
+    let value: i64 = compute
+    let n: i64 = 3
+    print(n(1))
+    prnt("typo")
+}

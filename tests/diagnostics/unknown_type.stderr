@@ -1,0 +1,25 @@
+error[E0212]: unknown type `int`
+ --> tests/diagnostics/unknown_type.brim:2:12
+  |
+2 |     let n: int = 5
+  |            ^^^ not a known type
+  |
+  = help: did you mean `i64`?
+
+error[E0212]: unknown type `String`
+ --> tests/diagnostics/unknown_type.brim:3:12
+  |
+3 |     let s: String = "x"
+  |            ^^^^^^ not a known type
+  |
+  = help: did you mean `string`?
+
+error[E0213]: `void` cannot be the type of a variable
+ --> tests/diagnostics/unknown_type.brim:4:12
+  |
+4 |     let v: void = main()
+  |            ^^^^ `void` has no values
+  |
+  = note: `void` is only valid as a function return type
+
+error: could not compile tests/diagnostics/unknown_type.brim due to 3 errors

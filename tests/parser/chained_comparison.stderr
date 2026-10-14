@@ -1,0 +1,10 @@
+error[E0106]: comparison operators cannot be chained
+ --> tests/parser/chained_comparison.brim:3:17
+  |
+3 |     print(0 < a < 10)
+  |             - previous comparison
+  |                 ^
+  |
+  = help: combine the comparisons with `&&`, e.g. `a < b && b < c`
+
+error: could not compile tests/parser/chained_comparison.brim due to 1 error

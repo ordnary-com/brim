@@ -1,0 +1,12 @@
+error[E0100]: expected `}`, found `fn`
+ --> tests/parser/unclosed_block.brim:4:1
+  |
+1 | fn main() {
+  |           - this block is never closed
+...
+4 | fn other() {
+  | ^^ expected `}`
+  |
+  = note: functions cannot be declared inside other functions
+
+error: could not compile tests/parser/unclosed_block.brim due to 1 error

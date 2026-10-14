@@ -1,0 +1,24 @@
+// Variables are immutable and always carry an explicit type.
+fn main() {
+    let answer: i64 = 42
+    let ready: bool = true
+    let language: string = "Brim"
+
+    print(answer)
+    print(ready)
+    print(language)
+
+    // Arithmetic follows the usual precedence rules.
+    let total: i64 = answer + 8 * 2 - 10 / 5
+    print(total)
+
+    // A nested block introduces a new scope; `answer` can be shadowed there.
+    {
+        let answer: string = "forty-two"
+        print(answer)
+    }
+    print(answer)
+
+    // Comparisons produce `bool` values.
+    print(total > answer && language == "Brim")
+}

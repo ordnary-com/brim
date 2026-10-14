@@ -1,0 +1,6 @@
+fn main() {
+    let name: string = "Ordnary"
+
+    print(username)
+    print(nmae)
+}

@@ -1,0 +1,8 @@
+// exit: 101
+fn forever(n: i64) -> i64 {
+    return forever(n + 1)
+}
+
+fn main() {
+    print(forever(0))
+}

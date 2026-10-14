@@ -1,0 +1,11 @@
+fn main() {
+    let greeting: string = "Hello"
+    let target: string = "wörld 🌍"
+    print(greeting + ", " + target + "!")
+    print("escapes:\t\"quoted\" \\ done")
+    print("line one\nline two")
+    print("\u{48}\u{49}")
+    print(greeting == "Hello")
+    print(greeting != "Hello")
+    print("")
+}

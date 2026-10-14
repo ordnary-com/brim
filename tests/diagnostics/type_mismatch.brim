@@ -1,0 +1,9 @@
+fn half(n: i64) -> i64 {
+    return n / 2
+}
+
+fn main() {
+    let label: string = 42
+    print(half("ten"))
+    let flag: bool = half(4)
+}

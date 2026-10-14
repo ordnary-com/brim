@@ -1,0 +1,6 @@
+// exit: 0
+fn main() {
+    1 + 2
+    return
+    print("unreachable")
+}

@@ -1,0 +1,17 @@
+[package]
+name = "brim-parser"
+description = "Recursive-descent parser for the Brim programming language"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+brim-ast.workspace = true
+brim-diagnostics.workspace = true
+brim-lexer.workspace = true
+
+[lints]
+workspace = true
