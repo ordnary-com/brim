@@ -16,6 +16,7 @@ pub use brim_diagnostics::Span;
 pub struct Program {
     pub structs: Vec<StructDecl>,
     pub enums: Vec<EnumDecl>,
+    pub impls: Vec<ImplDecl>,
     pub functions: Vec<FnDecl>,
 }
 
@@ -26,6 +27,23 @@ pub struct StructDecl {
     pub type_params: Vec<Ident>,
     pub fields: Vec<FieldDecl>,
     /// From `struct` to the closing `}`.
+    pub span: Span,
+}
+
+/// `self` or `mut self`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Receiver {
+    pub mutable: bool,
+    pub span: Span,
+}
+
+/// `impl Name[T] { fn ... }`: methods of a struct or enum.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImplDecl {
+    pub type_name: Ident,
+    pub type_params: Vec<Ident>,
+    pub methods: Vec<FnDecl>,
+    /// From `impl` to the closing `}`.
     pub span: Span,
 }
 
@@ -106,6 +124,8 @@ pub struct FnDecl {
     pub name: Ident,
     /// `[T, U]` after the name; empty for non-generic functions.
     pub type_params: Vec<Ident>,
+    /// `self` or `mut self` as the first parameter of a method.
+    pub receiver: Option<Receiver>,
     pub params: Vec<Param>,
     /// `None` when the `-> type` clause is omitted (the function returns `void`).
     pub ret: Option<TypeExpr>,

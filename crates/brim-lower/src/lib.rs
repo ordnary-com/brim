@@ -63,6 +63,7 @@ pub fn lower(program: &CheckedProgram) -> Module {
         enum_layouts: HashMap::new(),
         instances: HashMap::new(),
         queue: VecDeque::new(),
+        pairs: HashMap::new(),
     };
     for (index, f) in program.functions.iter().enumerate() {
         if f.type_params.is_empty() {
@@ -118,6 +119,8 @@ struct ModuleLowerer<'p> {
     instances: HashMap<(usize, Vec<Type>), FuncId>,
     /// Instances whose bodies still have to be lowered.
     queue: VecDeque<(FuncId, usize, Vec<Type>)>,
+    /// Result-and-`self` structs of `mut self` methods.
+    pairs: HashMap<(IrType, IrType), StructId>,
 }
 
 impl ModuleLowerer<'_> {
@@ -139,6 +142,7 @@ impl ModuleLowerer<'_> {
         // A placeholder until the queue reaches it.
         self.module.functions.push(Function {
             name,
+            consumes_self: false,
             param_count: 0,
             ret: IrType::Void,
             slots: Vec::new(),
@@ -274,6 +278,7 @@ fn branches(expr: &CheckedExpr) -> bool {
         | CheckedExprKind::Local(_) => false,
         CheckedExprKind::Unary { operand, .. } => branches(operand),
         CheckedExprKind::Binary { lhs, rhs, .. } => branches(lhs) || branches(rhs),
+        CheckedExprKind::CallMut { .. } => true,
         CheckedExprKind::Call { args, .. }
         | CheckedExprKind::Builtin { args, .. }
         | CheckedExprKind::Variant { args, .. } => args.iter().any(branches),
@@ -293,6 +298,9 @@ struct FnLowerer<'m, 'p> {
     type_args: Vec<Type>,
     /// The function's concrete return type.
     ret: Type,
+    /// For `mut self` methods: how `self` goes back to the caller (alone,
+    /// or in a pair struct with the result).
+    self_return: Option<Option<StructId>>,
     func: Function,
     current: BlockId,
     /// Whether the current block already has its terminator.
@@ -308,7 +316,9 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             m,
             type_args,
             ret,
+            self_return: None,
             func: Function {
+                consumes_self: false,
                 name: String::new(),
                 param_count: f.param_count,
                 ret: IrType::Void,
@@ -328,18 +338,53 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 ty,
             });
         }
+        if f.mut_self {
+            // `self` goes back to the caller, with the result if there is one.
+            let self_ty = lowerer.func.slots[0].ty;
+            lowerer.func.consumes_self = true;
+            lowerer.self_return = Some(match lowerer.func.ret {
+                IrType::Void => {
+                    lowerer.func.ret = self_ty;
+                    None
+                }
+                ret => {
+                    let pair = lowerer.m.pair_type(ret, self_ty);
+                    lowerer.func.ret = IrType::Struct(pair);
+                    Some(pair)
+                }
+            });
+        }
         lowerer.current = lowerer.new_block();
         lowerer.stmts(&f.body);
         if !lowerer.terminated {
             // Semantic analysis guarantees non-void functions always return.
-            let term = if f.ret == Type::Void {
-                Terminator::Return(None)
+            if f.ret == Type::Void {
+                lowerer.return_value(None, f.span);
             } else {
-                Terminator::Unreachable
-            };
-            lowerer.terminate(term);
+                lowerer.terminate(Terminator::Unreachable);
+            }
         }
         lowerer.func
+    }
+
+    /// Returns `value`; a `mut self` method also returns `self`.
+    fn return_value(&mut self, value: Option<ValueId>, span: Span) {
+        let value = match self.self_return {
+            None => value,
+            Some(pair) => {
+                let self_ty = self.func.slots[0].ty;
+                let current = self.emit_value(InstKind::Load(SlotId(0)), self_ty, span);
+                Some(match (pair, value) {
+                    (Some(pair), Some(v)) => self.emit_value(
+                        InstKind::MakeStruct(pair, vec![v, current]),
+                        IrType::Struct(pair),
+                        span,
+                    ),
+                    _ => current,
+                })
+            }
+        };
+        self.terminate(Terminator::Return(value));
     }
 
     // ---- types ----------------------------------------------------------
@@ -453,9 +498,9 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             CheckedStmt::Expr(expr) => {
                 self.expr(expr);
             }
-            CheckedStmt::Return { value, .. } => {
+            CheckedStmt::Return { value, span } => {
                 let value = value.as_ref().map(|v| self.value(v));
-                self.terminate(Terminator::Return(value));
+                self.return_value(value, *span);
             }
             CheckedStmt::Block(stmts) => self.stmts(stmts),
             CheckedStmt::Assign { place, op, value } => self.assign(place, *op, value),
@@ -1556,6 +1601,43 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 let args = self.values(&args.iter().collect::<Vec<_>>());
                 return self.emit(InstKind::CallRuntime(*runtime, args), Some(ty), span);
             }
+            CheckedExprKind::CallMut {
+                func,
+                type_args,
+                place,
+                args,
+            } => {
+                let type_args: Vec<Type> = type_args.iter().map(|t| self.concrete(*t)).collect();
+                let callee = self.m.instance(func.0, type_args);
+                let self_ty = self.ir_type(place.ty);
+                let pair = (ty != IrType::Void).then(|| self.m.pair_type(ty, self_ty));
+                let indices = self.place_indices(place);
+                let (indices, args) = if args.iter().any(branches) {
+                    let spilled = self.spill(&indices, span);
+                    let values = self.values(&args.iter().collect::<Vec<_>>());
+                    (self.reload(&spilled, span), values)
+                } else {
+                    let values = self.values(&args.iter().collect::<Vec<_>>());
+                    (indices, values)
+                };
+                let mut result = None;
+                self.write_place(place, &indices, span, |s, current| {
+                    let mut call_args = Vec::with_capacity(args.len() + 1);
+                    call_args.push(current);
+                    call_args.extend(&args);
+                    let call_ty = pair.map_or(self_ty, IrType::Struct);
+                    let returned =
+                        s.emit_value(InstKind::CallMut(callee, call_args), call_ty, span);
+                    match pair {
+                        None => returned,
+                        Some(_) => {
+                            result = Some(s.emit_value(InstKind::Extract(returned, 0), ty, span));
+                            s.emit_value(InstKind::Extract(returned, 1), self_ty, span)
+                        }
+                    }
+                });
+                return result;
+            }
             CheckedExprKind::StructLit { fields } => {
                 // Evaluate in source order, then put the values in field order.
                 let exprs: Vec<&CheckedExpr> = fields.iter().map(|(_, e)| e).collect();
@@ -1785,6 +1867,30 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
 }
 
 impl ModuleLowerer<'_> {
+    /// A struct holding a `mut self` method's result and its new `self`.
+    fn pair_type(&mut self, result: IrType, self_ty: IrType) -> StructId {
+        if let Some(id) = self.pairs.get(&(result, self_ty)) {
+            return *id;
+        }
+        let id =
+            StructId(u32::try_from(self.module.structs.len()).expect("struct count fits in u32"));
+        self.module.structs.push(StructDef {
+            name: "(result, self)".into(),
+            fields: vec![
+                Field {
+                    name: "result".into(),
+                    ty: result,
+                },
+                Field {
+                    name: "self".into(),
+                    ty: self_ty,
+                },
+            ],
+        });
+        self.pairs.insert((result, self_ty), id);
+        id
+    }
+
     /// The declaration a concrete type refers to, if it is named.
     fn types_def(&self, ty: Type) -> Option<Def> {
         match ty {

@@ -188,6 +188,9 @@ pub struct Field {
 pub struct Function {
     pub name: String,
     /// The first `param_count` slots are the parameters.
+    /// The function owns its first parameter: callers pass it with
+    /// [`InstKind::CallMut`], which moves the value instead of sharing it.
+    pub consumes_self: bool,
     pub param_count: usize,
     pub ret: Type,
     pub slots: Vec<Slot>,
@@ -236,6 +239,9 @@ pub enum InstKind {
     Binary(BinaryOp, ValueId, ValueId),
     /// A call to a function in the same module.
     Call(FuncId, Vec<ValueId>),
+    /// A call that moves its first argument into the callee, which must
+    /// have `consumes_self` set. Used for methods that change `self`.
+    CallMut(FuncId, Vec<ValueId>),
     /// A call into the runtime library.
     CallRuntime(RuntimeFn, Vec<ValueId>),
     /// A struct value from one value per field, in field order.
@@ -304,6 +310,7 @@ impl InstKind {
             | InstKind::MapInsert(v, ..)
             | InstKind::MapSetValueAt(v, ..)
             | InstKind::MapRemoveAt(v, _) => Some(*v),
+            InstKind::CallMut(_, args) => args.first().copied(),
             _ => None,
         }
     }
@@ -337,6 +344,7 @@ impl InstKind {
             | InstKind::MapInsert(a, b, c)
             | InstKind::MapSetValueAt(a, b, c) => vec![*a, *b, *c],
             InstKind::Call(_, args)
+            | InstKind::CallMut(_, args)
             | InstKind::CallRuntime(_, args)
             | InstKind::MakeStruct(_, args)
             | InstKind::ListNew(_, args) => args.clone(),

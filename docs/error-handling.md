@@ -91,18 +91,22 @@ Guidelines for writing diagnostics:
 | E0222 | Struct literal is missing fields |
 | E0223 | Field given more than once in a struct literal |
 | E0224 | Unknown field, or field access on a value that is not a struct |
-| E0225 | Wrong number of type arguments for a generic type, or type arguments on a type that takes none |
+| E0225 | Wrong number of type arguments for a generic type (or in an `impl`), or type arguments on a type that takes none |
 | E0226 | A type argument of a generic function, struct or variant cannot be inferred |
 | E0227 | Unknown enum variant |
 | E0228 | Wrong number of values for an enum variant, in a constructor or a pattern |
 | E0229 | `match` does not cover every value |
 | E0230 | Pattern does not fit the type of the matched value |
-| E0231 | Method call (`value.name(...)`); methods are not supported yet |
+| E0231 | Unknown method |
 | E0232 | `?` applied to a value that is not an `Option` or `Result` |
 | E0233 | `?` in a function whose return type cannot carry the `Err` or `None` (a different error type, or not a `Result`/`Option`) |
 | E0234 | Indexing a value that is not a list or map |
 | E0235 | `for` loop over a value that is not a list or range |
 | E0236 | Map key type other than `i64`, `bool` or `string` |
+| E0237 | `impl` block for a built-in type |
+| E0238 | Method defined twice for a type, or named like one of the enum's variants |
+| E0239 | `self` parameter outside an `impl` block |
+| E0240 | Method with `self` called on the type, or method without `self` called on a value |
 
 ### Warnings
 

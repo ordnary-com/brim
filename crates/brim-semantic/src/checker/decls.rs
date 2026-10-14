@@ -309,39 +309,165 @@ impl<'a> Checker<'a> {
             } else {
                 self.by_name.insert(name, FnId(i));
             }
+            if let Some(receiver) = &f.receiver {
+                self.diags.push(
+                    Diagnostic::error("`self` is only allowed in methods")
+                        .with_code("E0239")
+                        .with_primary(receiver.span, "")
+                        .with_help("declare the function inside an `impl` block"),
+                );
+            }
+            let sig = self.signature(f, Vec::new(), None);
+            self.sigs.push(sig);
+            self.fn_decls.push(f);
+        }
+    }
 
-            self.type_params = self.type_param_names(&f.type_params);
-            let mut params: Vec<ParamSig> = Vec::new();
-            for param in &f.params {
-                if let Some(previous) = params.iter().find(|p| p.name == param.name.name) {
+    /// Methods from `impl` blocks. They become functions after the free
+    /// functions, with `self` (if any) as their first parameter.
+    pub(super) fn collect_impls(&mut self, program: &'a ast::Program) {
+        for decl in &program.impls {
+            let name = decl.type_name.name.as_str();
+            let def = match self.type_by_name.get(name).copied() {
+                Some(def @ (Def::Struct(_) | Def::Enum(_))) if self.def_span(def).is_some() => def,
+                Some(_) => {
                     self.diags.push(
                         Diagnostic::error(format!(
-                            "parameter `{}` is declared more than once",
-                            param.name.name
+                            "cannot add methods to the built-in type `{name}`"
                         ))
-                        .with_code("E0204")
-                        .with_primary(param.name.span, "duplicate parameter")
-                        .with_secondary(previous.span, "first declared here"),
+                        .with_code("E0237")
+                        .with_primary(decl.type_name.span, "")
+                        .with_help("write a function that takes the value as a parameter"),
                     );
+                    continue;
                 }
-                let ty = self.resolve_type(&param.ty, "a parameter");
-                params.push(ParamSig {
-                    name: param.name.name.clone(),
-                    ty,
-                    span: param.span,
-                });
-            }
-            let ret = match &f.ret {
-                Some(ty) => self.resolve_type(ty, "return"),
-                None => Type::Void,
+                None => {
+                    self.unknown_type(name, decl.type_name.span);
+                    continue;
+                }
             };
-            self.sigs.push(Signature {
-                name_span: f.name.span,
-                type_params: std::mem::take(&mut self.type_params),
-                params,
-                ret,
-                ret_span: f.ret.as_ref().map(ast::TypeExpr::span),
+            let impl_params = self.type_param_names(&decl.type_params);
+            let expected = self.def_type_params(def).len();
+            if impl_params.len() != expected {
+                let params = self.def_type_params(def).join(", ");
+                let written = if expected == 0 {
+                    format!("impl {name}")
+                } else {
+                    format!("impl {name}[{params}]")
+                };
+                self.diags.push(
+                    Diagnostic::error(format!(
+                        "`{name}` takes {} but the `impl` has {}",
+                        super::plural(expected, "type parameter"),
+                        impl_params.len()
+                    ))
+                    .with_code("E0225")
+                    .with_primary(decl.type_name.span, "")
+                    .with_help(format!("write `{written}`")),
+                );
+                continue;
+            }
+            for method in &decl.methods {
+                let key = (def, method.name.name.clone());
+                if let Some(first) = self.methods.get(&key) {
+                    let first_span = self.sigs[first.0].name_span;
+                    self.diags.push(
+                        Diagnostic::error(format!(
+                            "method `{}` is defined more than once for `{name}`",
+                            method.name.name
+                        ))
+                        .with_code("E0238")
+                        .with_primary(method.name.span, "redefined here")
+                        .with_secondary(first_span, "first defined here"),
+                    );
+                    continue;
+                }
+                if let Def::Enum(e) = def
+                    && self.enums[e.0]
+                        .variants
+                        .iter()
+                        .any(|v| v.name == method.name.name)
+                {
+                    self.diags.push(
+                        Diagnostic::error(format!(
+                            "`{name}` already has a variant named `{}`",
+                            method.name.name
+                        ))
+                        .with_code("E0238")
+                        .with_primary(method.name.span, "")
+                        .with_help("methods and variants of an enum need different names"),
+                    );
+                    continue;
+                }
+                let id = FnId(self.sigs.len());
+                let sig = self.signature(method, impl_params.clone(), Some(def));
+                self.sigs.push(sig);
+                self.fn_decls.push(method);
+                self.methods.insert(key, id);
+            }
+        }
+    }
+
+    /// Resolves a function's signature. `outer_params` are the type
+    /// parameters of the surrounding `impl`, which come before the
+    /// function's own; `owner` is the type a method belongs to.
+    fn signature(
+        &mut self,
+        f: &ast::FnDecl,
+        outer_params: Vec<String>,
+        owner: Option<Def>,
+    ) -> Signature {
+        let mut type_params = outer_params;
+        type_params.extend(self.type_param_names(&f.type_params));
+        self.type_params = type_params;
+        let mut params: Vec<ParamSig> = Vec::new();
+        let receiver = match (owner, &f.receiver) {
+            (Some(def), Some(receiver)) => {
+                let ty = self.own_type(def);
+                params.push(ParamSig {
+                    name: "self".into(),
+                    ty,
+                    span: receiver.span,
+                });
+                Some(receiver.mutable)
+            }
+            _ => None,
+        };
+        for param in &f.params {
+            if let Some(previous) = params.iter().find(|p| p.name == param.name.name) {
+                self.diags.push(
+                    Diagnostic::error(format!(
+                        "parameter `{}` is declared more than once",
+                        param.name.name
+                    ))
+                    .with_code("E0204")
+                    .with_primary(param.name.span, "duplicate parameter")
+                    .with_secondary(previous.span, "first declared here"),
+                );
+            }
+            let ty = self.resolve_type(&param.ty, "a parameter");
+            params.push(ParamSig {
+                name: param.name.name.clone(),
+                ty,
+                span: param.span,
             });
+        }
+        let ret = match &f.ret {
+            Some(ty) => self.resolve_type(ty, "return"),
+            None => Type::Void,
+        };
+        let name = match owner {
+            Some(def) => format!("{}.{}", self.def_name(def), f.name.name),
+            None => f.name.name.clone(),
+        };
+        Signature {
+            name,
+            name_span: f.name.span,
+            type_params: std::mem::take(&mut self.type_params),
+            params,
+            ret,
+            ret_span: f.ret.as_ref().map(ast::TypeExpr::span),
+            receiver,
         }
     }
 
@@ -440,8 +566,8 @@ impl<'a> Checker<'a> {
         diag = match declared.or(suggest::type_name(name)) {
             Some(s) => diag.with_help(format!("did you mean `{s}`?")),
             None => diag.with_note(
-                "the available types are `i64`, `bool`, `string`, `void`, `Option`, `Result` \
-                 and the declared structs and enums",
+                "the available types are `i64`, `bool`, `string`, `void`, `Option`, `Result`, \
+                 `List`, `Map` and the declared structs and enums",
             ),
         };
         self.diags.push(diag);

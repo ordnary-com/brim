@@ -10,9 +10,25 @@ use brim_ast as ast;
 use brim_diagnostics::{Diagnostic, Span};
 
 use super::{Checker, FnCtx, error_expr, plural, supplied};
-use crate::checked::{BinaryOp, CheckedExpr, CheckedExprKind, UnaryOp};
+use crate::checked::{BinaryOp, CheckedExpr, CheckedExprKind, CheckedPlace, FnId, UnaryOp};
 use crate::suggest;
 use crate::{Def, EnumId, Type};
+
+/// The `self` of a method call.
+enum MethodReceiver {
+    Value(CheckedExpr),
+    /// For `mut self` methods.
+    Place(CheckedPlace),
+}
+
+impl MethodReceiver {
+    fn ty(&self) -> Type {
+        match self {
+            MethodReceiver::Value(v) => v.ty,
+            MethodReceiver::Place(p) => p.ty,
+        }
+    }
+}
 
 /// What a generic item is, for "cannot infer" messages.
 struct Generic<'n> {
@@ -89,10 +105,13 @@ impl<'a> Checker<'a> {
                 return self.check_index(base, index, span, ctx);
             }
             ast::ExprKind::MethodCall { base, name, args } => {
-                if let Some(e) = self.enum_name(base, ctx) {
-                    return self.check_variant_name(e, name, Some(args), span, expected, ctx);
+                if let Some(def) = self.type_name_of(base, ctx) {
+                    return self.check_static_call(def, name, args, span, expected, ctx);
                 }
                 if let Some(result) = self.method_on_list(base, name, args, span, ctx) {
+                    return result;
+                }
+                if let Some(result) = self.method_on_value(base, name, args, span, expected, ctx) {
                     return result;
                 }
                 let base = self.check_expr(base, ctx);
@@ -189,6 +208,256 @@ impl<'a> Checker<'a> {
         }
         self.as_list(probe.ty)?;
         self.check_list_method(base, name, args, span, ctx)
+    }
+
+    /// If `expr` is a plain name that refers to a declared struct or enum
+    /// (and not to a variable), that type.
+    fn type_name_of(&self, expr: &ast::Expr, ctx: &FnCtx) -> Option<Def> {
+        let ast::ExprKind::Name(ident) = &expr.kind else {
+            return None;
+        };
+        if ctx.lookup(&ident.name).is_some() {
+            return None;
+        }
+        match self.type_by_name.get(&ident.name) {
+            Some(def @ (Def::Struct(_) | Def::Enum(_))) => Some(*def),
+            _ => None,
+        }
+    }
+
+    /// `Type.name(args)`: an enum variant, or a method without `self`.
+    fn check_static_call(
+        &mut self,
+        def: Def,
+        name: &ast::Ident,
+        args: &[ast::Expr],
+        span: Span,
+        expected: Option<Type>,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        if let Def::Enum(e) = def
+            && self.enums[e.0].variants.iter().any(|v| v.name == name.name)
+        {
+            return self.check_variant_name(e, name, Some(&args.to_vec()), span, expected, ctx);
+        }
+        let Some(&id) = self.methods.get(&(def, name.name.clone())) else {
+            if let Def::Enum(e) = def {
+                // Reports the unknown variant.
+                return self.check_variant_name(e, name, Some(&args.to_vec()), span, expected, ctx);
+            }
+            for arg in args {
+                self.check_expr(arg, ctx);
+            }
+            self.unknown_method(def, name);
+            return error_expr(span);
+        };
+        if self.sigs[id.0].receiver.is_some() {
+            for arg in args {
+                self.check_expr(arg, ctx);
+            }
+            let type_name = self.def_name(def).to_string();
+            self.diags.push(
+                Diagnostic::error(format!("`{}` needs a `{type_name}` value", name.name))
+                    .with_code("E0240")
+                    .with_primary(span, "called without a value")
+                    .with_secondary(self.sigs[id.0].name_span, "the method takes `self`")
+                    .with_help(format!(
+                        "call it on a value: `{}.{}(...)`",
+                        type_name.to_lowercase(),
+                        name.name
+                    )),
+            );
+            return error_expr(span);
+        }
+        let arg_refs: Vec<&ast::Expr> = args.iter().collect();
+        self.finish_call(id, None, &arg_refs, span, expected, ctx)
+    }
+
+    fn unknown_method(&mut self, def: Def, name: &ast::Ident) {
+        let type_name = self.def_name(def).to_string();
+        let names: Vec<&str> = self
+            .methods
+            .keys()
+            .filter(|(d, _)| *d == def)
+            .map(|(_, n)| n.as_str())
+            .collect();
+        let mut diag = Diagnostic::error(format!("`{type_name}` has no method `{}`", name.name))
+            .with_code("E0231")
+            .with_primary(name.span, "unknown method");
+        if let Some(span) = self.def_span(def) {
+            diag = diag.with_secondary(span, format!("`{type_name}` is declared here"));
+        }
+        let built_in = self.def_span(def).is_none();
+        diag = match suggest::similar(&name.name, names.iter().copied()) {
+            Some(similar) => diag.with_help(format!("did you mean `{similar}`?")),
+            None if built_in => diag.with_note(format!(
+                "`{type_name}` is built in and has no methods; use `match`"
+            )),
+            None => diag.with_help(format!("add it in an `impl {type_name} {{ ... }}` block")),
+        };
+        self.diags.push(diag);
+    }
+
+    /// `value.name(args)` where `value` is a struct or enum with that method.
+    fn method_on_value(
+        &mut self,
+        base: &ast::Expr,
+        name: &ast::Ident,
+        args: &[ast::Expr],
+        span: Span,
+        expected: Option<Type>,
+        ctx: &mut FnCtx,
+    ) -> Option<CheckedExpr> {
+        let errors = self.diags.len();
+        let probe = self.check_expr(base, ctx);
+        self.diags.truncate(errors);
+        let Type::Named(type_id) = probe.ty else {
+            return None;
+        };
+        let def = self.types.get(type_id).def;
+        if !matches!(def, Def::Struct(_) | Def::Enum(_)) {
+            return None;
+        }
+        let Some(&id) = self.methods.get(&(def, name.name.clone())) else {
+            let receiver = self.check_expr(base, ctx);
+            for arg in args {
+                self.check_expr(arg, ctx);
+            }
+            if receiver.ty != Type::Error {
+                self.unknown_method(def, name);
+            }
+            return Some(error_expr(span));
+        };
+        let arg_refs: Vec<&ast::Expr> = args.iter().collect();
+        let receiver = match self.sigs[id.0].receiver {
+            None => {
+                let type_name = self.def_name(def).to_string();
+                self.diags.push(
+                    Diagnostic::error(format!("`{}` does not take `self`", name.name))
+                        .with_code("E0240")
+                        .with_primary(name.span, "")
+                        .with_secondary(self.sigs[id.0].name_span, "declared here")
+                        .with_help(format!(
+                            "call it on the type: `{type_name}.{}(...)`",
+                            name.name
+                        )),
+                );
+                for arg in args {
+                    self.check_expr(arg, ctx);
+                }
+                return Some(error_expr(span));
+            }
+            Some(false) => MethodReceiver::Value(self.check_expr(base, ctx)),
+            Some(true) => {
+                let action = format!("call `{}` on", name.name);
+                match self.check_place(base, ctx, &action) {
+                    Some(place) => MethodReceiver::Place(place),
+                    None => {
+                        for arg in args {
+                            self.check_expr(arg, ctx);
+                        }
+                        return Some(error_expr(span));
+                    }
+                }
+            }
+        };
+        Some(self.finish_call(id, Some(receiver), &arg_refs, span, expected, ctx))
+    }
+
+    /// Checks the arguments of a call of function `id` (with `receiver` as
+    /// `self` for a method) and builds the call.
+    fn finish_call(
+        &mut self,
+        id: FnId,
+        receiver: Option<MethodReceiver>,
+        args: &[&ast::Expr],
+        span: Span,
+        expected: Option<Type>,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        let sig = &self.sigs[id.0];
+        let params: Vec<(Type, Span)> = sig.params.iter().map(|p| (p.ty, p.span)).collect();
+        let (ret, name_span, name) = (sig.ret, sig.name_span, sig.name.clone());
+        let type_params = sig.type_params.clone();
+        let mut bindings: Vec<Option<Type>> = vec![None; type_params.len()];
+        // `self` comes first and determines the `impl`'s type arguments.
+        let skip = usize::from(receiver.is_some());
+        if let Some(receiver) = &receiver {
+            self.types.unify(params[0].0, receiver.ty(), &mut bindings);
+        }
+        if let Some(expected) = expected {
+            self.types.unify(ret, expected, &mut bindings);
+        }
+        let param_types: Vec<Type> = params[skip..].iter().map(|p| p.0).collect();
+        let checked = self.infer_from(&mut bindings, &param_types, args, ctx);
+        if checked.len() != params.len() - skip {
+            self.diags.push(
+                Diagnostic::error(format!(
+                    "{} `{name}` takes {} but {} supplied",
+                    if name.contains('.') {
+                        "method"
+                    } else {
+                        "function"
+                    },
+                    plural(params.len() - skip, "argument"),
+                    supplied(checked.len())
+                ))
+                .with_code("E0205")
+                .with_primary(
+                    span,
+                    format!("expected {}", plural(params.len() - skip, "argument")),
+                )
+                .with_secondary(name_span, format!("`{name}` is defined here")),
+            );
+            return error_expr(span);
+        }
+        let generic = Generic {
+            what: format!(
+                "{} `{name}`",
+                if name.contains('.') {
+                    "method"
+                } else {
+                    "function"
+                }
+            ),
+            params: &type_params,
+        };
+        let Some(type_args) = self.require_inferred(bindings, generic, &checked, span) else {
+            return error_expr(span);
+        };
+        for (arg, (ty, param_span)) in checked.iter().zip(&params[skip..]) {
+            let ty = self.types.subst(*ty, &type_args);
+            self.expect_type(arg, ty, Some(*param_span), "parameter declared here");
+        }
+        let ret = self.types.subst(ret, &type_args);
+        let kind = match receiver {
+            None => CheckedExprKind::Call {
+                func: id,
+                type_args,
+                args: checked,
+            },
+            Some(MethodReceiver::Value(value)) => {
+                let mut all = Vec::with_capacity(checked.len() + 1);
+                all.push(value);
+                all.extend(checked);
+                CheckedExprKind::Call {
+                    func: id,
+                    type_args,
+                    args: all,
+                }
+            }
+            Some(MethodReceiver::Place(place)) => CheckedExprKind::CallMut {
+                func: id,
+                type_args,
+                place,
+                args: checked,
+            },
+        };
+        CheckedExpr {
+            kind,
+            ty: ret,
+            span,
+        }
     }
 
     /// If `expr` is a plain name that refers to an enum (and not to a
@@ -295,6 +564,19 @@ impl<'a> Checker<'a> {
         if let Some(expected) = expected {
             self.types.unify(result, expected, &mut bindings);
         }
+        let checked = self.infer_from(&mut bindings, params, args, ctx);
+        (checked, bindings)
+    }
+
+    /// Checks `args` against `params`, extending `bindings` (see
+    /// [`infer_args`](Self::infer_args)).
+    fn infer_from(
+        &mut self,
+        bindings: &mut [Option<Type>],
+        params: &[Type],
+        args: &[&ast::Expr],
+        ctx: &mut FnCtx,
+    ) -> Vec<CheckedExpr> {
         // Arguments whose own type may depend on the expected type (`None`,
         // `Ok(x)`, generic calls, ...) are checked last, so the other
         // arguments can determine the type arguments first. Checking order
@@ -306,19 +588,18 @@ impl<'a> Checker<'a> {
                     continue;
                 }
                 let param = params.get(i).copied();
-                let hint = param.and_then(|p| self.types.subst_partial(p, &bindings));
+                let hint = param.and_then(|p| self.types.subst_partial(p, bindings));
                 let value = self.check_expr_with(arg, hint, ctx);
                 if let Some(p) = param {
-                    self.types.unify(p, value.ty, &mut bindings);
+                    self.types.unify(p, value.ty, bindings);
                 }
                 checked[i] = Some(value);
             }
         }
-        let checked = checked
+        checked
             .into_iter()
             .map(|c| c.expect("every argument is checked"))
-            .collect();
-        (checked, bindings)
+            .collect()
     }
 
     /// Whether checking `expr` may use the type the context expects.
@@ -374,7 +655,7 @@ impl<'a> Checker<'a> {
 
     /// The type `def[Param(0), Param(1), ...]`: the declaration's own type,
     /// as seen from inside it.
-    fn own_type(&mut self, def: Def) -> Type {
+    pub(super) fn own_type(&mut self, def: Def) -> Type {
         let n = self.def_type_params(def).len();
         let params = (0..n)
             .map(|i| Type::Param(u32::try_from(i).expect("few type parameters")))
@@ -937,58 +1218,8 @@ impl<'a> Checker<'a> {
         }
 
         if let Some(&id) = self.by_name.get(name) {
-            let sig = &self.sigs[id.0];
-            let params: Vec<(Type, Span)> = sig.params.iter().map(|p| (p.ty, p.span)).collect();
-            let (ret, name_span) = (sig.ret, sig.name_span);
-            let type_params = sig.type_params.clone();
-            let param_types: Vec<Type> = params.iter().map(|p| p.0).collect();
-            let (checked, bindings) = self.infer_args(
-                type_params.len(),
-                &param_types,
-                ret,
-                &arg_refs,
-                expected,
-                ctx,
-            );
-            if checked.len() != params.len() {
-                self.diags.push(
-                    Diagnostic::error(format!(
-                        "function `{name}` takes {} but {} supplied",
-                        plural(params.len(), "argument"),
-                        supplied(checked.len())
-                    ))
-                    .with_code("E0205")
-                    .with_primary(
-                        span,
-                        format!("expected {}", plural(params.len(), "argument")),
-                    )
-                    .with_secondary(name_span, format!("`{name}` is defined here")),
-                );
-                return error_expr(span);
-            }
-            let generic = Generic {
-                what: format!("function `{name}`"),
-                params: &type_params,
-            };
-            let Some(type_args) = self.require_inferred(bindings, generic, &checked, span) else {
-                return error_expr(span);
-            };
-            for (arg, (ty, param_span)) in checked.iter().zip(params) {
-                let ty = self.types.subst(ty, &type_args);
-                self.expect_type(arg, ty, Some(param_span), "parameter declared here");
-            }
-            let ret = self.types.subst(ret, &type_args);
-            return CheckedExpr {
-                kind: CheckedExprKind::Call {
-                    func: id,
-                    type_args,
-                    args: checked,
-                },
-                ty: ret,
-                span,
-            };
+            return self.finish_call(id, None, &arg_refs, span, expected, ctx);
         }
-
         if let Some(builtin) = brim_stdlib::lookup(name) {
             let args: Vec<CheckedExpr> = args.iter().map(|a| self.check_expr(a, ctx)).collect();
             let arities = builtin.arities();

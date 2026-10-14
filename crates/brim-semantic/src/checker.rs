@@ -16,12 +16,17 @@ use crate::{Def, EnumId, StructId, Type, TypeTable};
 
 /// A resolved function signature.
 struct Signature {
+    /// `name`, or `Type.name` for a method.
+    name: String,
     name_span: Span,
     type_params: Vec<String>,
     params: Vec<ParamSig>,
     ret: Type,
     /// Span of the `-> type` annotation, if written.
     ret_span: Option<Span>,
+    /// For methods with `self`: whether it is `mut self`. `self` is then the
+    /// first parameter.
+    receiver: Option<bool>,
 }
 
 struct ParamSig {
@@ -75,6 +80,11 @@ pub(crate) struct Checker<'a> {
     sigs: Vec<Signature>,
     /// Function names to the first function declared with that name.
     by_name: HashMap<&'a str, FnId>,
+    /// The declaration of every function, free functions first, then
+    /// methods; indexed by `FnId` like `sigs`.
+    fn_decls: Vec<&'a ast::FnDecl>,
+    /// Methods by type and name.
+    methods: HashMap<(Def, String), FnId>,
     /// Type parameter names of the declaration being checked, for resolving
     /// and showing `Type::Param`.
     type_params: Vec<String>,
@@ -152,6 +162,8 @@ impl<'a> Checker<'a> {
             prelude_variants: HashMap::new(),
             sigs: Vec::new(),
             by_name: HashMap::new(),
+            fn_decls: Vec::new(),
+            methods: HashMap::new(),
             type_params: Vec::new(),
             list_type_params: vec!["T".into()],
             map_type_params: vec!["K".into(), "V".into()],
@@ -160,9 +172,10 @@ impl<'a> Checker<'a> {
         checker.add_prelude();
         checker.collect_types(program);
         checker.collect_functions(program);
+        checker.collect_impls(program);
         let entry = checker.check_entry();
-        let functions: Vec<CheckedFn> = program
-            .functions
+        let decls = checker.fn_decls.clone();
+        let functions: Vec<CheckedFn> = decls
             .iter()
             .zip(0..)
             .map(|(f, i)| checker.check_fn(f, FnId(i)))
@@ -285,12 +298,14 @@ impl<'a> Checker<'a> {
             ret: sig.ret,
             ret_span: sig.ret_span,
         };
-        for param in &sig.params {
+        let mut_self = sig.receiver == Some(true);
+        for (index, param) in sig.params.iter().enumerate() {
             let local = LocalId(ctx.locals.len());
             ctx.locals.push(Local {
                 name: param.name.clone(),
                 ty: param.ty,
-                mutable: false,
+                // `mut self` lets the method change the caller's value.
+                mutable: mut_self && index == 0,
                 span: param.span,
             });
             ctx.reassigned.push(false);
@@ -303,7 +318,8 @@ impl<'a> Checker<'a> {
         // body conflicts with a parameter `a`.
         let (body, diverges) = self.check_stmts(&f.body.stmts, &mut ctx);
 
-        for (local, reassigned) in ctx.locals.iter().zip(&ctx.reassigned) {
+        let skip = usize::from(mut_self);
+        for (local, reassigned) in ctx.locals.iter().zip(&ctx.reassigned).skip(skip) {
             if local.mutable && !reassigned {
                 self.diags.push(
                     Diagnostic::warning(format!(
@@ -334,7 +350,8 @@ impl<'a> Checker<'a> {
 
         let type_params = std::mem::take(&mut self.type_params);
         CheckedFn {
-            name: f.name.name.clone(),
+            name: self.sigs[id.0].name.clone(),
+            mut_self,
             span: f.span,
             type_params,
             param_count,
@@ -485,6 +502,7 @@ impl<'a> Checker<'a> {
                             | CheckedExprKind::Builtin { .. }
                             | CheckedExprKind::ListOp { .. }
                             | CheckedExprKind::MapOp { .. }
+                            | CheckedExprKind::CallMut { .. }
                     )
                 };
                 // `do_something()?` is a call too: only its error is used.
@@ -581,7 +599,9 @@ impl<'a> Checker<'a> {
                     },
                 )
                 .with_secondary(decl_span, "declared here");
-            diag = if is_param {
+            diag = if target.name == "self" {
+                diag.with_help("declare the method with `mut self` to change `self`")
+            } else if is_param {
                 diag.with_note("function parameters cannot be reassigned")
                     .with_help(format!(
                         "copy it into a mutable variable: `let mut {}: {ty} = {}`",

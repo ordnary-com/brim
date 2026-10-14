@@ -89,7 +89,11 @@ impl CheckedProgram {
 
 #[derive(Clone, Debug)]
 pub struct CheckedFn {
+    /// `name`, or `Type.name` for a method.
     pub name: String,
+    /// A method with `mut self`: `self` (local 0) is taken from the caller
+    /// and given back changed, together with the result.
+    pub mut_self: bool,
     pub span: Span,
     /// Names of the type parameters of a generic function; types in the
     /// signature, locals and body use `Type::Param(i)`.
@@ -295,6 +299,14 @@ pub enum CheckedExprKind {
         func: FnId,
         /// The type arguments of a generic function (empty otherwise).
         type_args: Vec<Type>,
+        args: Vec<CheckedExpr>,
+    },
+    /// A call of a `mut self` method on a place: the place's value is passed
+    /// as `self` and replaced by the changed `self` afterwards.
+    CallMut {
+        func: FnId,
+        type_args: Vec<Type>,
+        place: CheckedPlace,
         args: Vec<CheckedExpr>,
     },
     /// A call to a builtin, resolved to the runtime function implementing the

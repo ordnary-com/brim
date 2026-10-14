@@ -60,13 +60,13 @@ Keywords with meaning in 0.1:
 
 ```
 fn  let  mut  return  if  else  while  break  continue  true  false  struct
-enum  match  for  in
+enum  match  for  in  impl  self
 ```
 
 Reserved words for planned features. They cannot be used as identifiers, and using one produces error `E0101`:
 
 ```
-as  async  await  const  impl  import  loop  pub  self  trait  type  use
+as  async  await  const  import  loop  pub  trait  type  use
 ```
 
 The type names `i64`, `bool`, `string` and `void` are **not** keywords. They are predeclared type names, resolved during semantic analysis.
@@ -112,7 +112,8 @@ The grammar below uses EBNF. `NEWLINE` is a newline token; `EOF` is the end of i
 
 ```ebnf
 program     = { separator } { item { separator } } EOF ;
-item        = function | struct | enum ;
+item        = function | struct | enum | impl ;
+impl        = "impl" identifier [ type_params ] "{" { separator } { function { separator } } "}" ;
 separator   = NEWLINE | ";" ;
 
 struct      = "struct" identifier [ type_params ] "{" { field_sep } [ field { field_sep { field_sep } field } ] { field_sep } "}" ;
@@ -125,7 +126,8 @@ variant     = identifier [ "(" type { "," type } [ "," ] ")" ] ;
 type_params = "[" identifier { "," identifier } [ "," ] "]" ;
 
 function    = "fn" identifier [ type_params ] "(" [ params ] ")" [ "->" type ] block ;
-params      = param { "," param } [ "," ] ;
+params      = ( receiver [ "," param { "," param } ] | param { "," param } ) [ "," ] ;
+receiver    = [ "mut" ] "self" ;
 param       = identifier ":" type ;
 type        = identifier [ "[" type { "," type } [ "," ] "]" ] ;
 
@@ -340,7 +342,25 @@ fn total(a: string, b: string) -> Result[i64, string] {
 
   `insert`, `remove` and `clear` change the map and need a `let mut` variable. To loop over a map, loop over `keys()` or `values()`.
 
-### 5.7 Function types
+### 5.7 Methods
+
+```brim
+impl Stack[T] {
+    fn new() -> Stack[T] { return Stack { items: [] } }
+    fn size(self) -> i64 { return self.items.len() }
+    fn push(mut self, item: T) { self.items.push(item) }
+}
+```
+
+An `impl` block adds **methods** to a struct or enum declared in the same file. A generic type's `impl` lists its type parameters (`impl Stack[T]`), which the methods can use; methods may also have their own.
+
+- A method whose first parameter is `self` is called on a value: `stack.size()`. `self` is a copy of the value, like any parameter.
+- With `mut self`, the method changes the caller's value: `stack.push(1)` replaces `stack` with the changed `self` when the method returns. The value must be a `let mut` variable, or a field or element of one (`E0218`, `E0104`). The value is moved into the method, so changing a list inside `self` does not copy it.
+- A method without `self` is called on the type: `Stack.new()`.
+- Calling a method the wrong way is `E0240`; an unknown method is `E0231`. Methods of one type need different names, and an enum's methods cannot share a name with its variants (`E0238`). Built-in types cannot get methods (`E0237`), and `self` outside an `impl` is `E0239`.
+- `self` is a keyword; inside a method it is a variable like a parameter.
+
+### 5.8 Function types
 
 A function's type is its parameter type list and its return type, written informally as `fn(i64, i64) -> i64`. Function types cannot be written in source yet, and functions are not values: they can only be called by name (`E0214`).
 
@@ -543,7 +563,7 @@ These questions are not settled. The current behavior is a reversible default.
 
 ## 12. Possible future features
 
-These are explicitly **not** part of 0.1. Their keywords are reserved where applicable, and none of them should be assumed to work: `loop`, user-defined methods, recursive enums, traits, generics, modules and imports, closures and first-class functions, collections, error handling, async/await, macros, reflection, an ownership or borrowing system, and FFI.
+These are explicitly **not** part of 0.1. Their keywords are reserved where applicable, and none of them should be assumed to work: `loop`, traits, recursive enums, traits, generics, modules and imports, closures and first-class functions, collections, error handling, async/await, macros, reflection, an ownership or borrowing system, and FFI.
 
 See `docs/roadmap.md` for the order in which these are planned.
 

@@ -1,0 +1,67 @@
+// Methods on a generic type. `mut self` methods change the caller's value.
+
+struct Stack[T] {
+    items: List[T]
+}
+
+impl Stack[T] {
+    fn new() -> Stack[T] {
+        return Stack { items: [] }
+    }
+
+    fn push(mut self, item: T) {
+        self.items.push(item)
+    }
+
+    fn pop(mut self) -> Option[T] {
+        return self.items.pop()
+    }
+
+    fn is_empty(self) -> bool {
+        return self.items.is_empty()
+    }
+}
+
+// Checks that brackets are balanced, using a stack of the closing brackets
+// that are still expected.
+fn check(text: List[string]) -> Result[i64, string] {
+    let mut open: Stack[string] = Stack.new()
+    let mut depth: i64 = 0
+    for c in text {
+        match c {
+            "(" => open.push(")")
+            "[" => open.push("]")
+            _ => {
+                match open.pop() {
+                    Some(expected) => {
+                        if expected != c {
+                            return Err("expected " + expected + ", found " + c)
+                        }
+                    }
+                    None => return Err("unexpected " + c)
+                }
+            }
+        }
+        if !open.is_empty() && open.items.len() > depth {
+            depth = open.items.len()
+        }
+    }
+    if !open.is_empty() {
+        return Err("unclosed brackets")
+    }
+    return Ok(depth)
+}
+
+fn report(text: List[string]) {
+    match check(text) {
+        Ok(depth) => print(text.join("") + ": balanced, depth " + to_string(depth))
+        Err(message) => print(text.join("") + ": " + message)
+    }
+}
+
+fn main() {
+    report(["(", "[", "]", ")"])
+    report(["(", "[", ")", "]"])
+    report(["(", "("])
+    report([")"])
+}

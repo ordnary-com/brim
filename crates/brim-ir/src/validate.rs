@@ -351,11 +351,23 @@ impl FnValidator<'_> {
                 self.expect_operand(*b, operand, local);
                 Some(out)
             }
-            InstKind::Call(func, args) => {
+            InstKind::Call(func, args) | InstKind::CallMut(func, args) => {
                 let Some(callee) = self.module.functions.get(func.index()) else {
                     self.error(format!("call to nonexistent {func}"));
                     return;
                 };
+                let moves = matches!(kind, InstKind::CallMut(..));
+                if callee.consumes_self != moves {
+                    self.error(format!(
+                        "`{}` must be called with {}",
+                        callee.name,
+                        if callee.consumes_self {
+                            "call.mut"
+                        } else {
+                            "call"
+                        }
+                    ));
+                }
                 let params: Vec<Type> = callee.param_types().collect();
                 self.check_args(&format!("`{}`", callee.name), args, &params, local);
                 (callee.ret != Type::Void).then_some(callee.ret)
@@ -513,7 +525,12 @@ impl FnValidator<'_> {
         };
         match (produced, result) {
             (None, None) => {}
-            (Some(_), None) if matches!(kind, InstKind::Call(..) | InstKind::CallRuntime(..)) => {
+            (Some(_), None)
+                if matches!(
+                    kind,
+                    InstKind::Call(..) | InstKind::CallMut(..) | InstKind::CallRuntime(..)
+                ) =>
+            {
                 // Discarding a call's result is allowed.
             }
             (Some(ty), None) => self.error(format!("instruction producing {ty} has no result")),

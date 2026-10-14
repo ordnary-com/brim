@@ -11,6 +11,7 @@ fn inst(result: Option<u32>, kind: InstKind) -> Inst {
 /// `fn add(a: i64, b: i64) -> i64 { return a + b }`
 fn add_fn() -> Function {
     Function {
+        consumes_self: false,
         name: "add".into(),
         param_count: 2,
         ret: Type::I64,
@@ -42,6 +43,7 @@ fn add_fn() -> Function {
 /// `fn main() { print(add(10, 32)) }`
 fn main_fn() -> Function {
     Function {
+        consumes_self: false,
         name: "main".into(),
         param_count: 0,
         ret: Type::Void,
@@ -229,6 +231,7 @@ fn struct_module(insts: Vec<InstKind>, values: Vec<Type>) -> Module {
             ],
         }],
         functions: vec![Function {
+            consumes_self: false,
             name: "main".into(),
             param_count: 0,
             ret: Type::Void,

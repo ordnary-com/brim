@@ -1,0 +1,54 @@
+struct Counter {
+    count: i64
+    history: List[i64]
+}
+
+impl Counter {
+    fn new() -> Counter {
+        return Counter { count: 0, history: [] }
+    }
+
+    fn bump(self) {
+        self.count += 1
+        self.history.push(1)
+    }
+
+    fn value(self) -> i64 {
+        return self.count
+    }
+
+    fn value(self) -> i64 {
+        return 0
+    }
+}
+
+impl List {
+    fn first_or_zero(self) -> i64 {
+        return 0
+    }
+}
+
+impl Missing {
+}
+
+enum Light {
+    Red
+    Green
+}
+
+impl Light {
+    fn Red() -> Light {
+        return Light.Green
+    }
+}
+
+fn free(self) {
+}
+
+fn main() {
+    let c: Counter = Counter.new()
+    print(c.valeu())
+    print(Counter.value())
+    let d: Counter = c.new()
+    print(Counter.make())
+}

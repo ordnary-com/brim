@@ -482,8 +482,21 @@ fn execute(
                     None => continue,
                 }
             }
-            InstKind::Call(callee, args) => {
-                let args: Vec<Value> = args.iter().map(|a| frame.get(*a).clone()).collect();
+            InstKind::Call(callee, args) | InstKind::CallMut(callee, args) => {
+                // `call.mut` moves its first argument, so the callee can
+                // change it in place.
+                let moves = matches!(inst.kind, InstKind::CallMut(..));
+                let args: Vec<Value> = args
+                    .iter()
+                    .enumerate()
+                    .map(|(i, a)| {
+                        if moves && i == 0 {
+                            frame.take(*a)
+                        } else {
+                            frame.get(*a).clone()
+                        }
+                    })
+                    .collect();
                 if stack.len() >= limits.max_call_depth {
                     return Err(fail(RuntimeError::StackOverflow {
                         limit: limits.max_call_depth,

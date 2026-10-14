@@ -37,6 +37,9 @@ pub enum TokenKind {
     Match,
     For,
     In,
+    Impl,
+    /// `self`, the receiver of a method.
+    SelfValue,
     /// A keyword reserved for a future language feature (`if`, `struct`, ...).
     Reserved(&'static str),
 
@@ -108,13 +111,14 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("match", TokenKind::Match),
     ("for", TokenKind::For),
     ("in", TokenKind::In),
+    ("impl", TokenKind::Impl),
+    ("self", TokenKind::SelfValue),
 ];
 
 /// Words reserved for planned features. They cannot be used as identifiers,
 /// which lets those features be added later without breaking programs.
 pub const RESERVED: &[&str] = &[
-    "as", "async", "await", "const", "impl", "import", "loop", "pub", "self", "trait", "type",
-    "use",
+    "as", "async", "await", "const", "import", "loop", "pub", "trait", "type", "use",
 ];
 
 impl TokenKind {
@@ -155,6 +159,8 @@ impl fmt::Display for TokenKind {
             TokenKind::Match => "match",
             TokenKind::For => "for",
             TokenKind::In => "in",
+            TokenKind::Impl => "impl",
+            TokenKind::SelfValue => "self",
             TokenKind::Reserved(word) => word,
             TokenKind::LParen => "(",
             TokenKind::RParen => ")",

@@ -76,13 +76,12 @@ error[E0229]: `match` does not cover every value
    = note: not covered: `Err(_)`
    = help: add an arm for each, or a `_ => ...` arm
 
-error[E0231]: `Option[i64]` has no method `len`
+error[E0231]: `Option` has no method `len`
   --> tests/diagnostics/generic_errors.brim:29:13
    |
 29 |     print(x.len())
-   |           - this is `Option[i64]`
    |             ^^^ unknown method
    |
-   = note: methods are not supported yet; use a function instead
+   = note: `Option` is built in and has no methods; use `match`
 
 error: could not compile tests/diagnostics/generic_errors.brim due to 10 errors

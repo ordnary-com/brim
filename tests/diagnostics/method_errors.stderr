@@ -1,0 +1,107 @@
+error[E0218]: cannot assign to a part of immutable variable `self`
+  --> tests/diagnostics/method_errors.brim:12:9
+   |
+11 |     fn bump(self) {
+   |             ---- declared here
+12 |         self.count += 1
+   |         ^^^^ it cannot be changed
+   |
+   = help: declare the method with `mut self` to change `self`
+
+error[E0218]: cannot call `push` on a part of immutable variable `self`
+  --> tests/diagnostics/method_errors.brim:13:9
+   |
+11 |     fn bump(self) {
+   |             ---- declared here
+...
+13 |         self.history.push(1)
+   |         ^^^^ declared without `mut`
+   |
+   = help: declare the method with `mut self` to change `self`
+
+error[E0238]: method `value` is defined more than once for `Counter`
+  --> tests/diagnostics/method_errors.brim:20:8
+   |
+16 |     fn value(self) -> i64 {
+   |        ----- first defined here
+...
+20 |     fn value(self) -> i64 {
+   |        ^^^^^ redefined here
+
+error[E0237]: cannot add methods to the built-in type `List`
+  --> tests/diagnostics/method_errors.brim:25:6
+   |
+25 | impl List {
+   |      ^^^^
+   |
+   = help: write a function that takes the value as a parameter
+
+error[E0212]: unknown type `Missing`
+  --> tests/diagnostics/method_errors.brim:31:6
+   |
+31 | impl Missing {
+   |      ^^^^^^^ not a known type
+   |
+   = note: the available types are `i64`, `bool`, `string`, `void`, `Option`, `Result`, `List`, `Map` and the declared structs and enums
+
+error[E0238]: `Light` already has a variant named `Red`
+  --> tests/diagnostics/method_errors.brim:40:8
+   |
+40 |     fn Red() -> Light {
+   |        ^^^
+   |
+   = help: methods and variants of an enum need different names
+
+error[E0239]: `self` is only allowed in methods
+  --> tests/diagnostics/method_errors.brim:45:9
+   |
+45 | fn free(self) {
+   |         ^^^^
+   |
+   = help: declare the function inside an `impl` block
+
+error[E0231]: `Counter` has no method `valeu`
+  --> tests/diagnostics/method_errors.brim:50:13
+   |
+ 1 | struct Counter {
+   |        ------- `Counter` is declared here
+...
+50 |     print(c.valeu())
+   |             ^^^^^ unknown method
+   |
+   = help: did you mean `value`?
+
+error[E0240]: `value` needs a `Counter` value
+  --> tests/diagnostics/method_errors.brim:51:11
+   |
+16 |     fn value(self) -> i64 {
+   |        ----- the method takes `self`
+...
+51 |     print(Counter.value())
+   |           ^^^^^^^^^^^^^^^ called without a value
+   |
+   = help: call it on a value: `counter.value(...)`
+
+error[E0240]: `new` does not take `self`
+  --> tests/diagnostics/method_errors.brim:52:24
+   |
+ 7 |     fn new() -> Counter {
+   |        --- declared here
+...
+52 |     let d: Counter = c.new()
+   |                        ^^^
+   |
+   = help: call it on the type: `Counter.new(...)`
+
+error[E0231]: `Counter` has no method `make`
+  --> tests/diagnostics/method_errors.brim:53:19
+   |
+ 1 | struct Counter {
+   |        ------- `Counter` is declared here
+...
+53 |     print(Counter.make())
+   |                   ^^^^ unknown method
+   |
+   = help: add it in an `impl Counter { ... }` block
+
+error: could not compile tests/diagnostics/method_errors.brim due to 11 errors

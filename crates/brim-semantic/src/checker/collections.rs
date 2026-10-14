@@ -569,7 +569,9 @@ impl<'a> Checker<'a> {
             .with_code("E0218")
             .with_primary(name.span, "declared without `mut`")
             .with_secondary(decl_span, "declared here");
-        diag = if is_param {
+        diag = if name.name == "self" {
+            diag.with_help("declare the method with `mut self` to change `self`")
+        } else if is_param {
             diag.with_note("function parameters cannot be changed")
                 .with_help(format!(
                     "copy it into a mutable variable: `let mut {}: {ty} = {}`",

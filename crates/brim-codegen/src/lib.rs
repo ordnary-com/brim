@@ -165,6 +165,7 @@ mod tests {
             lists: vec![],
             maps: vec![],
             functions: vec![Function {
+                consumes_self: false,
                 name: "main".into(),
                 param_count: 0,
                 ret: Type::Void,

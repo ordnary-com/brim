@@ -329,7 +329,10 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             match function.get_nth_param(index as u32) {
                 Some(param) => {
                     self.builder.build_store(slots[index], param)?;
-                    self.retain_value(param, slot.ty)?;
+                    // A consumed `self` arrives with its reference.
+                    if !(f.consumes_self && index == 0) {
+                        self.retain_value(param, slot.ty)?;
+                    }
                 }
                 None if self.managed(slot.ty) => {
                     let zero = self.basic_type(slot.ty).const_zero();
@@ -405,7 +408,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                         let (a, b) = (get(*a).into_int_value(), get(*b).into_int_value());
                         Some(self.binary(*op, a, b, inst.span)?)
                     }
-                    InstKind::Call(callee, args) => {
+                    InstKind::Call(callee, args) | InstKind::CallMut(callee, args) => {
                         let args: Vec<BasicMetadataValueEnum<'ctx>> =
                             args.iter().map(|a| get(*a).into()).collect();
                         self.call(*callee, &args, inst.span)?
@@ -970,6 +973,7 @@ mod tests {
     /// prints `div(7, 2)` and `"done"`.
     fn sample() -> IrModule {
         let div = Function {
+            consumes_self: false,
             name: "div".into(),
             param_count: 2,
             ret: Type::I64,
@@ -997,6 +1001,7 @@ mod tests {
             }],
         };
         let main = Function {
+            consumes_self: false,
             name: "main".into(),
             param_count: 0,
             ret: Type::Void,
@@ -1057,6 +1062,7 @@ mod tests {
     fn strings_are_reference_counted() {
         // fn echo(s: string) -> string { let t: string = s; return t }
         let echo = Function {
+            consumes_self: false,
             name: "echo".into(),
             param_count: 1,
             ret: Type::Str,
@@ -1081,6 +1087,7 @@ mod tests {
             }],
         };
         let main = Function {
+            consumes_self: false,
             name: "main".into(),
             param_count: 0,
             ret: Type::Void,

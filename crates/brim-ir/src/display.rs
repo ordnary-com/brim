@@ -102,6 +102,14 @@ impl Display for InstDisplay<'_> {
                 write!(f, "call {name}({})", list(args))
             }
             InstKind::CallRuntime(rt, args) => write!(f, "call @{rt}({})", list(args)),
+            InstKind::CallMut(func, args) => {
+                let name = self
+                    .module
+                    .functions
+                    .get(func.index())
+                    .map_or("<invalid>", |f| f.name.as_str());
+                write!(f, "call.mut {name}({})", list(args))
+            }
             InstKind::MakeStruct(id, args) => write!(f, "make {id}({})", list(args)),
             InstKind::Extract(v, index) => write!(f, "extract {v}.{index}"),
             InstKind::Insert(v, index, x) => write!(f, "insert {v}.{index}, {x}"),

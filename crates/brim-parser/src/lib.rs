@@ -22,8 +22,8 @@
 
 use brim_ast::{
     BinaryOp, Block, EnumDecl, Expr, ExprKind, FieldDecl, FieldInit, FnDecl, ForIter, Ident,
-    MatchArm, Param, Pattern, PatternKind, PlaceElem, Program, Stmt, StmtKind, StructDecl,
-    TypeExpr, UnaryOp, VariantDecl,
+    ImplDecl, MatchArm, Param, Pattern, PatternKind, PlaceElem, Program, Receiver, Stmt, StmtKind,
+    StructDecl, TypeExpr, UnaryOp, VariantDecl,
 };
 use brim_diagnostics::{Diagnostic, Span};
 use brim_lexer::{Token, TokenKind, lex};
@@ -246,7 +246,7 @@ impl Parser {
         self.no_struct_literal = false;
         while !matches!(
             self.peek_kind(),
-            TokenKind::Fn | TokenKind::Struct | TokenKind::Enum | TokenKind::Eof
+            TokenKind::Fn | TokenKind::Struct | TokenKind::Enum | TokenKind::Impl | TokenKind::Eof
         ) {
             self.bump();
         }
@@ -280,6 +280,7 @@ impl Parser {
         let mut functions = Vec::new();
         let mut structs = Vec::new();
         let mut enums = Vec::new();
+        let mut impls = Vec::new();
         loop {
             while matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Semi) {
                 self.bump();
@@ -297,6 +298,10 @@ impl Parser {
                 },
                 TokenKind::Enum => match self.enum_decl() {
                     Ok(e) => enums.push(e),
+                    Err(Reported) => self.recover_item(),
+                },
+                TokenKind::Impl => match self.impl_decl() {
+                    Ok(i) => impls.push(i),
                     Err(Reported) => self.recover_item(),
                 },
                 TokenKind::Let => {
@@ -320,13 +325,13 @@ impl Parser {
                 }
                 _ => {
                     let diag = Diagnostic::error(format!(
-                        "expected `fn`, `struct` or `enum`, found {}",
+                        "expected `fn`, `struct`, `enum` or `impl`, found {}",
                         token.kind.describe()
                     ))
                     .with_code("E0103")
                     .with_primary(token.span, "expected a declaration")
                     .with_note(
-                        "only functions, structs and enums can be declared at the top level",
+                        "only functions, structs, enums and `impl` blocks can be declared at the top level",
                     );
                     self.report(diag);
                     self.bump();
@@ -337,8 +342,57 @@ impl Parser {
         Program {
             structs,
             enums,
+            impls,
             functions,
         }
+    }
+
+    fn impl_decl(&mut self) -> PResult<ImplDecl> {
+        let impl_token = self.expect(&TokenKind::Impl)?;
+        let type_name = self.expect_ident("a struct or enum name")?;
+        let type_params = self.type_params()?;
+        self.skip_newlines();
+        if !self.at(&TokenKind::LBrace) {
+            return Err(self.error_unexpected("`{` to start the methods"));
+        }
+        self.bump();
+        let mut methods = Vec::new();
+        let close = loop {
+            while matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Semi) {
+                self.bump();
+            }
+            match self.peek_kind() {
+                TokenKind::RBrace => break self.bump(),
+                TokenKind::Fn => match self.function() {
+                    Ok(f) => methods.push(f),
+                    Err(Reported) => {
+                        // Skip to the next method or the end of the block.
+                        let mut depth = 0usize;
+                        loop {
+                            match self.peek_kind() {
+                                TokenKind::Eof => break,
+                                TokenKind::Fn if depth == 0 => break,
+                                TokenKind::LBrace => depth += 1,
+                                TokenKind::RBrace if depth == 0 => break,
+                                TokenKind::RBrace => depth -= 1,
+                                _ => {}
+                            }
+                            self.bump();
+                        }
+                    }
+                },
+                TokenKind::Eof => {
+                    return Err(self.error_unexpected("`fn` or `}` in the `impl` block"));
+                }
+                _ => return Err(self.error_unexpected("`fn` or `}` in the `impl` block")),
+            }
+        };
+        Ok(ImplDecl {
+            span: impl_token.span.to(close.span),
+            type_name,
+            type_params,
+            methods,
+        })
     }
 
     fn enum_decl(&mut self) -> PResult<EnumDecl> {
@@ -458,8 +512,27 @@ impl Parser {
         let name = self.expect_ident("a function name")?;
         let type_params = self.type_params()?;
         self.expect(&TokenKind::LParen)?;
+        let mut receiver = None;
         let params = self.in_parens(|p| {
             let mut params = Vec::new();
+            // `self` or `mut self` first makes this a method.
+            let mutable = p.at(&TokenKind::Mut);
+            let receiver_start = p.peek().span;
+            if mutable {
+                p.bump();
+            }
+            if p.at(&TokenKind::SelfValue) {
+                let token = p.bump();
+                receiver = Some(Receiver {
+                    mutable,
+                    span: receiver_start.to(token.span),
+                });
+                if p.eat(&TokenKind::Comma).is_none() && !p.at(&TokenKind::RParen) {
+                    return Err(p.error_unexpected("`,` or `)`"));
+                }
+            } else if mutable {
+                return Err(p.error_unexpected("`self` after `mut`"));
+            }
             while !p.at(&TokenKind::RParen) {
                 params.push(p.param()?);
                 if p.eat(&TokenKind::Comma).is_none() {
@@ -487,6 +560,7 @@ impl Parser {
             span: fn_token.span.to(body.span),
             name,
             type_params,
+            receiver,
             params,
             ret,
             body,
@@ -683,6 +757,15 @@ impl Parser {
                 Err(self.report(diag))
             }
             TokenKind::Reserved(word) => Err(self.reserved_keyword(word, token.span)),
+            TokenKind::Impl => {
+                let diag = Diagnostic::error("`impl` blocks cannot be inside functions")
+                    .with_code("E0103")
+                    .with_primary(token.span, "")
+                    .with_help("move the `impl` block to the top level of the file");
+                self.report(diag);
+                let _ = self.impl_decl();
+                Err(Reported)
+            }
             TokenKind::Struct | TokenKind::Enum => {
                 let is_struct = token.kind == TokenKind::Struct;
                 let (what, keyword) = if is_struct {
@@ -1442,6 +1525,10 @@ impl Parser {
             TokenKind::False => ExprKind::Bool(false),
             TokenKind::Ident(name) => ExprKind::Name(Ident {
                 name,
+                span: token.span,
+            }),
+            TokenKind::SelfValue => ExprKind::Name(Ident {
+                name: "self".into(),
                 span: token.span,
             }),
             TokenKind::LBracket => {
