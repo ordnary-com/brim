@@ -35,6 +35,22 @@ pub fn lower(program: &CheckedProgram) -> Module {
     }
 }
 
+/// Whether lowering `expr` creates new blocks (it contains `&&` or `||`).
+fn branches(expr: &CheckedExpr) -> bool {
+    match &expr.kind {
+        CheckedExprKind::And(..) | CheckedExprKind::Or(..) => true,
+        CheckedExprKind::Int(_)
+        | CheckedExprKind::Bool(_)
+        | CheckedExprKind::Str(_)
+        | CheckedExprKind::Local(_) => false,
+        CheckedExprKind::Unary { operand, .. } => branches(operand),
+        CheckedExprKind::Binary { lhs, rhs, .. } => branches(lhs) || branches(rhs),
+        CheckedExprKind::Call { args, .. } | CheckedExprKind::Builtin { args, .. } => {
+            args.iter().any(branches)
+        }
+    }
+}
+
 fn func_id(index: usize) -> FuncId {
     FuncId(u32::try_from(index).expect("function count fits in u32"))
 }
@@ -290,22 +306,56 @@ impl FnLowerer {
                 self.emit_value(InstKind::Unary(op, v), ty, span)
             }
             CheckedExprKind::Binary { op, lhs, rhs } => {
-                let a = self.value(lhs);
-                let b = self.value(rhs);
+                let [a, b] = self.values(&[lhs, rhs]).try_into().expect("two operands");
                 self.binary(*op, a, b, span)
             }
             CheckedExprKind::And(lhs, rhs) => self.short_circuit(lhs, rhs, true, span),
             CheckedExprKind::Or(lhs, rhs) => self.short_circuit(lhs, rhs, false, span),
             CheckedExprKind::Call { func, args } => {
-                let args = args.iter().map(|a| self.value(a)).collect();
+                let args = self.values(&args.iter().collect::<Vec<_>>());
                 return self.emit(InstKind::Call(func_id(func.0), args), Some(ty), span);
             }
             CheckedExprKind::Builtin { runtime, args } => {
-                let args = args.iter().map(|a| self.value(a)).collect();
+                let args = self.values(&args.iter().collect::<Vec<_>>());
                 return self.emit(InstKind::CallRuntime(*runtime, args), Some(ty), span);
             }
         };
         Some(value)
+    }
+
+    /// Lowers several operands, left to right, so that all their values are
+    /// usable in the block that is current afterwards.
+    ///
+    /// IR values only live within their block, but an operand containing
+    /// `&&` or `||` ends the current block. Values computed before such an
+    /// operand are therefore stored in temporary slots and loaded again
+    /// after it.
+    fn values(&mut self, exprs: &[&CheckedExpr]) -> Vec<ValueId> {
+        let mut values: Vec<ValueId> = Vec::with_capacity(exprs.len());
+        for (i, expr) in exprs.iter().enumerate() {
+            if i > 0 && branches(expr) {
+                let spilled: Vec<(SlotId, IrType)> = values
+                    .iter()
+                    .zip(exprs)
+                    .map(|(v, e)| {
+                        let ty = ir_type(e.ty);
+                        let slot = self.new_slot("tmp", ty);
+                        self.emit(InstKind::Store(slot, *v), None, e.span);
+                        (slot, ty)
+                    })
+                    .collect();
+                let value = self.value(expr);
+                values = spilled
+                    .into_iter()
+                    .zip(exprs)
+                    .map(|((slot, ty), e)| self.emit_value(InstKind::Load(slot), ty, e.span))
+                    .collect();
+                values.push(value);
+            } else {
+                values.push(self.value(expr));
+            }
+        }
+        values
     }
 
     fn binary(&mut self, op: BinaryOp, a: ValueId, b: ValueId, span: Span) -> ValueId {

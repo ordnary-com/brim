@@ -33,6 +33,10 @@ All notable changes to this project are documented here. The format follows [Kee
 - `brim` CLI: `check` (with `--emit tokens|ast|ir`), `run`, `build`, `help`, `version`.
 - Examples, fixture-based test suites, and CI for formatting, linting and tests on Linux, macOS and Windows.
 
+### Fixed
+
+- Internal compiler error (invalid IR) when `&&` or `||` appeared in an operand or argument after another value, as in `to_string(1) + to_string(a && b)` or `f(x, a || b)`.
+
 ### Changed
 
 - `brim-codegen` now depends on `brim-diagnostics` and `brim-runtime`; `BuildOptions` carries the program's source.
