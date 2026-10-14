@@ -229,7 +229,7 @@ tests/              lexer, parser, diagnostics and integration fixtures
 
 ## Documentation
 
-- [Documentation site](site/) (mdBook: a tour of the language, guides and the reference)
+- [Documentation site](https://ordnary-com.github.io/brim/): a tour of the language, guides and the reference (source in `site/`)
 - [Language specification](docs/language-spec.md)
 - [Architecture](docs/architecture.md)
 - [Error handling and diagnostic codes](docs/error-handling.md)

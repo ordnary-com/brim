@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-14
+
 ### Added
 
 - Enums: `enum Shape { Circle(i64), Rect(i64, i64), Empty }`, constructed with `Shape.Circle(1)`, and `match` statements with variant, literal and `_` patterns, exhaustiveness checking and unreachable-arm warnings (`W0004`).
