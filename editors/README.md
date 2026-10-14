@@ -27,6 +27,11 @@ is understood by many, the tree-sitter grammar (`tree-sitter-brim/`) by
 the newer ones, and any LSP client can start `brim lsp`, which talks over
 standard input and output.
 
+Publishing in the editors' registries (VS Code Marketplace, Open VSX,
+Zed, Homebrew, nvim-treesitter, Helix) is described in `PUBLISHING.md`.
+`test/run.sh` checks the packages in Neovim, Helix, Kakoune, nano, micro
+and Kate, in CI.
+
 A test keeps every grammar in step with the language's keywords and
 builtins. The tree-sitter highlight queries are copied to the Neovim,
 Helix and Zed packages by `sync-queries.py`.
