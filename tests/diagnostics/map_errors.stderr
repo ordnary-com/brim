@@ -1,0 +1,71 @@
+error[E0236]: `Point` cannot be a map key
+ --> tests/diagnostics/map_errors.brim:6:18
+  |
+6 |     let bad: Map[Point, i64] = [:]
+  |                  ^^^^^
+  |
+  = note: map keys are `i64`, `bool` or `string`
+
+error[E0206]: mismatched types
+ --> tests/diagnostics/map_errors.brim:7:45
+  |
+7 |     let m: Map[string, i64] = ["a": 1, "b": "two"]
+  |                                             ^^^^^ expected `i64`, found `string`
+  |
+  = note: Brim never converts between types implicitly
+
+error[E0206]: mismatched types
+ --> tests/diagnostics/map_errors.brim:8:13
+  |
+8 |     print(m[1])
+  |             ^ expected `string`, found `i64`
+  |
+  = note: Brim never converts between types implicitly
+
+error[E0231]: `Map[string, i64]` has no method `length`
+ --> tests/diagnostics/map_errors.brim:9:13
+  |
+9 |     print(m.length())
+  |             ^^^^^^ unknown method
+  |
+  = note: map methods: `len`, `is_empty`, `get`, `contains_key`, `keys`, `values`, `insert`, `remove`, `clear`
+
+error[E0218]: cannot assign to a part of immutable variable `frozen`
+  --> tests/diagnostics/map_errors.brim:11:5
+   |
+10 |     let frozen: Map[string, i64] = [:]
+   |         ------ declared here
+11 |     frozen["x"] = 1
+   |     ^^^^^^ it cannot be changed
+   |
+   = help: make it mutable: `let mut frozen`
+
+error[E0218]: cannot call `insert` on immutable variable `frozen`
+  --> tests/diagnostics/map_errors.brim:12:5
+   |
+10 |     let frozen: Map[string, i64] = [:]
+   |         ------ declared here
+...
+12 |     frozen.insert("y", 2)
+   |     ^^^^^^ declared without `mut`
+   |
+   = help: make it mutable: `let mut frozen`
+
+error[E0235]: cannot loop over a value of type `Map[string, i64]`
+  --> tests/diagnostics/map_errors.brim:13:14
+   |
+13 |     for k in m {
+   |              ^ this is `Map[string, i64]`
+   |
+   = note: `for` loops go over a list, or a range such as `0..n`
+   = help: loop over `map.keys()` or `map.values()`
+
+error[E0226]: cannot infer the types of an empty map
+  --> tests/diagnostics/map_errors.brim:16:11
+   |
+16 |     print([:])
+   |           ^^^ the type is not known here
+   |
+   = help: add a type annotation, for example `let m: Map[string, i64] = [:]`
+
+error: could not compile tests/diagnostics/map_errors.brim due to 8 errors

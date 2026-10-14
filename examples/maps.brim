@@ -1,0 +1,34 @@
+// Maps look up values by key. They keep their entries in the order the keys
+// were first added.
+
+fn word_counts(text: List[string]) -> Map[string, i64] {
+    let mut counts: Map[string, i64] = [:]
+    for word in text {
+        match counts.get(word) {
+            Some(n) => counts[word] = n + 1
+            None => counts[word] = 1
+        }
+    }
+    return counts
+}
+
+fn main() {
+    let words: List[string] = ["the", "cat", "saw", "the", "other", "cat", "and", "the", "dog"]
+    let counts: Map[string, i64] = word_counts(words)
+    for word in counts.keys() {
+        print(word + " " + to_string(counts[word]))
+    }
+
+    // Group the words by how often they occur.
+    let mut by_count: Map[i64, List[string]] = [:]
+    for word in counts.keys() {
+        let n: i64 = counts[word]
+        if !by_count.contains_key(n) {
+            by_count[n] = []
+        }
+        by_count[n].push(word)
+    }
+    for n in by_count.keys() {
+        print(to_string(n) + "x: " + by_count[n].join(", "))
+    }
+}

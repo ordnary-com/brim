@@ -15,6 +15,8 @@ pub enum Def {
     Enum(EnumId),
     /// The built-in `List[T]`.
     List,
+    /// The built-in `Map[K, V]`.
+    Map,
 }
 
 /// A struct or enum applied to type arguments (none for non-generic ones).
@@ -122,7 +124,7 @@ impl TypeTable {
     pub fn defs_in(&self, ty: Type, out: &mut Vec<Def>) {
         if let Type::Named(id) = ty {
             let named = self.get(id);
-            if named.def == Def::List {
+            if matches!(named.def, Def::List | Def::Map) {
                 return;
             }
             out.push(named.def);

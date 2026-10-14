@@ -163,6 +163,7 @@ mod tests {
         Module {
             structs: vec![],
             lists: vec![],
+            maps: vec![],
             functions: vec![Function {
                 name: "main".into(),
                 param_count: 0,

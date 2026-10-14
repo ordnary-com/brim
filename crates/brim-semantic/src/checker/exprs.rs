@@ -82,13 +82,8 @@ impl<'a> Checker<'a> {
             ast::ExprKind::ListLit(items) => {
                 return self.check_list_lit(items, span, expected, ctx);
             }
-            ast::ExprKind::MapLit(_) => {
-                self.diags.push(
-                    Diagnostic::error("maps are not supported yet")
-                        .with_code("E0234")
-                        .with_primary(span, ""),
-                );
-                return error_expr(span);
+            ast::ExprKind::MapLit(entries) => {
+                return self.check_map_lit(entries, span, expected, ctx);
             }
             ast::ExprKind::Index { base, index } => {
                 return self.check_index(base, index, span, ctx);
@@ -189,6 +184,9 @@ impl<'a> Checker<'a> {
         let probe = self.check_expr(base, ctx);
         // Discard what the probe reported; the real check reports it again.
         self.diags.truncate(errors);
+        if self.as_map(probe.ty).is_some() {
+            return self.check_map_method(base, name, args, span, ctx);
+        }
         self.as_list(probe.ty)?;
         self.check_list_method(base, name, args, span, ctx)
     }
@@ -229,10 +227,16 @@ impl<'a> Checker<'a> {
         }
         if let Some(def) = self.type_by_name.get(name).copied() {
             let diag = match def {
-                Def::List => Diagnostic::error(format!("`{name}` is a type, not a value"))
-                    .with_code("E0214")
-                    .with_primary(ident.span, "types cannot be used as values")
-                    .with_help("create a list with `[...]`"),
+                Def::List | Def::Map => {
+                    Diagnostic::error(format!("`{name}` is a type, not a value"))
+                        .with_code("E0214")
+                        .with_primary(ident.span, "types cannot be used as values")
+                        .with_help(if def == Def::List {
+                            "create a list with `[...]`"
+                        } else {
+                            "create a map with `[key: value, ...]`, or `[:]` for an empty one"
+                        })
+                }
                 Def::Struct(_) => Diagnostic::error(format!("`{name}` is a struct, not a value"))
                     .with_code("E0214")
                     .with_primary(ident.span, "structs cannot be used as values")
@@ -342,7 +346,7 @@ impl<'a> Checker<'a> {
             return Some(bindings.into_iter().map(Option::unwrap).collect());
         }
         // A failed argument often explains the missing type; don't pile on.
-        if args.iter().all(|a| a.ty != Type::Error) {
+        if args.iter().all(|a| a.ty != Type::Error) && !self.quiet_inference {
             let missing: Vec<String> = bindings
                 .iter()
                 .zip(generic.params)
@@ -586,7 +590,7 @@ impl<'a> Checker<'a> {
     ) -> CheckedExpr {
         let id = match self.type_by_name.get(name.name.as_str()) {
             Some(Def::Struct(id)) => Some(*id),
-            Some(Def::List) => {
+            Some(Def::List | Def::Map) => {
                 self.diags.push(
                     Diagnostic::error(format!("`{}` is not a struct", name.name))
                         .with_code("E0212")
@@ -1065,8 +1069,8 @@ impl<'a> Checker<'a> {
             .with_code("E0201")
             .with_primary(callee.span, "not found");
         match self.type_by_name.get(name) {
-            Some(Def::List) => {
-                diag = diag.with_help("create a list with `[...]`");
+            Some(Def::List | Def::Map) => {
+                diag = diag.with_help("create a list with `[...]`, or a map with `[key: value]`");
             }
             Some(Def::Struct(_)) => {
                 diag = diag.with_help(format!(

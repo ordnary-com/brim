@@ -163,8 +163,9 @@ struct_lit  = "{" [ field_init { "," field_init } [ "," ] ] "}" ;   (* only dire
 field_init  = identifier ":" expression ;
 args        = expression { "," expression } [ "," ] ;
 primary     = integer_literal | string_literal | "true" | "false"
-            | identifier | "(" expression ")" | list_lit ;
+            | identifier | "(" expression ")" | list_lit | map_lit ;
 list_lit    = "[" [ expression { "," expression } [ "," ] ] "]" ;
+map_lit     = "[" ":" "]" | "[" expression ":" expression { "," expression ":" expression } [ "," ] "]" ;
 ```
 
 ### 4.1 Precedence and associativity
@@ -206,6 +207,7 @@ Comparison operators at the same level cannot be chained: `a < b < c` and `a == 
 | structs  | declared with `struct` (section 5.1)      |
 | enums    | declared with `enum` (section 5.2); `Option[T]` and `Result[T, E]` are built in (section 5.4) |
 | `List[T]` | ordered sequences of `T` (section 5.5)  |
+| `Map[K, V]` | values of type `V` looked up by keys of type `K` (section 5.6) |
 
 - `void` may only appear as a function return type. Variables and parameters of type `void` are error `E0213`.
 - Unknown type names are error `E0212`.
@@ -315,7 +317,30 @@ fn total(a: string, b: string) -> Result[i64, string] {
   The methods from `push` on change the list, so they need a variable declared with `let mut` (or a field or element of one); calling them on a temporary is `E0104`. An unknown method is `E0231`.
 - `List` cannot be compared with `==` or printed directly; use `join` on a `List[string]`.
 
-### 5.6 Function types
+### 5.6 Maps
+
+`Map[K, V]` maps keys of type `K` to values of type `V`. Keys must be `i64`, `bool` or `string` (`E0236`). `["ada": 36, "alan": 41]` creates one; `[:]` is an empty map and needs known types (`E0226`).
+
+- `m[key]` is the value for a key; a missing key is run-time error `R0006` (use `get` when the key may be missing). `m[key] = v` adds or replaces an entry; `m[key] += 1` and other changes through `m[key]` need the key to exist.
+- Entries keep the **order in which their keys were first added**. Replacing a value keeps the entry's position; removing a key closes the gap.
+- Maps are values with copy-on-write, like lists.
+- Methods:
+
+  | Method | Result | |
+  |--------|--------|---|
+  | `len()` | `i64` | the number of entries |
+  | `is_empty()` | `bool` | |
+  | `get(k)` | `Option[V]` | |
+  | `contains_key(k)` | `bool` | |
+  | `keys()` | `List[K]` | in entry order |
+  | `values()` | `List[V]` | in entry order |
+  | `insert(k, v)` | | adds or replaces |
+  | `remove(k)` | `Option[V]` | removes the entry, returning its value |
+  | `clear()` | | |
+
+  `insert`, `remove` and `clear` change the map and need a `let mut` variable. To loop over a map, loop over `keys()` or `values()`.
+
+### 5.7 Function types
 
 A function's type is its parameter type list and its return type, written informally as `fn(i64, i64) -> i64`. Function types cannot be written in source yet, and functions are not values: they can only be called by name (`E0214`).
 
@@ -433,7 +458,7 @@ A function with a return type other than `void` must not be able to reach the en
 
 ## 7. Names and scopes
 
-- **Types**: the built-in types, `Option`, `Result`, `List`, and all structs and enums in the file, which are visible everywhere in the file. Type parameters are visible in their declaration.
+- **Types**: the built-in types, `Option`, `Result`, `List`, `Map`, and all structs and enums in the file, which are visible everywhere in the file. Type parameters are visible in their declaration.
 - **Functions** form one global namespace. All functions in the file are visible everywhere, including before their declaration, so mutual recursion works. Defining two functions with the same name is `E0202`. Defining a function with a builtin's name is `E0216`.
 - **Variables** live in lexical scopes. A function's parameters and its body's top-level statements share one scope. Each nested block opens a new scope.
 - Declaring a variable twice in the same scope is `E0203`, and duplicate parameter names are `E0204`. A nested block may **shadow** an outer variable.
@@ -482,6 +507,7 @@ These stop the program immediately, after the output produced so far has been fl
 | `R0003` | call depth limit exceeded (10,000 nested calls, in the interpreter and in native executables) |
 | `R0004` | writing program output failed |
 | `R0005` | a list index outside the list |
+| `R0006` | a map key that is not in the map |
 
 Integers never wrap silently.
 
@@ -517,7 +543,7 @@ These questions are not settled. The current behavior is a reversible default.
 
 ## 12. Possible future features
 
-These are explicitly **not** part of 0.1. Their keywords are reserved where applicable, and none of them should be assumed to work: `loop`, user-defined methods, maps, recursive enums, traits, generics, modules and imports, closures and first-class functions, collections, error handling, async/await, macros, reflection, an ownership or borrowing system, and FFI.
+These are explicitly **not** part of 0.1. Their keywords are reserved where applicable, and none of them should be assumed to work: `loop`, user-defined methods, recursive enums, traits, generics, modules and imports, closures and first-class functions, collections, error handling, async/await, macros, reflection, an ownership or borrowing system, and FFI.
 
 See `docs/roadmap.md` for the order in which these are planned.
 

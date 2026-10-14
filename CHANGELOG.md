@@ -16,6 +16,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - `for x in list { ... }` and `for i in a..b { ... }`; `for` and `in` are keywords and `..` is a token.
 - IR: list types and instructions, `take`, and consumed operands (checked by the validator).
 - New diagnostics `E0234` and `E0235`; `examples/lists.brim`.
+- `Map[K, V]` with `i64`, `bool` or `string` keys: literals (`["a": 1]`, `[:]`), indexing (`m[k]`, run-time error `R0006` for a missing key), assignment through keys, and the methods `len`, `is_empty`, `get`, `contains_key`, `keys`, `values`, `insert`, `remove` and `clear`. Entries keep insertion order. Maps are values with copy-on-write.
+- `E0236` for map keys of other types; `examples/maps.brim`.
 - Structs: `struct` declarations, struct literals (`Point { x: 1, y: 2 }`), field access (`p.x`) and field assignment (`p.x = 3`, `p.from.y += 1`), with value semantics. Supported by the interpreter and the native backend, including reference counting of strings inside structs. New diagnostics `E0219` to `E0224`; `struct` is now a keyword.
 - `E0007` for floating-point literals such as `9.99`.
 - `examples/structs.brim`.

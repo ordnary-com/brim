@@ -467,6 +467,279 @@ BrimStr *brim_rt_list_join(const BrimList *l, const BrimStr *sep) {
     return s;
 }
 
+/* ---- maps ---------------------------------------------------------------- */
+
+/*
+ * A map keeps its entries in insertion order in one array, and finds keys
+ * through a hash index (open addressing, linear probing) of entry positions.
+ * Like lists, maps are values with copy-on-write and NULL is the empty map.
+ *
+ * Each entry is an 8-byte key slot followed by the value, padded to 8
+ * bytes. Keys are `i64` (kind 0), `bool` (kind 1, one byte) or strings
+ * (kind 2, a `BrimStr *`, retained by the map). Values are handled like list
+ * elements, with generated retain/release functions.
+ */
+enum { KEY_I64 = 0, KEY_BOOL = 1, KEY_STR = 2 };
+
+typedef struct BrimMap {
+    int64_t rc;
+    int64_t len;
+    int64_t cap;
+    int64_t key_kind;
+    int64_t value_size;
+    int64_t entry_size;
+    BrimElemFn value_release;
+    /* Entry position + 1 per slot; 0 is an empty slot. */
+    int64_t *index;
+    int64_t index_cap;
+    char *entries;
+} BrimMap;
+
+static char *entry_at(const BrimMap *m, int64_t i) {
+    return m->entries + i * m->entry_size;
+}
+
+static uint64_t key_hash(int64_t kind, const void *key) {
+    uint64_t h = 1469598103934665603ULL;
+    if (kind == KEY_STR) {
+        const BrimStr *s = *(BrimStr *const *)key;
+        for (int64_t i = 0; i < s->len; i++) {
+            h = (h ^ (uint8_t)s->data[i]) * 1099511628211ULL;
+        }
+        return h;
+    }
+    uint64_t v = kind == KEY_BOOL ? (uint64_t)(*(const uint8_t *)key != 0)
+                                  : (uint64_t)*(const int64_t *)key;
+    v ^= v >> 33;
+    v *= 0xff51afd7ed558ccdULL;
+    v ^= v >> 33;
+    return v;
+}
+
+static int key_eq(int64_t kind, const void *a, const void *b) {
+    switch (kind) {
+    case KEY_STR:
+        return brim_rt_str_eq(*(BrimStr *const *)a, *(BrimStr *const *)b);
+    case KEY_BOOL:
+        return (*(const uint8_t *)a != 0) == (*(const uint8_t *)b != 0);
+    default:
+        return *(const int64_t *)a == *(const int64_t *)b;
+    }
+}
+
+static void key_copy(int64_t kind, void *to, const void *from) {
+    memset(to, 0, 8);
+    memcpy(to, from, kind == KEY_BOOL ? 1 : 8);
+    if (kind == KEY_STR) {
+        brim_rt_retain(*(BrimStr **)to);
+    }
+}
+
+static void rebuild_index(BrimMap *m) {
+    int64_t cap = 8;
+    while (cap < (m->len + 1) * 2) {
+        cap *= 2;
+    }
+    free(m->index);
+    m->index = calloc((size_t)cap, sizeof(int64_t));
+    if (m->index == NULL) {
+        fatal("out of memory");
+    }
+    m->index_cap = cap;
+    for (int64_t i = 0; i < m->len; i++) {
+        uint64_t slot = key_hash(m->key_kind, entry_at(m, i)) & (uint64_t)(cap - 1);
+        while (m->index[slot] != 0) {
+            slot = (slot + 1) & (uint64_t)(cap - 1);
+        }
+        m->index[slot] = i + 1;
+    }
+}
+
+static BrimMap *map_alloc(int64_t key_kind, int64_t value_size, BrimElemFn release,
+                          int64_t cap) {
+    if (cap < 4) {
+        cap = 4;
+    }
+    BrimMap *m = malloc(sizeof(BrimMap));
+    if (m == NULL) {
+        fatal("out of memory");
+    }
+    m->rc = 1;
+    m->len = 0;
+    m->cap = cap;
+    m->key_kind = key_kind;
+    m->value_size = value_size;
+    m->entry_size = 8 + (value_size + 7) / 8 * 8;
+    m->value_release = release;
+    m->index = NULL;
+    m->entries = malloc((size_t)(cap * m->entry_size));
+    if (m->entries == NULL) {
+        fatal("out of memory");
+    }
+    rebuild_index(m);
+    if (checking) {
+        live_strings++;
+    }
+    return m;
+}
+
+void brim_rt_map_retain(BrimMap *m) {
+    if (m != NULL) {
+        m->rc++;
+    }
+}
+
+void brim_rt_map_release(BrimMap *m) {
+    if (m == NULL || --m->rc > 0) {
+        return;
+    }
+    for (int64_t i = 0; i < m->len; i++) {
+        if (m->key_kind == KEY_STR) {
+            brim_rt_release(*(BrimStr **)entry_at(m, i));
+        }
+        if (m->value_release != NULL) {
+            m->value_release(entry_at(m, i) + 8);
+        }
+    }
+    if (checking) {
+        live_strings--;
+    }
+    free(m->index);
+    free(m->entries);
+    free(m);
+}
+
+int64_t brim_rt_map_len(const BrimMap *m) {
+    return m == NULL ? 0 : m->len;
+}
+
+/* The position of `key`, or -1. */
+int64_t brim_rt_map_find(const BrimMap *m, const void *key) {
+    if (m == NULL) {
+        return -1;
+    }
+    uint64_t mask = (uint64_t)(m->index_cap - 1);
+    uint64_t slot = key_hash(m->key_kind, key) & mask;
+    while (m->index[slot] != 0) {
+        int64_t i = m->index[slot] - 1;
+        if (key_eq(m->key_kind, entry_at(m, i), key)) {
+            return i;
+        }
+        slot = (slot + 1) & mask;
+    }
+    return -1;
+}
+
+/* The position of `key`, which must be in the map. */
+int64_t brim_rt_map_index(const BrimMap *m, const void *key, const char *head, const char *sep,
+                          const char *note) {
+    int64_t i = brim_rt_map_find(m, key);
+    if (i < 0) {
+        brim_rt_trap(head, sep, note);
+    }
+    return i;
+}
+
+void *brim_rt_map_key_at(const BrimMap *m, int64_t i) {
+    return entry_at(m, i);
+}
+
+void *brim_rt_map_value_at(const BrimMap *m, int64_t i) {
+    return entry_at(m, i) + 8;
+}
+
+/* Takes ownership of `m` and returns a map nothing else refers to. */
+static BrimMap *map_unique(BrimMap *m, int64_t key_kind, int64_t value_size, BrimElemFn retain,
+                           BrimElemFn release) {
+    if (m == NULL) {
+        return map_alloc(key_kind, value_size, release, 4);
+    }
+    if (m->rc == 1) {
+        return m;
+    }
+    BrimMap *copy = map_alloc(key_kind, value_size, release, m->len + 1);
+    memcpy(copy->entries, m->entries, (size_t)(m->len * m->entry_size));
+    copy->len = m->len;
+    for (int64_t i = 0; i < copy->len; i++) {
+        if (key_kind == KEY_STR) {
+            brim_rt_retain(*(BrimStr **)entry_at(copy, i));
+        }
+        if (retain != NULL) {
+            retain(entry_at(copy, i) + 8);
+        }
+    }
+    rebuild_index(copy);
+    m->rc--;
+    return copy;
+}
+
+BrimMap *brim_rt_map_insert(BrimMap *m, const void *key, const void *value, int64_t key_kind,
+                            int64_t value_size, BrimElemFn retain, BrimElemFn release) {
+    m = map_unique(m, key_kind, value_size, retain, release);
+    if (retain != NULL) {
+        retain((void *)value);
+    }
+    int64_t i = brim_rt_map_find(m, key);
+    if (i >= 0) {
+        if (release != NULL) {
+            release(entry_at(m, i) + 8);
+        }
+        memcpy(entry_at(m, i) + 8, value, (size_t)value_size);
+        return m;
+    }
+    if (m->len == m->cap) {
+        m->cap *= 2;
+        char *bigger = realloc(m->entries, (size_t)(m->cap * m->entry_size));
+        if (bigger == NULL) {
+            fatal("out of memory");
+        }
+        m->entries = bigger;
+    }
+    char *entry = entry_at(m, m->len);
+    key_copy(key_kind, entry, key);
+    memcpy(entry + 8, value, (size_t)value_size);
+    m->len++;
+    if (m->len * 2 > m->index_cap) {
+        rebuild_index(m);
+    } else {
+        uint64_t mask = (uint64_t)(m->index_cap - 1);
+        uint64_t slot = key_hash(key_kind, entry) & mask;
+        while (m->index[slot] != 0) {
+            slot = (slot + 1) & mask;
+        }
+        m->index[slot] = m->len;
+    }
+    return m;
+}
+
+BrimMap *brim_rt_map_set_value_at(BrimMap *m, int64_t i, const void *value, int64_t key_kind,
+                                  int64_t value_size, BrimElemFn retain, BrimElemFn release) {
+    m = map_unique(m, key_kind, value_size, retain, release);
+    if (retain != NULL) {
+        retain((void *)value);
+    }
+    if (release != NULL) {
+        release(entry_at(m, i) + 8);
+    }
+    memcpy(entry_at(m, i) + 8, value, (size_t)value_size);
+    return m;
+}
+
+BrimMap *brim_rt_map_remove_at(BrimMap *m, int64_t i, int64_t key_kind, int64_t value_size,
+                               BrimElemFn retain, BrimElemFn release) {
+    m = map_unique(m, key_kind, value_size, retain, release);
+    if (key_kind == KEY_STR) {
+        brim_rt_release(*(BrimStr **)entry_at(m, i));
+    }
+    if (release != NULL) {
+        release(entry_at(m, i) + 8);
+    }
+    memmove(entry_at(m, i), entry_at(m, i + 1), (size_t)((m->len - i - 1) * m->entry_size));
+    m->len--;
+    rebuild_index(m);
+    return m;
+}
+
 /* ---- process entry ------------------------------------------------------- */
 
 int main(void) {

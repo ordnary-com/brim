@@ -1,0 +1,17 @@
+struct Point {
+    x: i64
+}
+
+fn main() {
+    let bad: Map[Point, i64] = [:]
+    let m: Map[string, i64] = ["a": 1, "b": "two"]
+    print(m[1])
+    print(m.length())
+    let frozen: Map[string, i64] = [:]
+    frozen["x"] = 1
+    frozen.insert("y", 2)
+    for k in m {
+        print(k)
+    }
+    print([:])
+}

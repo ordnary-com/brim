@@ -46,6 +46,7 @@ impl<'a> Checker<'a> {
         self.type_by_name
             .insert("Result".into(), Def::Enum(EnumId(1)));
         self.type_by_name.insert("List".into(), Def::List);
+        self.type_by_name.insert("Map".into(), Def::Map);
         for (name, e, v) in [("Some", 0, 0), ("None", 0, 1), ("Ok", 1, 0), ("Err", 1, 1)] {
             self.prelude_variants.insert(name, (EnumId(e), v));
         }
@@ -161,7 +162,7 @@ impl<'a> Checker<'a> {
         match def {
             Def::Struct(id) => Some(self.structs[id.0].name_span),
             Def::Enum(id) => self.enums[id.0].name_span,
-            Def::List => None,
+            Def::List | Def::Map => None,
         }
     }
 
@@ -200,7 +201,7 @@ impl<'a> Checker<'a> {
         let node = |def: Def| match def {
             Def::Struct(s) => s.0,
             Def::Enum(e) => struct_count + e.0,
-            Def::List => unreachable!("lists keep their elements on the heap"),
+            Def::List | Def::Map => unreachable!("collections keep their contents on the heap"),
         };
         let total = struct_count + self.enums.len();
         let mut edges: Vec<Vec<(String, Option<Span>, usize)>> = vec![Vec::new(); total];
@@ -286,7 +287,7 @@ impl<'a> Checker<'a> {
                 let kind = match def {
                     Def::Struct(_) => "struct",
                     Def::Enum(_) => "enum",
-                    Def::List => "built-in type",
+                    Def::List | Def::Map => "built-in type",
                 };
                 let mut diag =
                     Diagnostic::error(format!("`{name}` is already the name of a {kind}"))
@@ -407,6 +408,16 @@ impl<'a> Checker<'a> {
                 if args.contains(&Type::Error) {
                     return Type::Error;
                 }
+                if def == Def::Map && !matches!(args[0], Type::I64 | Type::Bool | Type::String) {
+                    let key = self.show(args[0]);
+                    self.diags.push(
+                        Diagnostic::error(format!("`{key}` cannot be a map key"))
+                            .with_code("E0236")
+                            .with_primary(ty.args[0].span(), "")
+                            .with_note("map keys are `i64`, `bool` or `string`"),
+                    );
+                    return Type::Error;
+                }
                 self.types.intern(def, args)
             }
         }
@@ -417,6 +428,7 @@ impl<'a> Checker<'a> {
             Def::Struct(id) => &self.structs[id.0].type_params,
             Def::Enum(id) => &self.enums[id.0].type_params,
             Def::List => &self.list_type_params,
+            Def::Map => &self.map_type_params,
         }
     }
 

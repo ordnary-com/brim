@@ -48,6 +48,8 @@ pub enum RuntimeError {
     Io { message: String },
     /// A list was indexed outside its bounds.
     IndexOutOfBounds { index: i64, len: i64 },
+    /// A map was indexed with a key it does not have.
+    KeyNotFound,
 }
 
 impl RuntimeError {
@@ -59,6 +61,7 @@ impl RuntimeError {
             RuntimeError::StackOverflow { .. } => "R0003",
             RuntimeError::Io { .. } => "R0004",
             RuntimeError::IndexOutOfBounds { .. } => "R0005",
+            RuntimeError::KeyNotFound => "R0006",
         }
     }
 }
@@ -81,6 +84,7 @@ impl fmt::Display for RuntimeError {
                 f,
                 "index out of bounds: the index is {index} but the length is {len}"
             ),
+            RuntimeError::KeyNotFound => write!(f, "key not found in map"),
         }
     }
 }

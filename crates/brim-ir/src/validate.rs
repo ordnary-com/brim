@@ -7,7 +7,9 @@
 
 use std::fmt;
 
-use crate::{BlockId, Function, InstKind, ListId, Module, StructId, Terminator, Type, ValueId};
+use crate::{
+    BlockId, Function, InstKind, ListId, MapId, Module, StructId, Terminator, Type, ValueId,
+};
 
 /// One violation of the IR rules.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,6 +89,17 @@ fn validate_structs(module: &Module, errors: &mut Vec<ValidationError>) {
                 );
             }
             _ => {}
+        }
+    }
+    for (i, (key, value)) in module.maps.iter().enumerate() {
+        if !matches!(key, Type::I64 | Type::Bool | Type::Str) {
+            error(
+                &format!("M{i}"),
+                format!("map key type {key} is not i64, bool or str"),
+            );
+        }
+        if *value == Type::Void {
+            error(&format!("M{i}"), "map of void values".into());
         }
     }
     for def in &module.structs {
@@ -170,6 +183,7 @@ impl FnValidator<'_> {
             let missing = match ty {
                 Type::Struct(id) => id.index() >= self.module.structs.len(),
                 Type::List(id) => id.index() >= self.module.lists.len(),
+                Type::Map(id) => id.index() >= self.module.maps.len(),
                 _ => false,
             };
             if missing {
@@ -248,6 +262,17 @@ impl FnValidator<'_> {
         {
             self.error(format!("{value} has type {ty}, expected {expected}"));
         }
+    }
+
+    /// The map type of `v` and its key and value types.
+    fn map_operand(&mut self, v: ValueId, local: &[bool]) -> Option<(MapId, Type, Type)> {
+        let ty = self.operand(v, local)?;
+        let Type::Map(id) = ty else {
+            self.error(format!("{v} has type {ty}, expected a map"));
+            return None;
+        };
+        let (key, value) = self.module.maps[id.index()];
+        Some((id, key, value))
     }
 
     /// The list type of `v` and its element type.
@@ -422,6 +447,58 @@ impl FnValidator<'_> {
                 }
                 self.expect_operand(*x, elem, local);
                 Some(Type::Bool)
+            }
+            InstKind::MapNew(id) => {
+                if id.index() >= self.module.maps.len() {
+                    self.error(format!("map of nonexistent type {id}"));
+                    return;
+                }
+                Some(Type::Map(*id))
+            }
+            InstKind::MapLen(v) => {
+                self.map_operand(*v, local);
+                Some(Type::I64)
+            }
+            InstKind::MapFind(v, k) | InstKind::MapIndex(v, k) => {
+                let Some((_, key, _)) = self.map_operand(*v, local) else {
+                    return;
+                };
+                self.expect_operand(*k, key, local);
+                Some(Type::I64)
+            }
+            InstKind::MapKeyAt(v, i) | InstKind::MapValueAt(v, i) => {
+                let Some((_, key, value)) = self.map_operand(*v, local) else {
+                    return;
+                };
+                self.expect_operand(*i, Type::I64, local);
+                Some(if matches!(kind, InstKind::MapKeyAt(..)) {
+                    key
+                } else {
+                    value
+                })
+            }
+            InstKind::MapInsert(v, k, x) => {
+                let Some((id, key, value)) = self.map_operand(*v, local) else {
+                    return;
+                };
+                self.expect_operand(*k, key, local);
+                self.expect_operand(*x, value, local);
+                Some(Type::Map(id))
+            }
+            InstKind::MapSetValueAt(v, i, x) => {
+                let Some((id, _, value)) = self.map_operand(*v, local) else {
+                    return;
+                };
+                self.expect_operand(*i, Type::I64, local);
+                self.expect_operand(*x, value, local);
+                Some(Type::Map(id))
+            }
+            InstKind::MapRemoveAt(v, i) => {
+                let Some((id, ..)) = self.map_operand(*v, local) else {
+                    return;
+                };
+                self.expect_operand(*i, Type::I64, local);
+                Some(Type::Map(id))
             }
             InstKind::ListJoin(v, sep) => {
                 let Some((_, elem)) = self.list_operand(*v, local) else {

@@ -100,8 +100,9 @@ Guidelines for writing diagnostics:
 | E0231 | Method call (`value.name(...)`); methods are not supported yet |
 | E0232 | `?` applied to a value that is not an `Option` or `Result` |
 | E0233 | `?` in a function whose return type cannot carry the `Err` or `None` (a different error type, or not a `Result`/`Option`) |
-| E0234 | Indexing a value that is not a list |
+| E0234 | Indexing a value that is not a list or map |
 | E0235 | `for` loop over a value that is not a list or range |
+| E0236 | Map key type other than `i64`, `bool` or `string` |
 
 ### Warnings
 
@@ -132,6 +133,7 @@ Guidelines for writing diagnostics:
 | R0003 | Call depth limit exceeded (stack overflow) |
 | R0004 | Writing program output failed |
 | R0005 | List index out of bounds |
+| R0006 | Map key not found |
 
 Run-time errors are reported like compile-time diagnostics, with the source location of the failing operation and the call stack:
 

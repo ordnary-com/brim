@@ -80,6 +80,11 @@ pub(crate) struct Checker<'a> {
     type_params: Vec<String>,
     /// `["T"]`, the type parameters of `List`.
     list_type_params: Vec<String>,
+    /// `["K", "V"]`, the type parameters of `Map`.
+    map_type_params: Vec<String>,
+    /// Set while checking a value whose expected type had an error: types
+    /// that cannot be inferred are then not reported.
+    quiet_inference: bool,
 }
 
 /// Per-function checking state.
@@ -149,6 +154,8 @@ impl<'a> Checker<'a> {
             by_name: HashMap::new(),
             type_params: Vec::new(),
             list_type_params: vec!["T".into()],
+            map_type_params: vec!["K".into(), "V".into()],
+            quiet_inference: false,
         };
         checker.add_prelude();
         checker.collect_types(program);
@@ -240,6 +247,7 @@ impl<'a> Checker<'a> {
             Def::Struct(id) => &self.structs[id.0].name,
             Def::Enum(id) => &self.enums[id.0].name,
             Def::List => "List",
+            Def::Map => "Map",
         }
     }
 
@@ -249,7 +257,7 @@ impl<'a> Checker<'a> {
         let named = self.types.get(id);
         match named.def {
             Def::Struct(s) => Some((s, named.args.clone())),
-            Def::Enum(_) | Def::List => None,
+            Def::Enum(_) | Def::List | Def::Map => None,
         }
     }
 
@@ -259,7 +267,7 @@ impl<'a> Checker<'a> {
         let named = self.types.get(id);
         match named.def {
             Def::Enum(e) => Some((e, named.args.clone())),
-            Def::Struct(_) | Def::List => None,
+            Def::Struct(_) | Def::List | Def::Map => None,
         }
     }
 
@@ -374,7 +382,10 @@ impl<'a> Checker<'a> {
             } => {
                 let declared = self.resolve_type(ty, "a variable");
                 let expected = (declared != Type::Error).then_some(declared);
+                // With a broken annotation, "cannot infer" errors are noise.
+                let quiet = std::mem::replace(&mut self.quiet_inference, declared == Type::Error);
                 let init = self.check_expr_with(init, expected, ctx);
+                self.quiet_inference = quiet;
                 self.expect_type(
                     &init,
                     declared,
@@ -473,6 +484,7 @@ impl<'a> Checker<'a> {
                         CheckedExprKind::Call { .. }
                             | CheckedExprKind::Builtin { .. }
                             | CheckedExprKind::ListOp { .. }
+                            | CheckedExprKind::MapOp { .. }
                     )
                 };
                 // `do_something()?` is a call too: only its error is used.

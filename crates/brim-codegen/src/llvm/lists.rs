@@ -120,41 +120,8 @@ impl<'ctx> Lowerer<'ctx, '_> {
     /// Element sizes and retain/release helpers for every list type. Called
     /// before any function body is lowered.
     pub(super) fn declare_list_elements(&mut self) -> Result<(), BuilderError> {
-        let ptr = self.context.ptr_type(AddressSpace::default());
-        let null = ptr.const_null();
         for (index, &elem) in self.ir.lists.iter().enumerate() {
-            let elem_ty = self.basic_type(elem);
-            let size = self
-                .context
-                .i64_type()
-                .const_int(self.target_data.get_abi_size(&elem_ty), false);
-            let (retain, release) = if self.managed(elem) {
-                let mut helper =
-                    |name: &str, retain: bool| -> Result<PointerValue<'ctx>, BuilderError> {
-                        let function = self.module.add_function(
-                            &format!("brim.elem.{name}.L{index}"),
-                            self.context.void_type().fn_type(&[ptr.into()], false),
-                            Some(Linkage::Internal),
-                        );
-                        let block = self.context.append_basic_block(function, "entry");
-                        self.builder.position_at_end(block);
-                        let at = function
-                            .get_nth_param(0)
-                            .expect("one parameter")
-                            .into_pointer_value();
-                        let value = self.builder.build_load(elem_ty, at, "")?;
-                        if retain {
-                            self.retain_value(value, elem)?;
-                        } else {
-                            self.release_value(value, elem)?;
-                        }
-                        self.builder.build_return(None)?;
-                        Ok(function.as_global_value().as_pointer_value())
-                    };
-                (helper("retain", true)?, helper("release", false)?)
-            } else {
-                (null, null)
-            };
+            let (size, retain, release) = self.element_helpers(elem, &format!("L{index}"))?;
             self.list_elems.push(ElemInfo {
                 size,
                 retain,
@@ -162,6 +129,48 @@ impl<'ctx> Lowerer<'ctx, '_> {
             });
         }
         Ok(())
+    }
+
+    /// The size of values of `ty` in memory, and functions that retain and
+    /// release one such value through a pointer (null when `ty` needs no
+    /// reference counting). `label` names the helpers.
+    pub(super) fn element_helpers(
+        &mut self,
+        ty: Type,
+        label: &str,
+    ) -> Result<(IntValue<'ctx>, PointerValue<'ctx>, PointerValue<'ctx>), BuilderError> {
+        let ptr = self.context.ptr_type(AddressSpace::default());
+        let null = ptr.const_null();
+        let llvm_ty = self.basic_type(ty);
+        let size = self
+            .context
+            .i64_type()
+            .const_int(self.target_data.get_abi_size(&llvm_ty), false);
+        if !self.managed(ty) {
+            return Ok((size, null, null));
+        }
+        let mut helper = |name: &str, retain: bool| -> Result<PointerValue<'ctx>, BuilderError> {
+            let function = self.module.add_function(
+                &format!("brim.elem.{name}.{label}"),
+                self.context.void_type().fn_type(&[ptr.into()], false),
+                Some(Linkage::Internal),
+            );
+            let block = self.context.append_basic_block(function, "entry");
+            self.builder.position_at_end(block);
+            let at = function
+                .get_nth_param(0)
+                .expect("one parameter")
+                .into_pointer_value();
+            let value = self.builder.build_load(llvm_ty, at, "")?;
+            if retain {
+                self.retain_value(value, ty)?;
+            } else {
+                self.release_value(value, ty)?;
+            }
+            self.builder.build_return(None)?;
+            Ok(function.as_global_value().as_pointer_value())
+        };
+        Ok((size, helper("retain", true)?, helper("release", false)?))
     }
 
     fn elem_info(&self, list: Type) -> (ElemInfo<'ctx>, Type) {
@@ -178,7 +187,7 @@ impl<'ctx> Lowerer<'ctx, '_> {
         value: BasicValueEnum<'ctx>,
         elem: Type,
     ) -> Result<PointerValue<'ctx>, BuilderError> {
-        let slot = self.entry_alloca(elem)?;
+        let slot = self.stack_slot(elem, false)?;
         self.builder.build_store(slot, value)?;
         Ok(slot)
     }
@@ -211,7 +220,7 @@ impl<'ctx> Lowerer<'ctx, '_> {
         ptr
     }
 
-    fn call_ptr(
+    pub(super) fn call_value(
         &mut self,
         function: FunctionValue<'ctx>,
         args: &[BasicValueEnum<'ctx>],
@@ -246,7 +255,7 @@ impl<'ctx> Lowerer<'ctx, '_> {
         list: BasicValueEnum<'ctx>,
     ) -> Result<BasicValueEnum<'ctx>, BuilderError> {
         let len = self.lists.len;
-        self.call_ptr(len, &[list])
+        self.call_value(len, &[list])
     }
 
     pub(super) fn list_get(
@@ -259,7 +268,7 @@ impl<'ctx> Lowerer<'ctx, '_> {
         let (_, elem) = self.elem_info(list_ty);
         let trap = self.index_trap(span);
         let at = self.lists.at;
-        let ptr = self.call_ptr(at, &[list, index, trap.into()])?;
+        let ptr = self.call_value(at, &[list, index, trap.into()])?;
         self.builder
             .build_load(self.basic_type(elem), ptr.into_pointer_value(), "")
     }
@@ -273,7 +282,7 @@ impl<'ctx> Lowerer<'ctx, '_> {
         let (info, elem) = self.elem_info(list_ty);
         let slot = self.spill_elem(value, elem)?;
         let push = self.lists.push;
-        self.call_ptr(
+        self.call_value(
             push,
             &[
                 list,
@@ -303,7 +312,7 @@ impl<'ctx> Lowerer<'ctx, '_> {
         } else {
             self.lists.set
         };
-        self.call_ptr(
+        self.call_value(
             function,
             &[
                 list,
@@ -325,7 +334,7 @@ impl<'ctx> Lowerer<'ctx, '_> {
     ) -> Result<BasicValueEnum<'ctx>, BuilderError> {
         let (info, _) = self.elem_info(list_ty);
         let truncate = self.lists.truncate;
-        self.call_ptr(
+        self.call_value(
             truncate,
             &[
                 list,
@@ -347,7 +356,7 @@ impl<'ctx> Lowerer<'ctx, '_> {
         let (info, _) = self.elem_info(list_ty);
         let trap = self.index_trap(span);
         let remove = self.lists.remove;
-        self.call_ptr(
+        self.call_value(
             remove,
             &[
                 list,
@@ -379,7 +388,7 @@ impl<'ctx> Lowerer<'ctx, '_> {
             Type::Str => (self.lists.contains_str, value),
             other => unreachable!("validated IR: list.contains on {other}"),
         };
-        let found = self.call_ptr(function, &[list, value])?;
+        let found = self.call_value(function, &[list, value])?;
         Ok(self
             .builder
             .build_int_compare(
@@ -397,13 +406,18 @@ impl<'ctx> Lowerer<'ctx, '_> {
         sep: BasicValueEnum<'ctx>,
     ) -> Result<BasicValueEnum<'ctx>, BuilderError> {
         let join = self.lists.join;
-        self.call_ptr(join, &[list, sep])
+        self.call_value(join, &[list, sep])
     }
 
-    /// A stack slot for values of `ty`, in the function's entry block (so a
-    /// loop does not grow the stack), shared by all uses in the function.
-    fn entry_alloca(&mut self, ty: Type) -> Result<PointerValue<'ctx>, BuilderError> {
-        if let Some(slot) = self.elem_slots.get(&ty) {
+    /// A stack slot for passing values of `ty` to the runtime, in the
+    /// function's entry block (so a loop does not grow the stack). Keys and
+    /// other values get separate slots, as a call may need both.
+    pub(super) fn stack_slot(
+        &mut self,
+        ty: Type,
+        key: bool,
+    ) -> Result<PointerValue<'ctx>, BuilderError> {
+        if let Some(slot) = self.elem_slots.get(&(ty, key)) {
             return Ok(*slot);
         }
         let current = self
@@ -420,7 +434,7 @@ impl<'ctx> Lowerer<'ctx, '_> {
         }
         let slot = self.builder.build_alloca(self.basic_type(ty), "elem")?;
         self.builder.position_at_end(current);
-        self.elem_slots.insert(ty, slot);
+        self.elem_slots.insert((ty, key), slot);
         Ok(slot)
     }
 }

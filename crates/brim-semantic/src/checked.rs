@@ -212,7 +212,32 @@ impl ListOp {
     }
 }
 
-/// What a list operation works on.
+/// The built-in operations on maps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MapOp {
+    Len,
+    IsEmpty,
+    /// `Option[V]`.
+    Get,
+    ContainsKey,
+    /// `List[K]`, in insertion order.
+    Keys,
+    /// `List[V]`, in insertion order.
+    Values,
+    // Operations that change the map (their receiver is a place):
+    Insert,
+    /// `Option[V]`: removes a key and returns its value.
+    Remove,
+    Clear,
+}
+
+impl MapOp {
+    pub fn changes_map(self) -> bool {
+        matches!(self, MapOp::Insert | MapOp::Remove | MapOp::Clear)
+    }
+}
+
+/// What a list or map operation works on.
 #[derive(Clone, Debug)]
 pub enum ListReceiver {
     Value(Box<CheckedExpr>),
@@ -298,10 +323,18 @@ pub enum CheckedExprKind {
     },
     /// `[a, b, c]`; the list type is the expression's type.
     ListLit(Vec<CheckedExpr>),
-    /// `base[index]` on a list.
+    /// `base[index]` on a list, or `base[key]` on a map.
     Index {
         base: Box<CheckedExpr>,
         index: Box<CheckedExpr>,
+    },
+    /// `[key: value, ...]`; the map type is the expression's type.
+    MapLit(Vec<(CheckedExpr, CheckedExpr)>),
+    /// A built-in map method: `m.get(k)`, `m.insert(k, v)`, ...
+    MapOp {
+        op: MapOp,
+        receiver: ListReceiver,
+        args: Vec<CheckedExpr>,
     },
     /// A built-in list method: `xs.len()`, `xs.push(x)`, ...
     ListOp {

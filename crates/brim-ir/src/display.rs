@@ -36,6 +36,9 @@ impl Display for Module {
         for (i, elem) in self.lists.iter().enumerate() {
             writeln!(f, "list L{i} = [{elem}]")?;
         }
+        for (i, (key, value)) in self.maps.iter().enumerate() {
+            writeln!(f, "map M{i} = [{key}: {value}]")?;
+        }
         for function in &self.functions {
             writeln!(f)?;
             function.fmt_in(self, f)?;
@@ -113,6 +116,15 @@ impl Display for InstDisplay<'_> {
             InstKind::ListRemove(v, i) => write!(f, "list.remove {v}, {i}"),
             InstKind::ListContains(v, x) => write!(f, "list.contains {v}, {x}"),
             InstKind::ListJoin(v, sep) => write!(f, "list.join {v}, {sep}"),
+            InstKind::MapNew(id) => write!(f, "map {id}"),
+            InstKind::MapLen(v) => write!(f, "map.len {v}"),
+            InstKind::MapFind(v, k) => write!(f, "map.find {v}, {k}"),
+            InstKind::MapIndex(v, k) => write!(f, "map.index {v}, {k}"),
+            InstKind::MapKeyAt(v, i) => write!(f, "map.key_at {v}, {i}"),
+            InstKind::MapValueAt(v, i) => write!(f, "map.value_at {v}, {i}"),
+            InstKind::MapInsert(v, k, x) => write!(f, "map.insert {v}, {k}, {x}"),
+            InstKind::MapSetValueAt(v, i, x) => write!(f, "map.set_value_at {v}, {i}, {x}"),
+            InstKind::MapRemoveAt(v, i) => write!(f, "map.remove_at {v}, {i}"),
         }
     }
 }

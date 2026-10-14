@@ -56,6 +56,59 @@ enum Value {
     Struct(Rc<[Value]>),
     /// Copy-on-write: changing a list that is not shared changes it in place.
     List(Rc<Vec<Value>>),
+    /// Copy-on-write, like lists.
+    Map(Rc<MapData>),
+}
+
+/// A map: entries in insertion order, and where each key is.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+struct MapData {
+    entries: Vec<(Value, Value)>,
+    index: std::collections::HashMap<MapKey, usize>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum MapKey {
+    I64(i64),
+    Bool(bool),
+    Str(BrimStr),
+}
+
+impl MapKey {
+    fn of(value: &Value) -> MapKey {
+        match value {
+            Value::I64(v) => MapKey::I64(*v),
+            Value::Bool(v) => MapKey::Bool(*v),
+            Value::Str(v) => MapKey::Str(v.clone()),
+            other => unreachable!("validated IR: map keys are i64, bool or str, found {other:?}"),
+        }
+    }
+}
+
+impl MapData {
+    fn find(&self, key: &Value) -> Option<usize> {
+        self.index.get(&MapKey::of(key)).copied()
+    }
+
+    fn insert(&mut self, key: Value, value: Value) {
+        match self.find(&key) {
+            Some(i) => self.entries[i].1 = value,
+            None => {
+                self.index.insert(MapKey::of(&key), self.entries.len());
+                self.entries.push((key, value));
+            }
+        }
+    }
+
+    fn remove_at(&mut self, i: usize) {
+        self.entries.remove(i);
+        self.index = self
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(i, (k, _))| (MapKey::of(k), i))
+            .collect();
+    }
 }
 
 impl Value {
@@ -77,6 +130,20 @@ impl Value {
         match self {
             Value::List(v) => v,
             other => unreachable!("validated IR: expected a list, found {other:?}"),
+        }
+    }
+
+    fn map(&self) -> &Rc<MapData> {
+        match self {
+            Value::Map(v) => v,
+            other => unreachable!("validated IR: expected a map, found {other:?}"),
+        }
+    }
+
+    fn into_map(self) -> Rc<MapData> {
+        match self {
+            Value::Map(v) => v,
+            other => unreachable!("validated IR: expected a map, found {other:?}"),
         }
     }
 
@@ -362,6 +429,42 @@ fn execute(
                 let index = checked_index(i, list.len(), false).map_err(fail)?;
                 Rc::make_mut(&mut list).remove(index);
                 Value::List(list)
+            }
+            InstKind::MapNew(_) => Value::Map(Rc::default()),
+            InstKind::MapLen(v) => Value::I64(frame.get(*v).map().entries.len() as i64),
+            InstKind::MapFind(v, k) => {
+                let found = frame.get(*v).map().find(frame.get(*k));
+                Value::I64(found.map_or(-1, |i| i as i64))
+            }
+            InstKind::MapIndex(v, k) => match frame.get(*v).map().find(frame.get(*k)) {
+                Some(i) => Value::I64(i as i64),
+                None => return Err(fail(RuntimeError::KeyNotFound)),
+            },
+            InstKind::MapKeyAt(v, i) => {
+                let i = frame.get(*i).i64() as usize;
+                frame.get(*v).map().entries[i].0.clone()
+            }
+            InstKind::MapValueAt(v, i) => {
+                let i = frame.get(*i).i64() as usize;
+                frame.get(*v).map().entries[i].1.clone()
+            }
+            InstKind::MapInsert(v, k, x) => {
+                let (k, x) = (frame.get(*k).clone(), frame.get(*x).clone());
+                let mut map = frame.take(*v).into_map();
+                Rc::make_mut(&mut map).insert(k, x);
+                Value::Map(map)
+            }
+            InstKind::MapSetValueAt(v, i, x) => {
+                let (i, x) = (frame.get(*i).i64() as usize, frame.get(*x).clone());
+                let mut map = frame.take(*v).into_map();
+                Rc::make_mut(&mut map).entries[i].1 = x;
+                Value::Map(map)
+            }
+            InstKind::MapRemoveAt(v, i) => {
+                let i = frame.get(*i).i64() as usize;
+                let mut map = frame.take(*v).into_map();
+                Rc::make_mut(&mut map).remove_at(i);
+                Value::Map(map)
             }
             InstKind::ListContains(v, x) => {
                 let x = frame.get(*x);

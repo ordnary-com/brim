@@ -25,6 +25,7 @@
 //!   and enforce the same call-depth limit as the interpreter.
 
 mod lists;
+mod maps;
 
 use std::collections::HashMap;
 
@@ -52,6 +53,7 @@ use inkwell::{AddressSpace, IntPredicate, OptimizationLevel};
 use crate::trap::{self, TrapText};
 use crate::{BuildOptions, BuildOutput, CodegenError, OptLevel};
 use lists::{ElemInfo, ListRuntime};
+use maps::{MapInfo, MapRuntime};
 
 pub(crate) fn build(
     module: &IrModule,
@@ -143,11 +145,14 @@ struct Lowerer<'ctx, 'a> {
     lists: ListRuntime<'ctx>,
     /// Per IR list type.
     list_elems: Vec<ElemInfo<'ctx>>,
+    maps: MapRuntime<'ctx>,
+    /// Per IR map type.
+    map_infos: Vec<MapInfo<'ctx>>,
     /// Index-error descriptions, by their text.
     index_traps: HashMap<String, PointerValue<'ctx>>,
     /// Stack slots for passing elements to the runtime, per element type, in
     /// the function being lowered.
-    elem_slots: HashMap<Type, PointerValue<'ctx>>,
+    elem_slots: HashMap<(Type, bool), PointerValue<'ctx>>,
 }
 
 impl<'ctx, 'a> Lowerer<'ctx, 'a> {
@@ -159,6 +164,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
         target_data: TargetData,
     ) -> Self {
         let lists = ListRuntime::declare(context, &module);
+        let maps = MapRuntime::declare(context, &module);
         let ptr = context.ptr_type(AddressSpace::default());
         let void = context.void_type();
         let enter = module.add_function(
@@ -213,6 +219,8 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             target_data,
             lists,
             list_elems: Vec::new(),
+            maps,
+            map_infos: Vec::new(),
             index_traps: HashMap::new(),
             elem_slots: HashMap::new(),
         }
@@ -247,6 +255,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             }
         }
         self.declare_list_elements()?;
+        self.declare_map_types()?;
         for f in &self.ir.functions {
             let params: Vec<Type> = f.param_types().collect();
             let fn_type = self.fn_type(f.ret, &params);
@@ -480,6 +489,29 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                         Some(self.list_contains(value_ty(*v), get(*v), get(*x))?)
                     }
                     InstKind::ListJoin(v, sep) => Some(self.list_join(get(*v), get(*sep))?),
+                    InstKind::MapNew(id) => Some(self.map_new(*id)),
+                    InstKind::MapLen(v) => Some(self.map_len(get(*v))?),
+                    InstKind::MapFind(v, k) => {
+                        Some(self.map_position(false, value_ty(*v), get(*v), get(*k), inst.span)?)
+                    }
+                    InstKind::MapIndex(v, k) => {
+                        Some(self.map_position(true, value_ty(*v), get(*v), get(*k), inst.span)?)
+                    }
+                    InstKind::MapKeyAt(v, i) => {
+                        Some(self.map_entry(true, value_ty(*v), get(*v), get(*i))?)
+                    }
+                    InstKind::MapValueAt(v, i) => {
+                        Some(self.map_entry(false, value_ty(*v), get(*v), get(*i))?)
+                    }
+                    InstKind::MapInsert(v, k, x) => {
+                        Some(self.map_insert(value_ty(*v), get(*v), get(*k), get(*x))?)
+                    }
+                    InstKind::MapSetValueAt(v, i, x) => {
+                        Some(self.map_set_value_at(value_ty(*v), get(*v), get(*i), get(*x))?)
+                    }
+                    InstKind::MapRemoveAt(v, i) => {
+                        Some(self.map_remove_at(value_ty(*v), get(*v), get(*i))?)
+                    }
                 };
                 if let (Some(dest), Some(value)) = (inst.result, result) {
                     let ty = f.values[dest.index()];
@@ -493,6 +525,8 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                                 | InstKind::Extract(..)
                                 | InstKind::MakeStruct(..)
                                 | InstKind::ListGet(..)
+                                | InstKind::MapKeyAt(..)
+                                | InstKind::MapValueAt(..)
                         );
                         let constant = matches!(inst.kind, InstKind::Const(_));
                         if read {
@@ -766,7 +800,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
     /// Whether values of `ty` contain strings, and so need reference counting.
     fn managed(&self, ty: Type) -> bool {
         match ty {
-            Type::Str | Type::List(_) => true,
+            Type::Str | Type::List(_) | Type::Map(_) => true,
             Type::Struct(id) => self.managed_structs[id.index()],
             Type::I64 | Type::Bool | Type::Void => false,
         }
@@ -789,12 +823,14 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
         retain: bool,
     ) -> Result<(), BuilderError> {
         match ty {
-            Type::Str | Type::List(_) => {
+            Type::Str | Type::List(_) | Type::Map(_) => {
                 let function = match (ty, retain) {
                     (Type::Str, true) => self.retain,
                     (Type::Str, false) => self.release,
-                    (_, true) => self.lists.retain,
-                    (_, false) => self.lists.release,
+                    (Type::List(_), true) => self.lists.retain,
+                    (Type::List(_), false) => self.lists.release,
+                    (_, true) => self.maps.retain,
+                    (_, false) => self.maps.release,
                 };
                 self.builder.build_call(function, &[value.into()], "")?;
             }
@@ -825,7 +861,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             Type::Bool => self.context.bool_type().into(),
             Type::Str => self.context.ptr_type(AddressSpace::default()).into(),
             Type::Struct(id) => self.struct_types[id.index()].into(),
-            Type::List(_) => self.context.ptr_type(AddressSpace::default()).into(),
+            Type::List(_) | Type::Map(_) => self.context.ptr_type(AddressSpace::default()).into(),
             Type::Void => unreachable!("validated IR: `void` is only a return type"),
         }
     }
@@ -990,6 +1026,7 @@ mod tests {
         IrModule {
             structs: vec![],
             lists: vec![],
+            maps: vec![],
             functions: vec![div, main],
             entry: FuncId(1),
         }
@@ -1057,6 +1094,7 @@ mod tests {
         let module = IrModule {
             structs: vec![],
             lists: vec![],
+            maps: vec![],
             functions: vec![echo, main],
             entry: FuncId(1),
         };

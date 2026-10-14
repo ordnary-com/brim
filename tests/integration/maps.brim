@@ -1,0 +1,70 @@
+// Maps keep their entries in insertion order. Like lists, they are values
+// with copy-on-write.
+
+struct Inventory {
+    stock: Map[string, i64]
+    tags: Map[string, List[string]]
+}
+
+fn count_words(words: List[string]) -> Map[string, i64] {
+    let mut counts: Map[string, i64] = [:]
+    for word in words {
+        match counts.get(word) {
+            Some(n) => counts[word] = n + 1
+            None => counts[word] = 1
+        }
+    }
+    return counts
+}
+
+fn main() {
+    let counts: Map[string, i64] = count_words(["a", "b", "a", "c", "b", "a"])
+    for word in counts.keys() {
+        print(word + ": " + to_string(counts[word]))
+    }
+    print(counts.len())
+    print(counts.contains_key("b"))
+    print(counts.contains_key("z"))
+
+    let mut ages: Map[string, i64] = ["ada": 36, "alan": 41]
+    ages["grace"] = 85
+    ages["ada"] += 1
+    ages.insert("edsger", 72)
+    match ages.remove("alan") {
+        Some(age) => print("removed alan, " + to_string(age))
+        None => print("no alan")
+    }
+    match ages.remove("alan") {
+        Some(age) => print(age)
+        None => print("alan is gone")
+    }
+    let mut total: i64 = 0
+    for age in ages.values() {
+        total += age
+    }
+    print(total)
+    print(ages.keys().join(","))
+
+    // Copies are independent.
+    let snapshot: Map[string, i64] = ages
+    ages.clear()
+    print(snapshot.len())
+    print(ages.is_empty())
+
+    // Integer and boolean keys.
+    let mut squares: Map[i64, i64] = [:]
+    for i in 1..6 {
+        squares[i] = i * i
+    }
+    print(squares[4])
+    let flags: Map[bool, string] = [true: "yes", false: "no"]
+    print(flags[1 < 2])
+
+    // Maps inside structs, and lists inside maps.
+    let mut inv: Inventory = Inventory { stock: [:], tags: [:] }
+    inv.stock["apple"] = 3
+    inv.stock["apple"] += 2
+    inv.tags["apple"] = ["fruit"]
+    inv.tags["apple"].push("red")
+    print(to_string(inv.stock["apple"]) + " " + inv.tags["apple"].join("+"))
+}

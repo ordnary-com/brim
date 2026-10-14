@@ -1,0 +1,10 @@
+// exit: 101
+fn price(prices: Map[string, i64], item: string) -> i64 {
+    return prices[item]
+}
+
+fn main() {
+    let prices: Map[string, i64] = ["tea": 250, "coffee": 300]
+    print(price(prices, "tea"))
+    print(price(prices, "juice"))
+}

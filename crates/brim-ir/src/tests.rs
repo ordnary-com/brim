@@ -69,6 +69,7 @@ fn module() -> Module {
     Module {
         structs: vec![],
         lists: vec![],
+        maps: vec![],
         functions: vec![add_fn(), main_fn()],
         entry: FuncId(1),
     }
@@ -213,6 +214,7 @@ fn rejects_bad_entry_and_slots() {
 fn struct_module(insts: Vec<InstKind>, values: Vec<Type>) -> Module {
     Module {
         lists: vec![],
+        maps: vec![],
         structs: vec![StructDef {
             name: "Pair".into(),
             fields: vec![

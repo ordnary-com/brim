@@ -37,13 +37,13 @@
 use std::collections::{HashMap, VecDeque};
 
 use brim_ir::{
-    Block, BlockId, Const, Field, FuncId, Function, Inst, InstKind, ListId, Module, Slot, SlotId,
-    Span, StructDef, StructId, Terminator, Type as IrType, ValueId,
+    Block, BlockId, Const, Field, FuncId, Function, Inst, InstKind, ListId, MapId, Module, Slot,
+    SlotId, Span, StructDef, StructId, Terminator, Type as IrType, ValueId,
 };
 use brim_runtime::RuntimeFn;
 use brim_semantic::checked::{
     BinaryOp, CheckedArm, CheckedExpr, CheckedExprKind, CheckedFn, CheckedForIter, CheckedPattern,
-    CheckedPlace, CheckedProgram, CheckedStmt, ListOp, ListReceiver, PlaceStep, UnaryOp,
+    CheckedPlace, CheckedProgram, CheckedStmt, ListOp, ListReceiver, MapOp, PlaceStep, UnaryOp,
 };
 use brim_semantic::{Def, Type, TypeTable};
 
@@ -55,6 +55,7 @@ pub fn lower(program: &CheckedProgram) -> Module {
         module: Module {
             structs: Vec::new(),
             lists: Vec::new(),
+            maps: Vec::new(),
             functions: Vec::new(),
             entry: FuncId(0),
         },
@@ -79,6 +80,23 @@ pub fn lower(program: &CheckedProgram) -> Module {
 
 fn func_id(index: usize) -> FuncId {
     FuncId(u32::try_from(index).expect("function count fits in u32"))
+}
+
+/// A part of a place that was moved out of its parent, for putting it back.
+struct Parent {
+    /// The parent, with a zero value where the part was.
+    value: ValueId,
+    ty: IrType,
+    at: At,
+}
+
+/// Where in its parent a part of a place is.
+#[derive(Clone, Copy)]
+enum At {
+    Field(usize),
+    ListElement(ValueId),
+    /// The entry at this position of a map.
+    MapEntry(ValueId),
 }
 
 /// Where each variant's payload lives in an enum's IR struct.
@@ -141,6 +159,7 @@ impl ModuleLowerer<'_> {
                     Def::Struct(s) => &self.program.struct_def(s).name,
                     Def::Enum(e) => &self.program.enum_def(e).name,
                     Def::List => "List",
+                    Def::Map => "Map",
                 };
                 if named.args.is_empty() {
                     name.to_string()
@@ -165,6 +184,17 @@ impl ModuleLowerer<'_> {
                     return *ir;
                 }
                 let named = self.types.get(id).clone();
+                if named.def == Def::Map {
+                    let key = self.ir_type(named.args[0]);
+                    let value = self.ir_type(named.args[1]);
+                    let id = MapId(
+                        u32::try_from(self.module.maps.len()).expect("map count fits in u32"),
+                    );
+                    self.module.maps.push((key, value));
+                    let ir = IrType::Map(id);
+                    self.ir_types.insert(ty, ir);
+                    return ir;
+                }
                 if named.def == Def::List {
                     let elem = self.ir_type(named.args[0]);
                     let id = ListId(
@@ -206,7 +236,7 @@ impl ModuleLowerer<'_> {
                         }
                         self.enum_layouts.insert(ty, EnumLayout { offsets });
                     }
-                    Def::List => unreachable!("handled above"),
+                    Def::List | Def::Map => unreachable!("handled above"),
                 }
                 let id = StructId(
                     u32::try_from(self.module.structs.len()).expect("struct count fits in u32"),
@@ -250,8 +280,9 @@ fn branches(expr: &CheckedExpr) -> bool {
         CheckedExprKind::StructLit { fields } => fields.iter().any(|(_, v)| branches(v)),
         CheckedExprKind::ListLit(items) => items.iter().any(branches),
         CheckedExprKind::Index { base, index } => branches(base) || branches(index),
-        // Some list operations branch themselves (`get`, `pop`, ...).
-        CheckedExprKind::ListOp { .. } => true,
+        // Some list and map operations branch themselves (`get`, `pop`, ...).
+        CheckedExprKind::ListOp { .. } | CheckedExprKind::MapOp { .. } => true,
+        CheckedExprKind::MapLit(entries) => entries.iter().any(|(k, v)| branches(k) || branches(v)),
         CheckedExprKind::Field { base, .. } => branches(base),
     }
 }
@@ -394,6 +425,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 InstKind::MakeStruct(id, values)
             }
             IrType::List(id) => InstKind::ListNew(id, Vec::new()),
+            IrType::Map(id) => InstKind::MapNew(id),
             IrType::Void => unreachable!("fields are never void"),
         };
         self.emit_value(kind, ty, span)
@@ -473,7 +505,8 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             .collect()
     }
 
-    /// The current value of a place, given its evaluated indices.
+    /// The current value of a place, given its evaluated indices (list
+    /// indices or map keys).
     fn read_place(
         &mut self,
         place: &CheckedPlace,
@@ -484,22 +517,105 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         let mut ty = self.func.slots[slot.index()].ty;
         let mut value = self.emit_value(InstKind::Load(slot), ty, span);
         for (step, index) in place.steps.iter().zip(indices) {
-            let (kind, child_ty) = match step {
-                PlaceStep::Field(i) => (InstKind::Extract(value, *i), self.field_type(ty, *i)),
-                PlaceStep::Index(_) => {
+            let (child, child_ty) = match (step, ty) {
+                (PlaceStep::Field(i), _) => {
+                    let child_ty = self.field_type(ty, *i);
+                    let child = self.emit_value(InstKind::Extract(value, *i), child_ty, span);
+                    (child, child_ty)
+                }
+                (PlaceStep::Index(_), IrType::Map(id)) => {
+                    let key = index.expect("index steps have an index");
+                    let (_, value_ty) = self.m.module.maps[id.index()];
+                    let at = self.emit_value(InstKind::MapIndex(value, key), IrType::I64, span);
+                    let child = self.emit_value(InstKind::MapValueAt(value, at), value_ty, span);
+                    (child, value_ty)
+                }
+                (PlaceStep::Index(_), _) => {
                     let index = index.expect("index steps have an index");
-                    (InstKind::ListGet(value, index), self.list_elem(ty))
+                    let child_ty = self.list_elem(ty);
+                    let child = self.emit_value(InstKind::ListGet(value, index), child_ty, span);
+                    (child, child_ty)
                 }
             };
-            value = self.emit_value(kind, child_ty, span);
+            value = child;
             ty = child_ty;
         }
         value
     }
 
+    /// Moves the parts of a place out of their parents, down to the part
+    /// before step `upto`. Returns that part, its type, and the parents
+    /// (with holes) to put back afterwards.
+    fn descend(
+        &mut self,
+        place: &CheckedPlace,
+        indices: &[Option<ValueId>],
+        upto: usize,
+        span: Span,
+    ) -> (ValueId, IrType, Vec<Parent>) {
+        let slot = SlotId(place.local.0 as u32);
+        let mut ty = self.func.slots[slot.index()].ty;
+        let mut current = self.emit_value(InstKind::Take(slot), ty, span);
+        let mut parents = Vec::new();
+        for (step, index) in place.steps[..upto].iter().zip(indices) {
+            let (child, child_ty, parent, at) = match (step, ty) {
+                (PlaceStep::Field(i), _) => {
+                    let child_ty = self.field_type(ty, *i);
+                    let child = self.emit_value(InstKind::Extract(current, *i), child_ty, span);
+                    let hole = self.zero(child_ty, span);
+                    let parent = self.emit_value(InstKind::Insert(current, *i, hole), ty, span);
+                    (child, child_ty, parent, At::Field(*i))
+                }
+                (PlaceStep::Index(_), IrType::Map(id)) => {
+                    let key = index.expect("index steps have an index");
+                    let (_, value_ty) = self.m.module.maps[id.index()];
+                    let pos = self.emit_value(InstKind::MapIndex(current, key), IrType::I64, span);
+                    let child = self.emit_value(InstKind::MapValueAt(current, pos), value_ty, span);
+                    let hole = self.zero(value_ty, span);
+                    let parent =
+                        self.emit_value(InstKind::MapSetValueAt(current, pos, hole), ty, span);
+                    (child, value_ty, parent, At::MapEntry(pos))
+                }
+                (PlaceStep::Index(_), _) => {
+                    let index = index.expect("index steps have an index");
+                    let child_ty = self.list_elem(ty);
+                    let child = self.emit_value(InstKind::ListGet(current, index), child_ty, span);
+                    let hole = self.zero(child_ty, span);
+                    let parent = self.emit_value(InstKind::ListSet(current, index, hole), ty, span);
+                    (child, child_ty, parent, At::ListElement(index))
+                }
+            };
+            parents.push(Parent {
+                value: parent,
+                ty,
+                at,
+            });
+            current = child;
+            ty = child_ty;
+        }
+        (current, ty, parents)
+    }
+
+    /// Puts `new` back into the parents left by [`descend`](Self::descend)
+    /// and stores the result in the place's variable.
+    fn ascend(&mut self, place: &CheckedPlace, parents: Vec<Parent>, new: ValueId, span: Span) {
+        let mut new = new;
+        for parent in parents.into_iter().rev() {
+            let kind = match parent.at {
+                At::Field(i) => InstKind::Insert(parent.value, i, new),
+                At::ListElement(index) => InstKind::ListSet(parent.value, index, new),
+                At::MapEntry(pos) => InstKind::MapSetValueAt(parent.value, pos, new),
+            };
+            new = self.emit_value(kind, parent.ty, span);
+        }
+        let slot = SlotId(place.local.0 as u32);
+        self.emit(InstKind::Store(slot, new), None, span);
+    }
+
     /// Replaces the value of a place with `change(current value)`. The
     /// current value and the parts around it are moved out first, so the
-    /// change can happen in place. `change` must not branch.
+    /// change can happen in place. `change` must not branch. A map entry
+    /// on the path must exist.
     fn write_place(
         &mut self,
         place: &CheckedPlace,
@@ -507,44 +623,33 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         span: Span,
         change: impl FnOnce(&mut Self, ValueId) -> ValueId,
     ) {
-        let slot = SlotId(place.local.0 as u32);
-        let mut ty = self.func.slots[slot.index()].ty;
-        let mut current = self.emit_value(InstKind::Take(slot), ty, span);
-        // (parent with a hole, its type, the step into it)
-        let mut parents: Vec<(ValueId, IrType, &PlaceStep, Option<ValueId>)> = Vec::new();
-        for (step, index) in place.steps.iter().zip(indices) {
-            let (child, child_ty, parent) = match step {
-                PlaceStep::Field(i) => {
-                    let child_ty = self.field_type(ty, *i);
-                    let child = self.emit_value(InstKind::Extract(current, *i), child_ty, span);
-                    let hole = self.zero(child_ty, span);
-                    let parent = self.emit_value(InstKind::Insert(current, *i, hole), ty, span);
-                    (child, child_ty, parent)
-                }
-                PlaceStep::Index(_) => {
-                    let index = index.expect("index steps have an index");
-                    let child_ty = self.list_elem(ty);
-                    let child = self.emit_value(InstKind::ListGet(current, index), child_ty, span);
-                    let hole = self.zero(child_ty, span);
-                    let parent = self.emit_value(InstKind::ListSet(current, index, hole), ty, span);
-                    (child, child_ty, parent)
-                }
-            };
-            parents.push((parent, ty, step, *index));
-            current = child;
-            ty = child_ty;
-        }
-        let mut new = change(self, current);
-        for (parent, parent_ty, step, index) in parents.into_iter().rev() {
-            let kind = match step {
-                PlaceStep::Field(i) => InstKind::Insert(parent, *i, new),
-                PlaceStep::Index(_) => {
-                    InstKind::ListSet(parent, index.expect("index steps have an index"), new)
-                }
-            };
-            new = self.emit_value(kind, parent_ty, span);
-        }
-        self.emit(InstKind::Store(slot, new), None, span);
+        let (current, _, parents) = self.descend(place, indices, place.steps.len(), span);
+        let new = change(self, current);
+        self.ascend(place, parents, new, span);
+    }
+
+    /// Sets a place to `value` without reading it first, so `map[key] = v`
+    /// can add a new key.
+    fn replace_place(
+        &mut self,
+        place: &CheckedPlace,
+        indices: &[Option<ValueId>],
+        value: ValueId,
+        span: Span,
+    ) {
+        let last = place.steps.len() - 1;
+        let (parent, parent_ty, parents) = self.descend(place, indices, last, span);
+        let kind = match (&place.steps[last], parent_ty) {
+            (PlaceStep::Field(i), _) => InstKind::Insert(parent, *i, value),
+            (PlaceStep::Index(_), IrType::Map(_)) => {
+                InstKind::MapInsert(parent, indices[last].expect("an index"), value)
+            }
+            (PlaceStep::Index(_), _) => {
+                InstKind::ListSet(parent, indices[last].expect("an index"), value)
+            }
+        };
+        let new = self.emit_value(kind, parent_ty, span);
+        self.ascend(place, parents, new, span);
     }
 
     fn assign(&mut self, place: &CheckedPlace, op: Option<BinaryOp>, value: &CheckedExpr) {
@@ -592,7 +697,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         span: Span,
     ) {
         match op {
-            None => self.write_place(place, indices, span, |_, _| v),
+            None => self.replace_place(place, indices, v, span),
             Some(op) => self.write_place(place, indices, span, |s, current| {
                 s.binary(op, current, v, span)
             }),
@@ -779,6 +884,261 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 self.change_list(op, place, &indices, &args, ty, result_ty, span)
             }
         }
+    }
+
+    // ---- map operations ----------------------------------------------------
+
+    fn map_op(
+        &mut self,
+        op: MapOp,
+        receiver: &ListReceiver,
+        args: &[CheckedExpr],
+        ty: IrType,
+        result_ty: brim_semantic::Type,
+        span: Span,
+    ) -> Option<ValueId> {
+        let i64_ty = IrType::I64;
+        match receiver {
+            ListReceiver::Value(map) => {
+                let mut operands: Vec<&CheckedExpr> = vec![map];
+                operands.extend(args);
+                let values = self.values(&operands);
+                let m = values[0];
+                Some(match op {
+                    MapOp::Len => self.emit_value(InstKind::MapLen(m), i64_ty, span),
+                    MapOp::IsEmpty => {
+                        let len = self.emit_value(InstKind::MapLen(m), i64_ty, span);
+                        let zero = self.emit_value(InstKind::Const(Const::I64(0)), i64_ty, span);
+                        self.emit_value(
+                            InstKind::Binary(brim_ir::BinaryOp::IEq, len, zero),
+                            IrType::Bool,
+                            span,
+                        )
+                    }
+                    MapOp::ContainsKey => {
+                        let at = self.emit_value(InstKind::MapFind(m, values[1]), i64_ty, span);
+                        let zero = self.emit_value(InstKind::Const(Const::I64(0)), i64_ty, span);
+                        self.emit_value(
+                            InstKind::Binary(brim_ir::BinaryOp::IGe, at, zero),
+                            IrType::Bool,
+                            span,
+                        )
+                    }
+                    MapOp::Get => {
+                        let at = self.emit_value(InstKind::MapFind(m, values[1]), i64_ty, span);
+                        let option_ty = self.concrete(result_ty);
+                        self.optional_value(m, at, option_ty, span)
+                    }
+                    MapOp::Keys | MapOp::Values => self.map_entries(m, op == MapOp::Keys, ty, span),
+                    _ => unreachable!("checked: changing operations have a place receiver"),
+                })
+            }
+            ListReceiver::Place(place) => {
+                let indices = self.place_indices(place);
+                let (indices, args) = if args.iter().any(branches) {
+                    let spilled = self.spill(&indices, span);
+                    let values = self.values(&args.iter().collect::<Vec<_>>());
+                    (self.reload(&spilled, span), values)
+                } else {
+                    let values = self.values(&args.iter().collect::<Vec<_>>());
+                    (indices, values)
+                };
+                let map_ty = self.ir_type(place.ty);
+                match op {
+                    MapOp::Insert => {
+                        let (k, v) = (args[0], args[1]);
+                        self.write_place(place, &indices, span, |s, m| {
+                            s.emit_value(InstKind::MapInsert(m, k, v), map_ty, span)
+                        });
+                        None
+                    }
+                    MapOp::Clear => {
+                        let IrType::Map(id) = map_ty else {
+                            unreachable!("a map place");
+                        };
+                        self.write_place(place, &indices, span, |s, _| {
+                            s.emit_value(InstKind::MapNew(id), map_ty, span)
+                        });
+                        None
+                    }
+                    MapOp::Remove => {
+                        Some(self.map_remove(place, &indices, args[0], result_ty, span))
+                    }
+                    _ => unreachable!("only changing operations have a place receiver"),
+                }
+            }
+        }
+    }
+
+    /// `Some(map value at position at)` if `at >= 0`, else `None`.
+    fn optional_value(
+        &mut self,
+        map: ValueId,
+        at: ValueId,
+        option_ty: brim_semantic::Type,
+        span: Span,
+    ) -> ValueId {
+        let map_ty = self.func.values[map.index()];
+        let IrType::Map(id) = map_ty else {
+            unreachable!("a map operand");
+        };
+        let (_, value_ty) = self.m.module.maps[id.index()];
+        let map_slot = self.new_slot("map", map_ty);
+        self.emit(InstKind::Store(map_slot, map), None, span);
+        let at_slot = self.new_slot("at", IrType::I64);
+        self.emit(InstKind::Store(at_slot, at), None, span);
+        let zero = self.emit_value(InstKind::Const(Const::I64(0)), IrType::I64, span);
+        let found = self.emit_value(
+            InstKind::Binary(brim_ir::BinaryOp::IGe, at, zero),
+            IrType::Bool,
+            span,
+        );
+        let result_ir = self.m.ir_type(option_ty);
+        let result = self.new_slot("value", result_ir);
+        let yes = self.new_block();
+        let no = self.new_block();
+        let join = self.new_block();
+        self.terminate(Terminator::Branch {
+            cond: found,
+            then_block: yes,
+            else_block: no,
+        });
+        self.switch_to(yes);
+        let map = self.emit_value(InstKind::Load(map_slot), map_ty, span);
+        let at = self.emit_value(InstKind::Load(at_slot), IrType::I64, span);
+        let value = self.emit_value(InstKind::MapValueAt(map, at), value_ty, span);
+        let some = self.make_variant(option_ty, 0, &[value], span);
+        self.emit(InstKind::Store(result, some), None, span);
+        self.terminate(Terminator::Jump(join));
+        self.switch_to(no);
+        let none = self.make_variant(option_ty, 1, &[], span);
+        self.emit(InstKind::Store(result, none), None, span);
+        self.terminate(Terminator::Jump(join));
+        self.switch_to(join);
+        self.emit_value(InstKind::Load(result), result_ir, span)
+    }
+
+    /// The keys or values of a map, as a list in insertion order.
+    fn map_entries(&mut self, map: ValueId, keys: bool, list_ty: IrType, span: Span) -> ValueId {
+        let map_ty = self.func.values[map.index()];
+        let IrType::Map(map_id) = map_ty else {
+            unreachable!("a map operand");
+        };
+        let IrType::List(list_id) = list_ty else {
+            unreachable!("keys and values are lists");
+        };
+        let (key_ty, value_ty) = self.m.module.maps[map_id.index()];
+        let elem_ty = if keys { key_ty } else { value_ty };
+        let map_slot = self.new_slot("map", map_ty);
+        self.emit(InstKind::Store(map_slot, map), None, span);
+        let out = self.new_slot("entries", list_ty);
+        let empty = self.emit_value(InstKind::ListNew(list_id, Vec::new()), list_ty, span);
+        self.emit(InstKind::Store(out, empty), None, span);
+        let counter = self.new_slot("i", IrType::I64);
+        let zero = self.emit_value(InstKind::Const(Const::I64(0)), IrType::I64, span);
+        self.emit(InstKind::Store(counter, zero), None, span);
+        let header = self.new_block();
+        let body = self.new_block();
+        let exit = self.new_block();
+        self.terminate(Terminator::Jump(header));
+
+        self.switch_to(header);
+        let i = self.emit_value(InstKind::Load(counter), IrType::I64, span);
+        let m = self.emit_value(InstKind::Load(map_slot), map_ty, span);
+        let len = self.emit_value(InstKind::MapLen(m), IrType::I64, span);
+        let more = self.emit_value(
+            InstKind::Binary(brim_ir::BinaryOp::ILt, i, len),
+            IrType::Bool,
+            span,
+        );
+        self.terminate(Terminator::Branch {
+            cond: more,
+            then_block: body,
+            else_block: exit,
+        });
+
+        self.switch_to(body);
+        let i = self.emit_value(InstKind::Load(counter), IrType::I64, span);
+        let m = self.emit_value(InstKind::Load(map_slot), map_ty, span);
+        let kind = if keys {
+            InstKind::MapKeyAt(m, i)
+        } else {
+            InstKind::MapValueAt(m, i)
+        };
+        let item = self.emit_value(kind, elem_ty, span);
+        let list = self.emit_value(InstKind::Take(out), list_ty, span);
+        let list = self.emit_value(InstKind::ListPush(list, item), list_ty, span);
+        self.emit(InstKind::Store(out, list), None, span);
+        let one = self.emit_value(InstKind::Const(Const::I64(1)), IrType::I64, span);
+        let next = self.emit_value(
+            InstKind::Binary(brim_ir::BinaryOp::IAdd, i, one),
+            IrType::I64,
+            span,
+        );
+        self.emit(InstKind::Store(counter, next), None, span);
+        self.terminate(Terminator::Jump(header));
+
+        self.switch_to(exit);
+        self.emit_value(InstKind::Load(out), list_ty, span)
+    }
+
+    /// `map.remove(key)`: the removed value, if the key was there.
+    fn map_remove(
+        &mut self,
+        place: &CheckedPlace,
+        indices: &[Option<ValueId>],
+        key: ValueId,
+        result_ty: brim_semantic::Type,
+        span: Span,
+    ) -> ValueId {
+        let option_ty = self.concrete(result_ty);
+        let result_ir = self.m.ir_type(option_ty);
+        let result = self.new_slot("removed", result_ir);
+        let map_ty = self.ir_type(place.ty);
+        let IrType::Map(id) = map_ty else {
+            unreachable!("a map place");
+        };
+        let (key_ty, value_ty) = self.m.module.maps[id.index()];
+        let spilled = self.spill(indices, span);
+        let key_slot = self.new_slot("key", key_ty);
+        self.emit(InstKind::Store(key_slot, key), None, span);
+        let current = self.read_place(place, indices, span);
+        let at = self.emit_value(InstKind::MapFind(current, key), IrType::I64, span);
+        let zero = self.emit_value(InstKind::Const(Const::I64(0)), IrType::I64, span);
+        let found = self.emit_value(
+            InstKind::Binary(brim_ir::BinaryOp::IGe, at, zero),
+            IrType::Bool,
+            span,
+        );
+        let yes = self.new_block();
+        let no = self.new_block();
+        let join = self.new_block();
+        self.terminate(Terminator::Branch {
+            cond: found,
+            then_block: yes,
+            else_block: no,
+        });
+
+        self.switch_to(yes);
+        let indices = self.reload(&spilled, span);
+        let key = self.emit_value(InstKind::Load(key_slot), key_ty, span);
+        let mut removed = None;
+        self.write_place(place, &indices, span, |s, m| {
+            let at = s.emit_value(InstKind::MapIndex(m, key), IrType::I64, span);
+            removed = Some(s.emit_value(InstKind::MapValueAt(m, at), value_ty, span));
+            s.emit_value(InstKind::MapRemoveAt(m, at), map_ty, span)
+        });
+        let some = self.make_variant(option_ty, 0, &[removed.expect("set")], span);
+        self.emit(InstKind::Store(result, some), None, span);
+        self.terminate(Terminator::Jump(join));
+
+        self.switch_to(no);
+        let none = self.make_variant(option_ty, 1, &[], span);
+        self.emit(InstKind::Store(result, none), None, span);
+        self.terminate(Terminator::Jump(join));
+
+        self.switch_to(join);
+        self.emit_value(InstKind::Load(result), result_ir, span)
     }
 
     /// `Some(list[index])` if `index` is inside the list, else `None`.
@@ -1235,7 +1595,31 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                     .values(&[base, index])
                     .try_into()
                     .expect("two operands");
-                self.emit_value(InstKind::ListGet(l, i), ty, span)
+                if matches!(self.func.values[l.index()], IrType::Map(_)) {
+                    let at = self.emit_value(InstKind::MapIndex(l, i), IrType::I64, span);
+                    self.emit_value(InstKind::MapValueAt(l, at), ty, span)
+                } else {
+                    self.emit_value(InstKind::ListGet(l, i), ty, span)
+                }
+            }
+            CheckedExprKind::MapLit(entries) => {
+                let mut exprs = Vec::with_capacity(entries.len() * 2);
+                for (k, v) in entries {
+                    exprs.push(k);
+                    exprs.push(v);
+                }
+                let values = self.values(&exprs);
+                let IrType::Map(id) = ty else {
+                    unreachable!("a map literal has a map type");
+                };
+                let mut map = self.emit_value(InstKind::MapNew(id), ty, span);
+                for pair in values.chunks(2) {
+                    map = self.emit_value(InstKind::MapInsert(map, pair[0], pair[1]), ty, span);
+                }
+                map
+            }
+            CheckedExprKind::MapOp { op, receiver, args } => {
+                return self.map_op(*op, receiver, args, ty, expr.ty, span);
             }
             CheckedExprKind::ListOp { op, receiver, args } => {
                 return self.list_op(*op, receiver, args, ty, expr.ty, span);

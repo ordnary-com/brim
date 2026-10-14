@@ -93,6 +93,11 @@ id_type!(
     ListId,
     "L"
 );
+id_type!(
+    /// Index into [`Module::maps`].
+    MapId,
+    "M"
+);
 
 /// IR types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -103,6 +108,9 @@ pub enum Type {
     Struct(StructId),
     /// A list; its element type is `Module::lists[id]`.
     List(ListId),
+    /// A map; its key and value types are `Module::maps[id]`. Keys are
+    /// `i64`, `bool` or `str`.
+    Map(MapId),
     /// Only valid as a function return type.
     Void,
 }
@@ -115,6 +123,7 @@ impl fmt::Display for Type {
             Type::Str => "str",
             Type::Struct(id) => return write!(f, "{id}"),
             Type::List(id) => return write!(f, "{id}"),
+            Type::Map(id) => return write!(f, "{id}"),
             Type::Void => "void",
         })
     }
@@ -136,6 +145,8 @@ pub struct Module {
     pub structs: Vec<StructDef>,
     /// The element type of each list type.
     pub lists: Vec<Type>,
+    /// The key and value types of each map type.
+    pub maps: Vec<(Type, Type)>,
     pub functions: Vec<Function>,
     /// The function the program starts in. Takes no parameters, returns `void`.
     pub entry: FuncId,
@@ -152,6 +163,10 @@ impl Module {
 
     pub fn list_elem(&self, id: ListId) -> Type {
         self.lists[id.index()]
+    }
+
+    pub fn map_types(&self, id: MapId) -> (Type, Type) {
+        self.maps[id.index()]
     }
 }
 
@@ -254,6 +269,26 @@ pub enum InstKind {
     ListContains(ValueId, ValueId),
     /// The elements of a list of `str`, joined with a separator.
     ListJoin(ValueId, ValueId),
+    /// An empty map.
+    MapNew(MapId),
+    /// The number of entries (`i64`).
+    MapLen(ValueId),
+    /// The position of a key (`i64`), or -1 if the map does not have it.
+    /// Entries are kept in insertion order, at positions `0..len`.
+    MapFind(ValueId, ValueId),
+    /// The position of a key; a missing key is a run-time error.
+    MapIndex(ValueId, ValueId),
+    /// The key at a position.
+    MapKeyAt(ValueId, ValueId),
+    /// The value at a position.
+    MapValueAt(ValueId, ValueId),
+    /// The map with a key set to a value (added at the end if new).
+    /// Consumes the map.
+    MapInsert(ValueId, ValueId, ValueId),
+    /// The map with the value at a position replaced. Consumes the map.
+    MapSetValueAt(ValueId, ValueId, ValueId),
+    /// The map without the entry at a position. Consumes the map.
+    MapRemoveAt(ValueId, ValueId),
 }
 
 impl InstKind {
@@ -265,7 +300,10 @@ impl InstKind {
             | InstKind::ListPush(v, _)
             | InstKind::ListTruncate(v, _)
             | InstKind::ListInsert(v, ..)
-            | InstKind::ListRemove(v, _) => Some(*v),
+            | InstKind::ListRemove(v, _)
+            | InstKind::MapInsert(v, ..)
+            | InstKind::MapSetValueAt(v, ..)
+            | InstKind::MapRemoveAt(v, _) => Some(*v),
             _ => None,
         }
     }
@@ -273,11 +311,14 @@ impl InstKind {
     /// Every value this instruction reads, in order.
     pub fn operands(&self) -> Vec<ValueId> {
         match self {
-            InstKind::Const(_) | InstKind::Load(_) | InstKind::Take(_) => Vec::new(),
+            InstKind::Const(_) | InstKind::Load(_) | InstKind::Take(_) | InstKind::MapNew(_) => {
+                Vec::new()
+            }
             InstKind::Store(_, v)
             | InstKind::Unary(_, v)
             | InstKind::Extract(v, _)
-            | InstKind::ListLen(v) => vec![*v],
+            | InstKind::ListLen(v)
+            | InstKind::MapLen(v) => vec![*v],
             InstKind::Binary(_, a, b)
             | InstKind::Insert(a, _, b)
             | InstKind::ListGet(a, b)
@@ -285,8 +326,16 @@ impl InstKind {
             | InstKind::ListTruncate(a, b)
             | InstKind::ListRemove(a, b)
             | InstKind::ListContains(a, b)
-            | InstKind::ListJoin(a, b) => vec![*a, *b],
-            InstKind::ListSet(a, b, c) | InstKind::ListInsert(a, b, c) => vec![*a, *b, *c],
+            | InstKind::ListJoin(a, b)
+            | InstKind::MapFind(a, b)
+            | InstKind::MapIndex(a, b)
+            | InstKind::MapKeyAt(a, b)
+            | InstKind::MapValueAt(a, b)
+            | InstKind::MapRemoveAt(a, b) => vec![*a, *b],
+            InstKind::ListSet(a, b, c)
+            | InstKind::ListInsert(a, b, c)
+            | InstKind::MapInsert(a, b, c)
+            | InstKind::MapSetValueAt(a, b, c) => vec![*a, *b, *c],
             InstKind::Call(_, args)
             | InstKind::CallRuntime(_, args)
             | InstKind::MakeStruct(_, args)

@@ -1,0 +1,7 @@
+error[R0006]: key not found in map
+ --> tests/integration/key_not_found.brim:3:12
+  |
+3 |     return prices[item]
+  |            ^^^^^^^^^^^^
+  |
+  = note: call stack: main -> price

@@ -9,7 +9,7 @@ use brim_diagnostics::{Diagnostic, Span};
 use super::{Checker, FnCtx, error_expr, plural, supplied};
 use crate::checked::{
     CheckedExpr, CheckedExprKind, CheckedForIter, CheckedPlace, CheckedStmt, ListOp, ListReceiver,
-    PlaceStep,
+    MapOp, PlaceStep,
 };
 use crate::{Def, Type};
 
@@ -40,6 +40,36 @@ fn list_method(name: &str) -> Option<(ListOp, Vec<Type>, Type)> {
     })
 }
 
+/// The map methods: name, operation, parameter types (`Param(0)` is the
+/// key type, `Param(1)` the value type).
+fn map_method(name: &str) -> Option<(MapOp, Vec<Type>)> {
+    let (key, value) = (Type::Param(0), Type::Param(1));
+    Some(match name {
+        "len" => (MapOp::Len, vec![]),
+        "is_empty" => (MapOp::IsEmpty, vec![]),
+        "get" => (MapOp::Get, vec![key]),
+        "contains_key" => (MapOp::ContainsKey, vec![key]),
+        "keys" => (MapOp::Keys, vec![]),
+        "values" => (MapOp::Values, vec![]),
+        "insert" => (MapOp::Insert, vec![key, value]),
+        "remove" => (MapOp::Remove, vec![key]),
+        "clear" => (MapOp::Clear, vec![]),
+        _ => return None,
+    })
+}
+
+const MAP_METHODS: &[&str] = &[
+    "len",
+    "is_empty",
+    "get",
+    "contains_key",
+    "keys",
+    "values",
+    "insert",
+    "remove",
+    "clear",
+];
+
 const LIST_METHODS: &[&str] = &[
     "len", "is_empty", "get", "first", "last", "contains", "join", "push", "pop", "insert",
     "remove", "clear",
@@ -51,6 +81,164 @@ impl<'a> Checker<'a> {
         let Type::Named(id) = ty else { return None };
         let named = self.types.get(id);
         (named.def == Def::List).then(|| named.args[0])
+    }
+
+    /// The key and value types, if `ty` is a map.
+    pub(super) fn as_map(&self, ty: Type) -> Option<(Type, Type)> {
+        let Type::Named(id) = ty else { return None };
+        let named = self.types.get(id);
+        (named.def == Def::Map).then(|| (named.args[0], named.args[1]))
+    }
+
+    pub(super) fn check_map_lit(
+        &mut self,
+        entries: &[(ast::Expr, ast::Expr)],
+        span: Span,
+        expected: Option<Type>,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        let (mut key_ty, mut value_ty) = match expected.and_then(|t| self.as_map(t)) {
+            Some((k, v)) => (Some(k), Some(v)),
+            None => (None, None),
+        };
+        let mut checked = Vec::with_capacity(entries.len());
+        for (key, value) in entries {
+            let key = self.check_expr_with(key, key_ty, ctx);
+            let value = self.check_expr_with(value, value_ty, ctx);
+            if key_ty.is_none() && key.ty != Type::Error {
+                key_ty = Some(key.ty);
+            }
+            if value_ty.is_none() && value.ty != Type::Error {
+                value_ty = Some(value.ty);
+            }
+            checked.push((key, value));
+        }
+        let (Some(key_ty), Some(value_ty)) = (key_ty, value_ty) else {
+            if entries.is_empty() && !self.quiet_inference {
+                self.diags.push(
+                    Diagnostic::error("cannot infer the types of an empty map")
+                        .with_code("E0226")
+                        .with_primary(span, "the type is not known here")
+                        .with_help(
+                            "add a type annotation, for example `let m: Map[string, i64] = [:]`",
+                        ),
+                );
+            }
+            return error_expr(span);
+        };
+        if !matches!(key_ty, Type::I64 | Type::Bool | Type::String) {
+            let key = self.show(key_ty);
+            self.diags.push(
+                Diagnostic::error(format!("`{key}` cannot be a map key"))
+                    .with_code("E0236")
+                    .with_primary(checked[0].0.span, "")
+                    .with_note("map keys are `i64`, `bool` or `string`"),
+            );
+            return error_expr(span);
+        }
+        for (key, value) in &checked {
+            self.expect_type(key, key_ty, None, "");
+            self.expect_type(value, value_ty, None, "");
+        }
+        CheckedExpr {
+            ty: self.types.intern(Def::Map, vec![key_ty, value_ty]),
+            kind: CheckedExprKind::MapLit(checked),
+            span,
+        }
+    }
+
+    /// `base.name(args)` where `base` is a map.
+    pub(super) fn check_map_method(
+        &mut self,
+        base: &ast::Expr,
+        name: &ast::Ident,
+        args: &[ast::Expr],
+        span: Span,
+        ctx: &mut FnCtx,
+    ) -> Option<CheckedExpr> {
+        let Some((op, params)) = map_method(&name.name) else {
+            let receiver = self.check_expr(base, ctx);
+            for arg in args {
+                self.check_expr(arg, ctx);
+            }
+            let ty = self.show(receiver.ty);
+            let mut diag = Diagnostic::error(format!("`{ty}` has no method `{}`", name.name))
+                .with_code("E0231")
+                .with_primary(name.span, "unknown method");
+            diag = match crate::suggest::similar(&name.name, MAP_METHODS.iter().copied()) {
+                Some(similar) => diag.with_help(format!("did you mean `{similar}`?")),
+                None => diag.with_note(format!(
+                    "map methods: {}",
+                    MAP_METHODS
+                        .iter()
+                        .map(|m| format!("`{m}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )),
+            };
+            self.diags.push(diag);
+            return Some(error_expr(span));
+        };
+        let receiver = if op.changes_map() {
+            let Some(place) = self.check_place(base, ctx, &format!("call `{}` on", name.name))
+            else {
+                for arg in args {
+                    self.check_expr(arg, ctx);
+                }
+                return Some(error_expr(span));
+            };
+            ListReceiver::Place(place)
+        } else {
+            ListReceiver::Value(Box::new(self.check_expr(base, ctx)))
+        };
+        let map_ty = match &receiver {
+            ListReceiver::Value(v) => v.ty,
+            ListReceiver::Place(p) => p.ty,
+        };
+        let (key, value) = self.as_map(map_ty).expect("checked by the caller");
+        if args.len() != params.len() {
+            for arg in args {
+                self.check_expr(arg, ctx);
+            }
+            self.diags.push(
+                Diagnostic::error(format!(
+                    "`{}` takes {} but {} supplied",
+                    name.name,
+                    plural(params.len(), "argument"),
+                    supplied(args.len())
+                ))
+                .with_code("E0205")
+                .with_primary(
+                    span,
+                    format!("expected {}", plural(params.len(), "argument")),
+                ),
+            );
+            return Some(error_expr(span));
+        }
+        let mut checked = Vec::with_capacity(args.len());
+        for (arg, param) in args.iter().zip(&params) {
+            let param = self.types.subst(*param, &[key, value]);
+            let arg = self.check_expr_with(arg, Some(param), ctx);
+            self.expect_type(&arg, param, None, "");
+            checked.push(arg);
+        }
+        let ty = match op {
+            MapOp::Len => Type::I64,
+            MapOp::IsEmpty | MapOp::ContainsKey => Type::Bool,
+            MapOp::Get | MapOp::Remove => self.option_of(value),
+            MapOp::Keys => self.list_of(key),
+            MapOp::Values => self.list_of(value),
+            MapOp::Insert | MapOp::Clear => Type::Void,
+        };
+        Some(CheckedExpr {
+            kind: CheckedExprKind::MapOp {
+                op,
+                receiver,
+                args: checked,
+            },
+            ty,
+            span,
+        })
     }
 
     pub(super) fn list_of(&mut self, elem: Type) -> Type {
@@ -78,7 +266,7 @@ impl<'a> Checker<'a> {
             checked.push(value);
         }
         let Some(elem) = elem else {
-            if items.is_empty() {
+            if items.is_empty() && !self.quiet_inference {
                 self.diags.push(
                     Diagnostic::error("cannot infer the element type of an empty list")
                         .with_code("E0226")
@@ -120,8 +308,13 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// Checks `base[index]`: the element type, or `None` after an error.
+    /// Checks `base[index]` on a list or map: the element (or value) type,
+    /// or `None` after an error.
     fn list_element(&mut self, base: &CheckedExpr, index: &CheckedExpr) -> Option<Type> {
+        if let Some((key, value)) = self.as_map(base.ty) {
+            self.expect_type(index, key, None, "");
+            return Some(value);
+        }
         self.expect_type(index, Type::I64, None, "");
         if base.ty == Type::Error {
             return None;
@@ -134,7 +327,7 @@ impl<'a> Checker<'a> {
                     Diagnostic::error(format!("cannot index into a value of type `{ty}`"))
                         .with_code("E0234")
                         .with_primary(base.span, format!("this is `{ty}`"))
-                        .with_note("only lists can be indexed with `[...]`"),
+                        .with_note("only lists and maps can be indexed with `[...]`"),
                 );
                 None
             }
@@ -410,12 +603,15 @@ impl<'a> Checker<'a> {
                     None if list.ty == Type::Error => Type::Error,
                     None => {
                         let ty = self.show(list.ty);
-                        self.diags.push(
+                        let mut diag =
                             Diagnostic::error(format!("cannot loop over a value of type `{ty}`"))
                                 .with_code("E0235")
                                 .with_primary(list.span, format!("this is `{ty}`"))
-                                .with_note("`for` loops go over a list, or a range such as `0..n`"),
-                        );
+                                .with_note("`for` loops go over a list, or a range such as `0..n`");
+                        if self.as_map(list.ty).is_some() {
+                            diag = diag.with_help("loop over `map.keys()` or `map.values()`");
+                        }
+                        self.diags.push(diag);
                         Type::Error
                     }
                 };

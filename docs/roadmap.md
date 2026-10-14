@@ -58,7 +58,8 @@ Still open from this phase: debug information, Windows, cross-compilation, and l
 - **Done:** `Option[T]` and `Result[T, E]` as built-in enums.
 - **Done:** recoverable error handling: `Result` values with the `?` operator (also for `Option`). Error type conversion is still open.
 - **Done:** `List[T]` with literals, indexing, methods and copy-on-write value semantics, and `for` loops over lists and ranges.
-- Maps, user-defined methods, and string operations.
+- **Done:** `Map[K, V]` with `i64`, `bool` or `string` keys, insertion-ordered, with the same value semantics.
+- User-defined methods, and string operations.
 - Standard library modules: I/O, files, formatting, environment, processes; later networking and HTTP for backend services.
 
 ## Phase 6: Package manager and project tooling (planned)
