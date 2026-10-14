@@ -9,7 +9,13 @@
 //! - `&&` / `||` short-circuit through a temporary `bool` slot and three
 //!   blocks (evaluate left, maybe evaluate right, join);
 //! - string `+`, `==` and `!=` become runtime calls;
-//! - statements after a `return` are unreachable and are not lowered.
+//! - `if` becomes a branch to a `then` and an `else` block that both jump to
+//!   a join block;
+//! - `while` becomes a header block (evaluates the condition), a body block
+//!   that jumps back to the header, and an exit block; `break` jumps to the
+//!   exit and `continue` to the header;
+//! - statements after a `return`, `break` or `continue` are unreachable and
+//!   are not lowered.
 
 use brim_ir::{
     Block, BlockId, Const, FuncId, Function, Inst, InstKind, Module, Slot, SlotId, Span,
@@ -48,6 +54,8 @@ struct FnLowerer {
     current: BlockId,
     /// Whether the current block already has its terminator.
     terminated: bool,
+    /// Innermost last: `(continue target, break target)` of enclosing loops.
+    loops: Vec<(BlockId, BlockId)>,
 }
 
 impl FnLowerer {
@@ -71,6 +79,7 @@ impl FnLowerer {
             },
             current: BlockId(0),
             terminated: false,
+            loops: Vec::new(),
         };
         lowerer.current = lowerer.new_block();
         lowerer.stmts(&f.body);
@@ -164,7 +173,91 @@ impl FnLowerer {
                 self.terminate(Terminator::Return(value));
             }
             CheckedStmt::Block(stmts) => self.stmts(stmts),
+            CheckedStmt::Assign { local, value } => {
+                let v = self.value(value);
+                let slot = SlotId(local.0 as u32);
+                self.emit(InstKind::Store(slot, v), None, value.span);
+            }
+            CheckedStmt::If {
+                cond,
+                then_body,
+                else_body,
+            } => self.if_stmt(cond, then_body, else_body),
+            CheckedStmt::While { cond, body } => self.while_stmt(cond, body),
+            CheckedStmt::Break => {
+                let (_, exit) = *self.loops.last().expect("checked: break is inside a loop");
+                self.terminate(Terminator::Jump(exit));
+            }
+            CheckedStmt::Continue => {
+                let (header, _) = *self
+                    .loops
+                    .last()
+                    .expect("checked: continue is inside a loop");
+                self.terminate(Terminator::Jump(header));
+            }
         }
+    }
+
+    /// Lowers `stmts` into the current block and, if control can still fall
+    /// through at the end, jumps to `target`. Returns whether it jumped.
+    fn stmts_then_jump(&mut self, stmts: &[CheckedStmt], target: BlockId) -> bool {
+        self.stmts(stmts);
+        if self.terminated {
+            return false;
+        }
+        self.terminate(Terminator::Jump(target));
+        true
+    }
+
+    fn if_stmt(
+        &mut self,
+        cond: &CheckedExpr,
+        then_body: &[CheckedStmt],
+        else_body: &[CheckedStmt],
+    ) {
+        let c = self.value(cond);
+        let then_block = self.new_block();
+        let else_block = self.new_block();
+        let join = self.new_block();
+        self.terminate(Terminator::Branch {
+            cond: c,
+            then_block,
+            else_block,
+        });
+
+        self.switch_to(then_block);
+        let then_falls_through = self.stmts_then_jump(then_body, join);
+        self.switch_to(else_block);
+        let else_falls_through = self.stmts_then_jump(else_body, join);
+
+        self.switch_to(join);
+        if !then_falls_through && !else_falls_through {
+            // Both branches left the block: the join block has no
+            // predecessors, and anything after the `if` is unreachable.
+            self.terminated = true;
+        }
+    }
+
+    fn while_stmt(&mut self, cond: &CheckedExpr, body: &[CheckedStmt]) {
+        let header = self.new_block();
+        let body_block = self.new_block();
+        let exit = self.new_block();
+        self.terminate(Terminator::Jump(header));
+
+        self.switch_to(header);
+        let c = self.value(cond);
+        self.terminate(Terminator::Branch {
+            cond: c,
+            then_block: body_block,
+            else_block: exit,
+        });
+
+        self.switch_to(body_block);
+        self.loops.push((header, exit));
+        self.stmts_then_jump(body, header);
+        self.loops.pop();
+
+        self.switch_to(exit);
     }
 
     // ---- expressions --------------------------------------------------
@@ -370,5 +463,64 @@ bb0:
         assert_eq!(main.slots.len(), 2);
         assert_eq!(main.slots[0].ty, IrType::I64);
         assert_eq!(main.slots[1].ty, IrType::Str);
+    }
+
+    #[test]
+    fn lowers_while_loops() {
+        let module = lower_src(
+            "fn main() {\n    let mut i: i64 = 0\n    while i < 3 {\n        i += 1\n    }\n    print(i)\n}",
+        );
+        assert_eq!(
+            module.to_string(),
+            "; entry: main
+
+fn main() {
+  slot s0 i: i64
+bb0:
+  v0 = const i64 0
+  store s0, v0
+  jump bb1
+bb1:
+  v1 = load s0
+  v2 = const i64 3
+  v3 = ilt v1, v2
+  branch v3, bb2, bb3
+bb2:
+  v4 = load s0
+  v5 = const i64 1
+  v6 = iadd v4, v5
+  store s0, v6
+  jump bb1
+bb3:
+  v7 = load s0
+  call @brim_rt_print_i64(v7)
+  ret
+}
+"
+        );
+    }
+
+    #[test]
+    fn lowers_branches_that_return() {
+        // Both branches return, so the join block is left without
+        // predecessors and nothing follows it.
+        let module = lower_src(
+            "fn sign(n: i64) -> i64 {\n    if n < 0 {\n        return -1\n    } else if n == 0 {\n        return 0\n    } else {\n        return 1\n    }\n}\nfn main() {\n    print(sign(-5))\n}",
+        );
+        let sign = &module.functions[0];
+        assert!(matches!(
+            sign.blocks.last().unwrap().term,
+            Terminator::Unreachable
+        ));
+    }
+
+    #[test]
+    fn lowers_break_and_continue() {
+        let module = lower_src(
+            "fn main() {\n    let mut i: i64 = 0\n    while true {\n        i += 1\n        if i == 2 {\n            continue\n        }\n        if i > 4 {\n            break\n        }\n        print(i)\n    }\n}",
+        );
+        let text = module.to_string();
+        assert!(text.contains("jump bb1"), "{text}");
+        assert!(text.contains("jump bb3"), "{text}");
     }
 }

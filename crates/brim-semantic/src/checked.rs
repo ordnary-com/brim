@@ -52,6 +52,8 @@ pub struct CheckedFn {
 pub struct Local {
     pub name: String,
     pub ty: Type,
+    /// Declared with `let mut`. Parameters are never mutable.
+    pub mutable: bool,
     pub span: Span,
 }
 
@@ -61,6 +63,25 @@ pub enum CheckedStmt {
         local: LocalId,
         init: CheckedExpr,
     },
+    /// `local = value`. Compound assignments are already expanded, so
+    /// `x += 1` is `x = x + 1`.
+    Assign {
+        local: LocalId,
+        value: CheckedExpr,
+    },
+    If {
+        cond: CheckedExpr,
+        then_body: Vec<CheckedStmt>,
+        /// Empty when there is no `else`. An `else if` is a single nested
+        /// `If` statement.
+        else_body: Vec<CheckedStmt>,
+    },
+    While {
+        cond: CheckedExpr,
+        body: Vec<CheckedStmt>,
+    },
+    Break,
+    Continue,
     Expr(CheckedExpr),
     Return {
         value: Option<CheckedExpr>,

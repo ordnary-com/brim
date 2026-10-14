@@ -313,3 +313,139 @@ fn reports_multiple_independent_errors() {
         "fn main() {\n let a: i64 = \"s\"\n let b: bool = 1\n undefined()\n}\nfn other() -> i64 {}";
     assert_eq!(codes(src), vec!["E0206", "E0206", "E0201", "E0207"]);
 }
+
+#[test]
+fn accepts_control_flow_and_mutation() {
+    ok(r#"
+fn classify(n: i64) -> string {
+    if n < 0 {
+        return "negative"
+    } else if n == 0 {
+        return "zero"
+    } else {
+        return "positive"
+    }
+}
+
+fn main() {
+    let mut i: i64 = 0
+    let mut total: i64 = 0
+    let mut log: string = ""
+    while i < 10 {
+        i += 1
+        if i % 2 == 0 {
+            continue
+        }
+        total = total + i
+        log += to_string(i)
+        if total > 20 {
+            break
+        }
+    }
+    print(classify(total))
+    print(log + " " + to_string(true))
+}
+"#);
+}
+
+#[test]
+fn returns_on_all_paths() {
+    // Both branches return.
+    ok("fn f(b: bool) -> i64 {\n if b { return 1 } else { return 2 }\n}\nfn main() {}");
+    // `while true` without `break` never ends.
+    ok("fn f() -> i64 {\n while true {\n  return 1\n }\n}\nfn main() {}");
+    // A missing `else` means the end can be reached.
+    assert_eq!(
+        codes("fn f(b: bool) -> i64 {\n if b { return 1 }\n}\nfn main() {}"),
+        vec!["E0207"]
+    );
+    // A `break` makes the loop finish.
+    assert_eq!(
+        codes("fn f() -> i64 {\n while true {\n  break\n }\n}\nfn main() {}"),
+        vec!["E0207"]
+    );
+    // A normal `while` may not run at all.
+    assert_eq!(
+        codes("fn f(b: bool) -> i64 {\n while b {\n  return 1\n }\n}\nfn main() {}"),
+        vec!["E0207"]
+    );
+}
+
+#[test]
+fn unreachable_after_break_and_branches() {
+    assert_eq!(
+        codes(&main_with("while true {\n break\n print(1)\n}")),
+        vec!["W0001"]
+    );
+    assert_eq!(
+        codes(
+            "fn f(b: bool) -> i64 {\n if b { return 1 } else { return 2 }\n print(3)\n}\nfn main() {}"
+        ),
+        vec!["W0001"]
+    );
+}
+
+#[test]
+fn error_conditions_must_be_bool() {
+    let (_, d) = run(&main_with("let x: i64 = 1\nif x {\n}"));
+    assert_eq!(d.len(), 1);
+    assert_eq!(d[0].code.unwrap().0, "E0206");
+    assert_eq!(d[0].help, vec!["compare explicitly, for example `x != 0`"]);
+    assert_eq!(codes(&main_with("while \"yes\" {\n}")), vec!["E0206"]);
+}
+
+#[test]
+fn error_break_outside_loop() {
+    assert_eq!(
+        diags(&main_with("break")),
+        vec![("E0217", "`break` outside of a loop".to_string())]
+    );
+    assert_eq!(codes(&main_with("if true { continue }")), vec!["E0217"]);
+    // Inside a nested block in a loop is fine.
+    ok(&main_with("while true {\n {\n  break\n }\n}"));
+}
+
+#[test]
+fn error_assignment_rules() {
+    assert_eq!(
+        diags(&main_with("let x: i64 = 1\nx = 2")),
+        vec![(
+            "E0218",
+            "cannot assign to immutable variable `x`".to_string()
+        )]
+    );
+    let (_, d) = run("fn f(n: i64) {\n n = 1\n}\nfn main() {}");
+    assert_eq!(d[0].code.unwrap().0, "E0218");
+    assert_eq!(d[0].notes, vec!["function parameters cannot be reassigned"]);
+    assert_eq!(
+        codes(&main_with("let mut x: i64 = 1\nx = \"s\"")),
+        vec!["E0206"]
+    );
+    assert_eq!(
+        codes(&main_with("let mut b: bool = true\nb += 1")),
+        vec!["E0209"]
+    );
+    assert_eq!(codes(&main_with("missing = 1")), vec!["E0200"]);
+    ok(&main_with(
+        "let mut s: string = \"a\"\ns += \"b\"\nprint(s)",
+    ));
+}
+
+#[test]
+fn warns_about_unneeded_mut() {
+    assert_eq!(
+        diags(&main_with("let mut x: i64 = 1\nprint(x)")),
+        vec![(
+            "W0003",
+            "variable `x` is declared `mut` but never reassigned".to_string()
+        )]
+    );
+}
+
+#[test]
+fn to_string_builtin() {
+    ok(&main_with(
+        "print(\"n = \" + to_string(42) + \", ok = \" + to_string(true))",
+    ));
+    assert_eq!(codes(&main_with("print(to_string(\"s\"))")), vec!["E0206"]);
+}

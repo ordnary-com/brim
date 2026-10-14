@@ -56,9 +56,16 @@ fn main() {
     assert!(main.params.is_empty());
     assert!(main.ret.is_none());
     assert_eq!(main.body.stmts.len(), 2);
-    let StmtKind::Let { name, ty, init } = &main.body.stmts[0].kind else {
+    let StmtKind::Let {
+        mutable,
+        name,
+        ty,
+        init,
+    } = &main.body.stmts[0].kind
+    else {
         panic!("expected let");
     };
+    assert!(!mutable);
     assert_eq!(name.name, "name");
     assert_eq!(ty.name.name, "string");
     assert_eq!(init.to_string(), "\"Ordnary\"");
@@ -202,12 +209,19 @@ fn error_missing_type_annotation() {
 #[test]
 fn error_reserved_keywords() {
     assert_eq!(
-        errors("fn main() {\n    if x {\n        print(1)\n    }\n}"),
-        vec![("E0101", "`if` is not supported yet".to_string())]
+        errors("fn main() {\n    for x {\n        print(1)\n    }\n}"),
+        vec![("E0101", "`for` is not supported yet".to_string())]
     );
     assert_eq!(codes("struct Point {}"), vec!["E0101"]);
-    assert_eq!(codes("fn main() { let mut x: i64 = 1 }"), vec!["E0101"]);
-    assert_eq!(codes("fn while() {}"), vec!["E0101"]);
+    assert_eq!(codes("fn match() {}"), vec!["E0101"]);
+    // Keywords cannot be used as names either.
+    assert_eq!(
+        errors("fn while() {}"),
+        vec![(
+            "E0100",
+            "expected a function name, found `while`".to_string()
+        )]
+    );
 }
 
 #[test]
@@ -219,9 +233,139 @@ fn error_top_level_items() {
 #[test]
 fn error_assignment() {
     assert_eq!(
-        errors("fn main() {\n    let x: i64 = 1\n    x = 2\n}"),
-        vec![("E0104", "cannot assign to a variable".to_string())]
+        errors("fn main() {\n    f() = 2\n}"),
+        vec![("E0104", "invalid assignment target".to_string())]
     );
+    assert_eq!(codes("fn main() { 1 += 2 }"), vec!["E0104"]);
+}
+
+/// Returns the single statement in `main`'s body.
+fn stmt(src: &str) -> StmtKind {
+    let mut stmts = body(src);
+    assert_eq!(stmts.len(), 1, "{stmts:#?}");
+    stmts.remove(0).kind
+}
+
+#[test]
+fn parses_let_mut_and_assignment() {
+    let StmtKind::Let { mutable, .. } = stmt("let mut x: i64 = 1") else {
+        panic!()
+    };
+    assert!(mutable);
+    let StmtKind::Assign {
+        target, op, value, ..
+    } = stmt("x = x * 2")
+    else {
+        panic!()
+    };
+    assert_eq!((target.name.as_str(), op), ("x", None));
+    assert_eq!(value.to_string(), "(x * 2)");
+    for (src, expected) in [
+        ("x += 1", BinaryOp::Add),
+        ("x -= 1", BinaryOp::Sub),
+        ("x *= 1", BinaryOp::Mul),
+        ("x /= 1", BinaryOp::Div),
+        ("x %= 1", BinaryOp::Rem),
+    ] {
+        let StmtKind::Assign { op, .. } = stmt(src) else {
+            panic!("{src}")
+        };
+        assert_eq!(op, Some(expected), "{src}");
+    }
+    // The value may continue on the next line.
+    assert!(matches!(
+        stmt(
+            "x =
+  1 + 2"
+        ),
+        StmtKind::Assign { .. }
+    ));
+}
+
+#[test]
+fn parses_if_else_chains() {
+    let StmtKind::If {
+        cond,
+        then_block,
+        else_branch,
+    } = stmt("if a < b {\n print(1)\n} else if a == b {\n print(2)\n} else {\n print(3)\n}")
+    else {
+        panic!()
+    };
+    assert_eq!(cond.to_string(), "(a < b)");
+    assert_eq!(then_block.stmts.len(), 1);
+    let StmtKind::If {
+        cond, else_branch, ..
+    } = else_branch.unwrap().kind
+    else {
+        panic!("expected else if")
+    };
+    assert_eq!(cond.to_string(), "(a == b)");
+    assert!(matches!(
+        else_branch.unwrap().kind,
+        StmtKind::Block(Block { ref stmts, .. }) if stmts.len() == 1
+    ));
+
+    // `else` may start on the next line; an `if` without `else` is fine.
+    assert!(matches!(
+        stmt("if x {\n}\nelse {\n}"),
+        StmtKind::If {
+            else_branch: Some(_),
+            ..
+        }
+    ));
+    assert_eq!(body("if x {}\nprint(1)").len(), 2);
+}
+
+#[test]
+fn parses_while_break_continue() {
+    let StmtKind::While { cond, body: block } =
+        stmt("while i < 10 {\n  if done { break }\n  continue\n}")
+    else {
+        panic!()
+    };
+    assert_eq!(cond.to_string(), "(i < 10)");
+    assert!(matches!(block.stmts[1].kind, StmtKind::Continue));
+    let StmtKind::If { then_block, .. } = &block.stmts[0].kind else {
+        panic!()
+    };
+    assert!(matches!(then_block.stmts[0].kind, StmtKind::Break));
+}
+
+#[test]
+fn control_flow_errors() {
+    // Assignment instead of comparison in a condition.
+    let (_, diags) = parse("fn main() {\n    if x = 1 {\n    }\n}");
+    assert_eq!(diags.len(), 1);
+    assert_eq!(diags[0].help, vec!["use `==` to compare two values"]);
+    // Braces are required.
+    assert_eq!(
+        errors("fn main() {\n    while x print(1)\n}"),
+        vec![(
+            "E0100",
+            "expected `{` after the `while` condition, found identifier `print`".to_string()
+        )]
+    );
+    assert_eq!(
+        errors("fn main() {\n    else {}\n}"),
+        vec![("E0100", "`else` without a preceding `if`".to_string())]
+    );
+    assert_eq!(codes("fn main() { if x {} else print(1) }"), vec!["E0100"]);
+}
+
+#[test]
+fn deep_block_nesting_is_rejected_without_overflow() {
+    let deep = format!(
+        "fn main() {{ {}{} }}",
+        "{".repeat(10_000),
+        "}".repeat(10_000)
+    );
+    assert!(codes(&deep).contains(&"E0105"));
+    let chain = format!(
+        "fn main() {{ if a {{}}{} }}",
+        " else if a {}".repeat(10_000)
+    );
+    assert!(codes(&chain).contains(&"E0105"));
 }
 
 #[test]
@@ -295,16 +439,6 @@ fn deep_nesting_is_rejected_without_overflow() {
     // Moderately long chains are fine.
     let ok_chain = format!("fn main() {{ 1{} }}", " + 1".repeat(MAX_NESTING / 2));
     parse_ok(&ok_chain);
-}
-
-#[test]
-fn deep_block_nesting_is_rejected_without_overflow() {
-    let deep = format!(
-        "fn main() {{ {}{} }}",
-        "{".repeat(10_000),
-        "}".repeat(10_000)
-    );
-    assert!(codes(&deep).contains(&"E0105"));
 }
 
 #[test]

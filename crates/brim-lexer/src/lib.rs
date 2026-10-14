@@ -295,11 +295,16 @@ impl Lexer<'_> {
             ',' => TokenKind::Comma,
             ':' => TokenKind::Colon,
             ';' => TokenKind::Semi,
+            '+' if self.eat('=') => TokenKind::PlusEq,
             '+' => TokenKind::Plus,
+            '*' if self.eat('=') => TokenKind::StarEq,
             '*' => TokenKind::Star,
+            '/' if self.eat('=') => TokenKind::SlashEq,
             '/' => TokenKind::Slash,
+            '%' if self.eat('=') => TokenKind::PercentEq,
             '%' => TokenKind::Percent,
             '-' if self.eat('>') => TokenKind::Arrow,
+            '-' if self.eat('=') => TokenKind::MinusEq,
             '-' => TokenKind::Minus,
             '=' if self.eat('=') => TokenKind::EqEq,
             '=' => TokenKind::Eq,
@@ -393,10 +398,10 @@ mod tests {
     fn lexes_all_operators() {
         use TokenKind::*;
         assert_eq!(
-            kinds("+ - * / % = == != < <= > >= && || ! ;"),
+            kinds("+ - * / % = == != < <= > >= && || ! ; += -= *= /= %="),
             vec![
                 Plus, Minus, Star, Slash, Percent, Eq, EqEq, BangEq, Lt, LtEq, Gt, GtEq, AndAnd,
-                OrOr, Bang, Semi, Eof
+                OrOr, Bang, Semi, PlusEq, MinusEq, StarEq, SlashEq, PercentEq, Eof
             ]
         );
     }
@@ -405,14 +410,19 @@ mod tests {
     fn keywords_and_reserved_words() {
         use TokenKind::*;
         assert_eq!(
-            kinds("let return true false if while letter"),
+            kinds("let mut return true false if else while break continue struct letter"),
             vec![
                 Let,
+                Mut,
                 Return,
                 True,
                 False,
-                Reserved("if"),
-                Reserved("while"),
+                If,
+                Else,
+                While,
+                Break,
+                Continue,
+                Reserved("struct"),
                 ident("letter"),
                 Eof
             ]

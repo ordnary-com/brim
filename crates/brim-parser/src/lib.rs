@@ -28,7 +28,7 @@ use brim_diagnostics::{Diagnostic, Span};
 use brim_lexer::{Token, TokenKind, lex};
 
 /// Maximum nesting depth of blocks and expressions (including long operator
-/// chains).
+/// chains and `else if` chains).
 pub const MAX_NESTING: usize = 128;
 
 /// Lexes and parses `src`. Lexer and parser diagnostics are returned together,
@@ -225,14 +225,9 @@ impl Parser {
             .with_note(format!(
                 "`{word}` is reserved for a future version of Brim and cannot be used as a name"
             ));
-        diag = match word {
-            "if" | "else" | "while" | "for" | "loop" | "match" | "break" | "continue" => diag
-                .with_help(
-                    "control flow is planned for the next language milestone (see docs/roadmap.md)",
-                ),
-            "mut" => diag.with_help("all variables are currently immutable"),
-            _ => diag,
-        };
+        if matches!(word, "for" | "loop") {
+            diag = diag.with_help("use a `while` loop instead");
+        }
         self.report(diag)
     }
 
@@ -444,14 +439,6 @@ impl Parser {
         let token = self.peek().clone();
         match token.kind {
             TokenKind::Newline | TokenKind::Semi | TokenKind::RBrace | TokenKind::Eof => Ok(()),
-            TokenKind::Eq => {
-                let diag = Diagnostic::error("cannot assign to a variable")
-                    .with_code("E0104")
-                    .with_primary(token.span, "assignment is not supported")
-                    .with_note("variables declared with `let` are immutable")
-                    .with_help("declare a new variable with `let` instead");
-                Err(self.report(diag))
-            }
             _ => Err(self.error_unexpected("a newline or `;` after the statement")),
         }
     }
@@ -481,9 +468,41 @@ impl Parser {
                     kind: StmtKind::Block(block),
                 })
             }
+            TokenKind::If => self.if_stmt(),
+            TokenKind::While => {
+                self.bump();
+                let cond = self.condition("while")?;
+                let body = self.block()?;
+                Ok(Stmt {
+                    span: token.span.to(body.span),
+                    kind: StmtKind::While { cond, body },
+                })
+            }
+            TokenKind::Break | TokenKind::Continue => {
+                self.bump();
+                let kind = if token.kind == TokenKind::Break {
+                    StmtKind::Break
+                } else {
+                    StmtKind::Continue
+                };
+                Ok(Stmt {
+                    kind,
+                    span: token.span,
+                })
+            }
+            TokenKind::Else => {
+                let diag = Diagnostic::error("`else` without a preceding `if`")
+                    .with_code("E0100")
+                    .with_primary(token.span, "")
+                    .with_note("`else` must directly follow the closing `}` of an `if` block");
+                Err(self.report(diag))
+            }
             TokenKind::Reserved(word) => Err(self.reserved_keyword(word, token.span)),
             _ => {
                 let expr = self.expr()?;
+                if let Some(op) = Self::assign_op(self.peek_kind()) {
+                    return self.assignment(expr, op);
+                }
                 Ok(Stmt {
                     span: expr.span,
                     kind: StmtKind::Expr(expr),
@@ -492,8 +511,122 @@ impl Parser {
         }
     }
 
+    /// `=` gives `Some(None)`, a compound operator such as `+=` gives
+    /// `Some(Some(BinaryOp::Add))`.
+    fn assign_op(kind: &TokenKind) -> Option<Option<BinaryOp>> {
+        Some(match kind {
+            TokenKind::Eq => None,
+            TokenKind::PlusEq => Some(BinaryOp::Add),
+            TokenKind::MinusEq => Some(BinaryOp::Sub),
+            TokenKind::StarEq => Some(BinaryOp::Mul),
+            TokenKind::SlashEq => Some(BinaryOp::Div),
+            TokenKind::PercentEq => Some(BinaryOp::Rem),
+            _ => return None,
+        })
+    }
+
+    fn assignment(&mut self, target: Expr, op: Option<BinaryOp>) -> PResult<Stmt> {
+        let op_token = self.bump();
+        let ExprKind::Name(target) = target.kind else {
+            let diag = Diagnostic::error("invalid assignment target")
+                .with_code("E0104")
+                .with_primary(target.span, "cannot assign to this expression")
+                .with_note("only variables can be assigned to");
+            return Err(self.report(diag));
+        };
+        self.skip_newlines();
+        let value = self.expr()?;
+        Ok(Stmt {
+            span: target.span.to(value.span),
+            kind: StmtKind::Assign {
+                target,
+                op,
+                op_span: op_token.span,
+                value,
+            },
+        })
+    }
+
+    /// Parses the condition of an `if` or `while`, which must be followed by
+    /// the `{` of its block.
+    fn condition(&mut self, keyword: &str) -> PResult<Expr> {
+        let cond = self.expr()?;
+        // As with function bodies, the `{` may start on the next line.
+        if *self.peek_past_newlines() == TokenKind::LBrace {
+            self.skip_newlines();
+        }
+        if !self.at(&TokenKind::LBrace) {
+            let found = self.peek().clone();
+            if found.kind == TokenKind::Eq {
+                let diag = Diagnostic::error(format!(
+                    "expected `{{` after the `{keyword}` condition, found `=`"
+                ))
+                .with_code("E0100")
+                .with_primary(found.span, "assignment is not allowed here")
+                .with_help("use `==` to compare two values");
+                return Err(self.report(diag));
+            }
+            return Err(self.error_unexpected(&format!("`{{` after the `{keyword}` condition")));
+        }
+        Ok(cond)
+    }
+
+    /// The kind of the next token that is not a newline.
+    fn peek_past_newlines(&self) -> &TokenKind {
+        let mut i = self.current_index();
+        while self.tokens[i].kind == TokenKind::Newline {
+            i += 1;
+        }
+        &self.tokens[i].kind
+    }
+
+    fn if_stmt(&mut self) -> PResult<Stmt> {
+        let if_token = self.bump();
+        self.enter(0, if_token.span)?;
+        self.nesting += 1;
+        let result = self.if_rest(if_token.span);
+        self.nesting -= 1;
+        result
+    }
+
+    fn if_rest(&mut self, start: Span) -> PResult<Stmt> {
+        let cond = self.condition("if")?;
+        let then_block = self.block()?;
+        let mut end = then_block.span;
+        // `else` may follow on the next line.
+        let else_branch = if *self.peek_past_newlines() == TokenKind::Else {
+            self.skip_newlines();
+            self.bump();
+            self.skip_newlines();
+            let branch = match self.peek_kind() {
+                TokenKind::If => self.if_stmt()?,
+                TokenKind::LBrace => {
+                    let block = self.block()?;
+                    Stmt {
+                        span: block.span,
+                        kind: StmtKind::Block(block),
+                    }
+                }
+                _ => return Err(self.error_unexpected("`{` or `if` after `else`")),
+            };
+            end = branch.span;
+            Some(Box::new(branch))
+        } else {
+            None
+        };
+        Ok(Stmt {
+            span: start.to(end),
+            kind: StmtKind::If {
+                cond,
+                then_block,
+                else_branch,
+            },
+        })
+    }
+
     fn let_stmt(&mut self) -> PResult<Stmt> {
         let let_token = self.bump();
+        let mutable = self.eat(&TokenKind::Mut).is_some();
         let name = self.expect_ident("a variable name")?;
         if !self.at(&TokenKind::Colon) {
             let mut diag =
@@ -523,7 +656,12 @@ impl Parser {
         let init = self.expr()?;
         Ok(Stmt {
             span: let_token.span.to(init.span),
-            kind: StmtKind::Let { name, ty, init },
+            kind: StmtKind::Let {
+                mutable,
+                name,
+                ty,
+                init,
+            },
         })
     }
 

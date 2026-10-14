@@ -26,6 +26,12 @@ pub enum TokenKind {
     Return,
     True,
     False,
+    Mut,
+    If,
+    Else,
+    While,
+    Break,
+    Continue,
     /// A keyword reserved for a future language feature (`if`, `struct`, ...).
     Reserved(&'static str),
 
@@ -46,6 +52,11 @@ pub enum TokenKind {
     Slash,
     Percent,
     Eq,
+    PlusEq,
+    MinusEq,
+    StarEq,
+    SlashEq,
+    PercentEq,
     EqEq,
     BangEq,
     Lt,
@@ -72,14 +83,19 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("return", TokenKind::Return),
     ("true", TokenKind::True),
     ("false", TokenKind::False),
+    ("mut", TokenKind::Mut),
+    ("if", TokenKind::If),
+    ("else", TokenKind::Else),
+    ("while", TokenKind::While),
+    ("break", TokenKind::Break),
+    ("continue", TokenKind::Continue),
 ];
 
 /// Words reserved for planned features. They cannot be used as identifiers,
 /// which lets those features be added later without breaking programs.
 pub const RESERVED: &[&str] = &[
-    "as", "async", "await", "break", "const", "continue", "else", "enum", "for", "if", "impl",
-    "import", "in", "loop", "match", "mut", "pub", "self", "struct", "trait", "type", "use",
-    "while",
+    "as", "async", "await", "const", "enum", "for", "impl", "import", "in", "loop", "match", "pub",
+    "self", "struct", "trait", "type", "use",
 ];
 
 impl TokenKind {
@@ -109,6 +125,12 @@ impl fmt::Display for TokenKind {
             TokenKind::Return => "return",
             TokenKind::True => "true",
             TokenKind::False => "false",
+            TokenKind::Mut => "mut",
+            TokenKind::If => "if",
+            TokenKind::Else => "else",
+            TokenKind::While => "while",
+            TokenKind::Break => "break",
+            TokenKind::Continue => "continue",
             TokenKind::Reserved(word) => word,
             TokenKind::LParen => "(",
             TokenKind::RParen => ")",
@@ -124,6 +146,11 @@ impl fmt::Display for TokenKind {
             TokenKind::Slash => "/",
             TokenKind::Percent => "%",
             TokenKind::Eq => "=",
+            TokenKind::PlusEq => "+=",
+            TokenKind::MinusEq => "-=",
+            TokenKind::StarEq => "*=",
+            TokenKind::SlashEq => "/=",
+            TokenKind::PercentEq => "%=",
             TokenKind::EqEq => "==",
             TokenKind::BangEq => "!=",
             TokenKind::Lt => "<",

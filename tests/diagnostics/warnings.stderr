@@ -10,7 +10,7 @@ warning[W0001]: unreachable code
  --> tests/diagnostics/warnings.brim:5:5
   |
 4 |     return
-  |     ------ any code after this is unreachable
+  |     ------ control never continues past this
 5 |     print("unreachable")
   |     ^^^^^^^^^^^^^^^^^^^^ this statement will never run
 

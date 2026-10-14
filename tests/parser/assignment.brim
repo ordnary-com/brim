@@ -1,4 +1,0 @@
-fn main() {
-    let total: i64 = 0
-    total = total + 1
-}

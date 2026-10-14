@@ -144,3 +144,83 @@ fn write_errors_are_reported() {
     .unwrap_err();
     assert_eq!(err.error.code(), "R0004");
 }
+
+#[test]
+fn loops_and_conditionals() {
+    assert_eq!(
+        output(
+            r#"
+fn fib(n: i64) -> i64 {
+    if n < 2 {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+fn main() {
+    let mut i: i64 = 1
+    let mut line: string = ""
+    while i <= 15 {
+        if i % 15 == 0 {
+            line += "FizzBuzz"
+        } else if i % 3 == 0 {
+            line += "Fizz"
+        } else if i % 5 == 0 {
+            line += "Buzz"
+        } else {
+            line += to_string(i)
+        }
+        line += " "
+        i += 1
+    }
+    print(line)
+    print(fib(20))
+}
+"#
+        ),
+        "1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz \n6765\n"
+    );
+}
+
+#[test]
+fn break_continue_and_nested_loops() {
+    assert_eq!(
+        output(
+            r#"
+fn main() {
+    let mut row: i64 = 0
+    while true {
+        row += 1
+        if row > 3 {
+            break
+        }
+        let mut col: i64 = 0
+        let mut cells: string = ""
+        while col < 5 {
+            col += 1
+            if col == 2 {
+                continue
+            }
+            if col > row + 1 {
+                break
+            }
+            cells += to_string(col)
+        }
+        print(to_string(row) + ": " + cells)
+    }
+    print("done")
+}
+"#
+        ),
+        "1: 1\n2: 13\n3: 134\ndone\n"
+    );
+}
+
+#[test]
+fn compound_assignment_traps_on_overflow() {
+    let (trap, out) = run_trap(
+        "fn main() {\n    let mut x: i64 = 1\n    while true {\n        x *= 10\n        print(x)\n    }\n}",
+    );
+    assert_eq!(out.lines().count(), 18);
+    assert_eq!(trap.error, RuntimeError::IntegerOverflow { op: "*" });
+}

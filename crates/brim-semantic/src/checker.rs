@@ -36,7 +36,13 @@ pub(crate) struct Checker<'a> {
 /// Per-function checking state.
 struct FnCtx {
     locals: Vec<Local>,
+    /// Whether each local is ever assigned after its declaration.
+    reassigned: Vec<bool>,
     scopes: Vec<HashMap<String, LocalId>>,
+    /// One entry per enclosing loop: whether it contains a `break`.
+    loops: Vec<bool>,
+    /// The first `param_count` locals are the parameters.
+    param_count: usize,
     ret: Type,
     ret_span: Option<Span>,
 }
@@ -225,7 +231,10 @@ impl<'a> Checker<'a> {
         let sig = &self.sigs[id.0];
         let mut ctx = FnCtx {
             locals: Vec::new(),
+            reassigned: Vec::new(),
             scopes: vec![HashMap::new()],
+            loops: Vec::new(),
+            param_count: sig.params.len(),
             ret: sig.ret,
             ret_span: sig.ret_span,
         };
@@ -234,8 +243,10 @@ impl<'a> Checker<'a> {
             ctx.locals.push(Local {
                 name: param.name.clone(),
                 ty: param.ty,
+                mutable: false,
                 span: param.span,
             });
+            ctx.reassigned.push(false);
             // For duplicate parameters (already reported), the first one wins.
             ctx.scopes[0].entry(param.name.clone()).or_insert(local);
         }
@@ -243,9 +254,23 @@ impl<'a> Checker<'a> {
 
         // The body shares its scope with the parameters, so `let a` in the
         // body conflicts with a parameter `a`.
-        let (body, returns) = self.check_stmts(&f.body.stmts, &mut ctx);
+        let (body, diverges) = self.check_stmts(&f.body.stmts, &mut ctx);
 
-        if !returns && !matches!(ctx.ret, Type::Void | Type::Error) {
+        for (local, reassigned) in ctx.locals.iter().zip(&ctx.reassigned) {
+            if local.mutable && !reassigned {
+                self.diags.push(
+                    Diagnostic::warning(format!(
+                        "variable `{}` is declared `mut` but never reassigned",
+                        local.name
+                    ))
+                    .with_code("W0003")
+                    .with_primary(local.span, "")
+                    .with_help("remove `mut`"),
+                );
+            }
+        }
+
+        if !diverges && !matches!(ctx.ret, Type::Void | Type::Error) {
             let close = Span::new(f.body.span.end.saturating_sub(1), f.body.span.end);
             let mut diag = Diagnostic::error(format!(
                 "function `{}` may end without returning a value",
@@ -270,7 +295,8 @@ impl<'a> Checker<'a> {
     }
 
     /// Checks a statement list. Returns the checked statements and whether
-    /// the list always returns (so that code after it is unreachable).
+    /// the list *diverges*: control never continues past its end, because
+    /// every path returns, breaks, continues or loops forever.
     fn check_stmts(&mut self, stmts: &[ast::Stmt], ctx: &mut FnCtx) -> (Vec<CheckedStmt>, bool) {
         let mut out = Vec::with_capacity(stmts.len());
         let mut returned_at: Option<Span> = None;
@@ -284,7 +310,7 @@ impl<'a> Checker<'a> {
                     Diagnostic::warning("unreachable code")
                         .with_code("W0001")
                         .with_primary(stmt.span, "this statement will never run")
-                        .with_secondary(span, "any code after this is unreachable"),
+                        .with_secondary(span, "control never continues past this"),
                 );
             }
             let (checked, returns) = self.check_stmt(stmt, ctx);
@@ -298,7 +324,12 @@ impl<'a> Checker<'a> {
 
     fn check_stmt(&mut self, stmt: &ast::Stmt, ctx: &mut FnCtx) -> (CheckedStmt, bool) {
         match &stmt.kind {
-            ast::StmtKind::Let { name, ty, init } => {
+            ast::StmtKind::Let {
+                mutable,
+                name,
+                ty,
+                init,
+            } => {
                 let declared = self.resolve_type(ty, "a variable");
                 let init = self.check_expr(init, ctx);
                 self.expect_type(
@@ -307,8 +338,69 @@ impl<'a> Checker<'a> {
                     Some(ty.span()),
                     "expected due to this type",
                 );
-                let local = self.declare(name, declared, ctx);
+                let local = self.declare(name, declared, *mutable, ctx);
                 (CheckedStmt::Let { local, init }, false)
+            }
+            ast::StmtKind::Assign {
+                target,
+                op,
+                op_span,
+                value,
+            } => (self.check_assign(target, *op, *op_span, value, ctx), false),
+            ast::StmtKind::If {
+                cond,
+                then_block,
+                else_branch,
+            } => {
+                let cond = self.check_condition(cond, "if", ctx);
+                let (then_body, then_diverges) = self.check_block(&then_block.stmts, ctx);
+                let (else_body, else_diverges) = match else_branch.as_deref() {
+                    None => (Vec::new(), false),
+                    Some(ast::Stmt {
+                        kind: ast::StmtKind::Block(block),
+                        ..
+                    }) => self.check_block(&block.stmts, ctx),
+                    Some(other) => {
+                        let (stmt, diverges) = self.check_stmt(other, ctx);
+                        (vec![stmt], diverges)
+                    }
+                };
+                let stmt = CheckedStmt::If {
+                    cond,
+                    then_body,
+                    else_body,
+                };
+                (stmt, then_diverges && else_diverges)
+            }
+            ast::StmtKind::While { cond, body } => {
+                let cond = self.check_condition(cond, "while", ctx);
+                ctx.loops.push(false);
+                let (body, _) = self.check_block(&body.stmts, ctx);
+                let has_break = ctx.loops.pop().expect("pushed above");
+                // `while true` without `break` never finishes.
+                let forever = matches!(cond.kind, CheckedExprKind::Bool(true)) && !has_break;
+                (CheckedStmt::While { cond, body }, forever)
+            }
+            ast::StmtKind::Break | ast::StmtKind::Continue => {
+                let is_break = matches!(stmt.kind, ast::StmtKind::Break);
+                let keyword = if is_break { "break" } else { "continue" };
+                match ctx.loops.last_mut() {
+                    Some(has_break) => *has_break |= is_break,
+                    None => self.diags.push(
+                        Diagnostic::error(format!("`{keyword}` outside of a loop"))
+                            .with_code("E0217")
+                            .with_primary(stmt.span, format!("cannot `{keyword}` here"))
+                            .with_note(format!(
+                                "`{keyword}` can only be used inside a `while` loop"
+                            )),
+                    ),
+                }
+                let checked = if is_break {
+                    CheckedStmt::Break
+                } else {
+                    CheckedStmt::Continue
+                };
+                (checked, true)
             }
             ast::StmtKind::Return(value) => {
                 let value = value.as_ref().map(|v| self.check_expr(v, ctx));
@@ -341,15 +433,92 @@ impl<'a> Checker<'a> {
                 (CheckedStmt::Expr(checked), false)
             }
             ast::StmtKind::Block(block) => {
-                ctx.scopes.push(HashMap::new());
-                let (stmts, returns) = self.check_stmts(&block.stmts, ctx);
-                ctx.scopes.pop();
-                (CheckedStmt::Block(stmts), returns)
+                let (stmts, diverges) = self.check_block(&block.stmts, ctx);
+                (CheckedStmt::Block(stmts), diverges)
             }
         }
     }
 
-    fn declare(&mut self, name: &ast::Ident, ty: Type, ctx: &mut FnCtx) -> LocalId {
+    /// Checks statements in a new scope.
+    fn check_block(&mut self, stmts: &[ast::Stmt], ctx: &mut FnCtx) -> (Vec<CheckedStmt>, bool) {
+        ctx.scopes.push(HashMap::new());
+        let result = self.check_stmts(stmts, ctx);
+        ctx.scopes.pop();
+        result
+    }
+
+    /// Checks the condition of an `if` or `while`; it must be a `bool`.
+    fn check_condition(&mut self, cond: &ast::Expr, keyword: &str, ctx: &mut FnCtx) -> CheckedExpr {
+        let cond = self.check_expr(cond, ctx);
+        if !matches!(cond.ty, Type::Bool | Type::Error) {
+            let mut diag = Diagnostic::error("mismatched types")
+                .with_code("E0206")
+                .with_primary(cond.span, format!("expected `bool`, found `{}`", cond.ty))
+                .with_note(format!("the condition of `{keyword}` must be a `bool`"));
+            if cond.ty == Type::I64 {
+                diag = diag.with_help("compare explicitly, for example `x != 0`");
+            }
+            self.diags.push(diag);
+        }
+        cond
+    }
+
+    fn check_assign(
+        &mut self,
+        target: &ast::Ident,
+        op: Option<ast::BinaryOp>,
+        op_span: Span,
+        value: &ast::Expr,
+        ctx: &mut FnCtx,
+    ) -> CheckedStmt {
+        let value = self.check_expr(value, ctx);
+        let Some(id) = ctx.lookup(&target.name) else {
+            // Reports the undefined name (or a function used as a value).
+            self.check_name(target, ctx);
+            return CheckedStmt::Expr(value);
+        };
+        let local = &ctx.locals[id.0];
+        let (ty, mutable, decl_span) = (local.ty, local.mutable, local.span);
+        let is_param = id.0 < ctx.param_count;
+        if !mutable {
+            let mut diag = Diagnostic::error(format!(
+                "cannot assign to immutable variable `{}`",
+                target.name
+            ))
+            .with_code("E0218")
+            .with_primary(target.span, "cannot be reassigned")
+            .with_secondary(decl_span, "declared here");
+            diag = if is_param {
+                diag.with_note("function parameters cannot be reassigned")
+                    .with_help(format!(
+                        "copy it into a mutable variable: `let mut {}: {ty} = {}`",
+                        target.name, target.name
+                    ))
+            } else {
+                diag.with_help(format!("make it mutable: `let mut {}`", target.name))
+            };
+            self.diags.push(diag);
+        } else {
+            ctx.reassigned[id.0] = true;
+        }
+
+        let value = match op {
+            None => value,
+            Some(op) => {
+                let current = CheckedExpr {
+                    kind: CheckedExprKind::Local(id),
+                    ty,
+                    span: target.span,
+                };
+                let span = target.span.to(value.span);
+                self.resolve_binary(op, op_span, current, value, span)
+            }
+        };
+        self.expect_type(&value, ty, Some(decl_span), "variable declared here");
+        CheckedStmt::Assign { local: id, value }
+    }
+
+    fn declare(&mut self, name: &ast::Ident, ty: Type, mutable: bool, ctx: &mut FnCtx) -> LocalId {
         let id = LocalId(ctx.locals.len());
         if let Some(previous) = ctx.scopes.last().and_then(|s| s.get(&name.name)) {
             let previous_span = ctx.locals[previous.0].span;
@@ -367,8 +536,10 @@ impl<'a> Checker<'a> {
         ctx.locals.push(Local {
             name: name.name.clone(),
             ty,
+            mutable,
             span: name.span,
         });
+        ctx.reassigned.push(false);
         ctx.scopes
             .last_mut()
             .expect("there is always a scope")
@@ -573,11 +744,23 @@ impl<'a> Checker<'a> {
         span: Span,
         ctx: &mut FnCtx,
     ) -> CheckedExpr {
+        let lhs = self.check_expr(lhs, ctx);
+        let rhs = self.check_expr(rhs, ctx);
+        self.resolve_binary(op, op_span, lhs, rhs, span)
+    }
+
+    /// Selects the type-specific operation for `lhs op rhs`.
+    fn resolve_binary(
+        &mut self,
+        op: ast::BinaryOp,
+        op_span: Span,
+        lhs: CheckedExpr,
+        rhs: CheckedExpr,
+        span: Span,
+    ) -> CheckedExpr {
         use Type::{Bool, I64, String};
         use ast::BinaryOp as Op;
 
-        let lhs = self.check_expr(lhs, ctx);
-        let rhs = self.check_expr(rhs, ctx);
         if lhs.ty == Type::Error || rhs.ty == Type::Error {
             return error_expr(span);
         }

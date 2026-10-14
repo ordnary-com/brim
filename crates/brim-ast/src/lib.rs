@@ -83,12 +83,36 @@ pub struct Stmt {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StmtKind {
-    /// `let name: type = init`
+    /// `let name: type = init` or `let mut name: type = init`
     Let {
+        mutable: bool,
         name: Ident,
         ty: TypeExpr,
         init: Expr,
     },
+    /// `target = value`, or a compound assignment such as `target += value`
+    /// (then `op` is `Some(BinaryOp::Add)`).
+    Assign {
+        target: Ident,
+        op: Option<BinaryOp>,
+        /// The span of `=` or of the compound operator.
+        op_span: Span,
+        value: Expr,
+    },
+    /// `if cond { ... } else ...`
+    If {
+        cond: Expr,
+        then_block: Block,
+        /// Either a [`StmtKind::Block`] (`else { ... }`) or another
+        /// [`StmtKind::If`] (`else if ...`).
+        else_branch: Option<Box<Stmt>>,
+    },
+    /// `while cond { ... }`
+    While { cond: Expr, body: Block },
+    /// `break`
+    Break,
+    /// `continue`
+    Continue,
     /// `return` or `return expr`
     Return(Option<Expr>),
     /// An expression evaluated for its effect, e.g. a call.
