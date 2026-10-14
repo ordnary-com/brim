@@ -12,6 +12,11 @@ authors.workspace = true
 name = "brim"
 path = "src/main.rs"
 
+[features]
+default = []
+# Native builds with the LLVM backend (`brim build`). Needs LLVM 22.
+llvm = ["brim-codegen/llvm"]
+
 [dependencies]
 brim-codegen.workspace = true
 brim-diagnostics.workspace = true

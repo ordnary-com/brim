@@ -6,18 +6,25 @@
 //! place and means the frontend, its tests and CI never require an LLVM
 //! installation.
 //!
-//! # Status
+//! # Backends
 //!
-//! **No native backend is implemented yet.** [`LlvmBackend`] is the planned
-//! backend; today it validates the module and then returns
-//! [`CodegenError::BackendUnavailable`]. See `docs/architecture.md` for the
-//! LLVM integration plan (LLVM 22 via the `inkwell` crate, behind an opt-in
-//! Cargo feature). Brim programs can be executed with the reference
-//! interpreter (`brim run`) in the meantime.
+//! [`LlvmBackend`] compiles IR to a native executable with LLVM 22 (through
+//! the `inkwell` crate) and links it with the Brim runtime using the system C
+//! compiler. It is only compiled in with the non-default `llvm` Cargo feature;
+//! without it, [`LlvmBackend::build`] validates the module and returns
+//! [`CodegenError::BackendUnavailable`]. See `docs/architecture.md` for how
+//! IR maps onto LLVM and how run-time errors are reported.
+
+#[cfg(feature = "llvm")]
+mod link;
+#[cfg(feature = "llvm")]
+mod llvm;
+mod trap;
 
 use std::fmt;
 use std::path::PathBuf;
 
+use brim_diagnostics::SourceFile;
 use brim_ir::{Module, ValidationError};
 
 /// How much the backend should optimise.
@@ -34,6 +41,9 @@ pub struct BuildOptions {
     /// Path of the executable to produce.
     pub output: PathBuf,
     pub opt_level: OptLevel,
+    /// The program's source. Run-time error messages in the executable quote
+    /// it, exactly like `brim run` does.
+    pub source: SourceFile,
 }
 
 /// What a successful build produced.
@@ -51,6 +61,13 @@ pub enum CodegenError {
     },
     /// The module failed IR validation; this is a compiler bug.
     InvalidModule(Vec<ValidationError>),
+    /// LLVM rejected the generated code or failed to emit it; this is a
+    /// compiler bug.
+    Llvm(String),
+    /// No usable C compiler was found to link the executable.
+    LinkerNotFound { linker: String, message: String },
+    /// The linker ran but failed.
+    LinkFailed { command: String, output: String },
 }
 
 impl fmt::Display for CodegenError {
@@ -63,6 +80,19 @@ impl fmt::Display for CodegenError {
                 writeln!(f, "internal compiler error: invalid IR")?;
                 for e in errors {
                     writeln!(f, "  {e}")?;
+                }
+                Ok(())
+            }
+            CodegenError::Llvm(message) => {
+                write!(f, "internal compiler error: LLVM: {message}")
+            }
+            CodegenError::LinkerNotFound { linker, message } => {
+                write!(f, "cannot run the linker `{linker}`: {message}")
+            }
+            CodegenError::LinkFailed { command, output } => {
+                write!(f, "linking failed: `{command}`")?;
+                if !output.is_empty() {
+                    write!(f, "\n{}", output.trim_end())?;
                 }
                 Ok(())
             }
@@ -81,22 +111,42 @@ pub trait Backend {
     fn build(&self, module: &Module, options: &BuildOptions) -> Result<BuildOutput, CodegenError>;
 }
 
-/// The planned LLVM backend. Not implemented yet.
+/// The LLVM backend. Functional only with the `llvm` Cargo feature.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct LlvmBackend;
+
+impl LlvmBackend {
+    /// Whether this build of the compiler includes the LLVM backend.
+    pub const AVAILABLE: bool = cfg!(feature = "llvm");
+}
 
 impl Backend for LlvmBackend {
     fn name(&self) -> &'static str {
         "LLVM"
     }
 
-    fn build(&self, module: &Module, _options: &BuildOptions) -> Result<BuildOutput, CodegenError> {
+    fn build(&self, module: &Module, options: &BuildOptions) -> Result<BuildOutput, CodegenError> {
         brim_ir::validate(module).map_err(CodegenError::InvalidModule)?;
-        Err(CodegenError::BackendUnavailable {
-            backend: self.name(),
-            reason: "native code generation has not been implemented yet".to_string(),
-        })
+        #[cfg(feature = "llvm")]
+        {
+            llvm::build(module, options)
+        }
+        #[cfg(not(feature = "llvm"))]
+        {
+            let _ = options;
+            Err(CodegenError::BackendUnavailable {
+                backend: self.name(),
+                reason: "this `brim` was compiled without the `llvm` feature".to_string(),
+            })
+        }
     }
+}
+
+/// Compiles `module` to textual LLVM IR, for inspection and tests.
+#[cfg(feature = "llvm")]
+pub fn emit_llvm_ir(module: &Module, source: &SourceFile) -> Result<String, CodegenError> {
+    brim_ir::validate(module).map_err(CodegenError::InvalidModule)?;
+    llvm::emit_ir(module, source)
 }
 
 /// The backend used for native builds.
@@ -130,11 +180,13 @@ mod tests {
         BuildOptions {
             output: PathBuf::from("out"),
             opt_level: OptLevel::Debug,
+            source: SourceFile::new("main.brim", "fn main() {}\n"),
         }
     }
 
+    #[cfg(not(feature = "llvm"))]
     #[test]
-    fn llvm_backend_reports_unavailable() {
+    fn llvm_backend_reports_unavailable_without_the_feature() {
         let err = native_backend()
             .build(&empty_main(), &options())
             .unwrap_err();
@@ -147,7 +199,7 @@ mod tests {
         ));
         assert_eq!(
             err.to_string(),
-            "the LLVM backend is not available: native code generation has not been implemented yet"
+            "the LLVM backend is not available: this `brim` was compiled without the `llvm` feature"
         );
     }
 

@@ -20,6 +20,6 @@ Examples of issues we consider security-relevant:
 
 - the compiler or interpreter crashing, hanging or exhausting memory on crafted input (the toolchain is meant to never panic on any input);
 - reading or writing files outside what a command is asked to process;
-- once native code generation exists: miscompilation that breaks the language's guarantees, such as unchecked integer overflow.
+- miscompilation by the native backend that breaks the language's guarantees, such as unchecked integer overflow.
 
-Brim 0.1 makes **no memory-safety guarantees for future native code**. See the "Memory management" section of `docs/architecture.md` for what is and is not guaranteed today.
+Brim 0.1 makes **no memory-safety guarantees for native code**. See the "Memory management" section of `docs/architecture.md` for what is and is not guaranteed today.

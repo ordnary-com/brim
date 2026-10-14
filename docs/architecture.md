@@ -18,8 +18,8 @@ This document describes how the Brim compiler is structured, and why. The langua
       │  brim-lower
       ▼
   Brim IR (brim-ir)        typed CFG; validated by brim_ir::validate
-      ├──► brim-interp     reference interpreter      (works today: `brim run`)
-      └──► brim-codegen    native backend interface   (LLVM: planned, not implemented)
+      ├──► brim-interp     reference interpreter      (`brim run`)
+      └──► brim-codegen    LLVM backend + C runtime   (`brim build`, opt-in `llvm` feature)
 ```
 
 Every stage reports problems as `brim_diagnostics::Diagnostic`s. A stage only runs if the previous stage produced no errors. Warnings never block compilation.
@@ -38,13 +38,13 @@ Every stage reports problems as `brim_diagnostics::Diagnostic`s. A stage only ru
 | `brim-ir` | IR data structures, text form, validator | diagnostics (spans), runtime (`RuntimeFn`) |
 | `brim-lower` | `CheckedProgram` to IR | ir, runtime, semantic |
 | `brim-interp` | Reference interpreter for IR | diagnostics, ir, runtime |
-| `brim-codegen` | `Backend` trait; `LlvmBackend` placeholder that reports "unavailable" | ir |
+| `brim-codegen` | `Backend` trait; `LlvmBackend` (IR to LLVM IR, object emission, linking with the C runtime in `runtime/brim_rt.c`). LLVM code is only compiled with the `llvm` feature | diagnostics, ir, runtime; `inkwell` (optional) |
 | `brim-manifest` | `brim.toml` parsing and validation (`M0xxx`) | diagnostics, serde, toml |
 | `brim-cli` | The `brim` binary: argument parsing, commands, exit codes | everything above |
 
 `brim-lower` and `brim-manifest` were added beyond the initially sketched layout. `brim-lower` keeps the IR independent of the AST and of semantic analysis: `brim-ir` itself depends on neither. `brim-manifest` keeps project configuration reusable by future tools, such as a package manager or language server, without depending on the CLI. `brim-interp` is separate from `brim-codegen` so the temporary interpreter is never confused with the native backend.
 
-Only `brim-manifest` has third-party dependencies (`serde`, `toml`, pinned exactly in the workspace `Cargo.toml`). The compiler core is dependency-free.
+Only `brim-manifest` (`serde`, `toml`) and, with the `llvm` feature, `brim-codegen` (`inkwell`, which brings `llvm-sys`) have third-party dependencies, all pinned exactly in the workspace `Cargo.toml`. The compiler frontend is dependency-free.
 
 ## Source positions
 
@@ -123,7 +123,7 @@ bb0:
 
 `brim_ir::validate` checks: the entry function signature, slot and value types, single definition and same-block use of values, operand and result types of every instruction, call argument counts and types (including runtime calls), return types, and branch targets. Lowering is expected to always produce valid IR, so a validation failure is reported as an internal compiler error (exit code 70).
 
-No optimization passes exist yet. They should be added only once there is a native backend to measure.
+Brim IR has no optimization passes of its own. `brim build --release` runs LLVM's standard `default<O2>` pipeline on the generated code; IR-level passes should only be added when measurements show LLVM cannot do the job.
 
 ## Runtime ABI
 
@@ -139,13 +139,17 @@ Generated code reaches the outside world only through runtime functions listed i
 | `brim_rt_i64_to_str` | `(i64) -> str`       | `to_string(i64)` |
 | `brim_rt_bool_to_str`| `(bool) -> str`      | `to_string(bool)` |
 
-Planned native representation: `i64` as a 64-bit integer, `bool` as an 8-bit `0`/`1`, `str` as a pointer to a runtime-owned string object. The C-ABI (`extern "C"`) entry points will be added to `brim-runtime` together with the LLVM backend. They are deliberately not present yet: they would need `unsafe` code that nothing could call or test.
+Native representation: `i64` is a 64-bit integer, `bool` an 8-bit `0`/`1`, and `str` a pointer to a `BrimStr` object: a 64-bit reference count (`-1` for static objects such as literals), a 64-bit byte length, then the UTF-8 bytes (not NUL-terminated).
 
-Integer arithmetic is **not** a runtime call. The backend emits the operation together with an overflow check, such as LLVM's `*.with.overflow` intrinsics, and branches to a trap. The semantics are defined once, in `brim_runtime::ops`, and the interpreter uses those functions directly.
+The interpreter implements these functions with `brim-runtime`'s Rust functions. Native executables link a small C implementation of the same symbols, `crates/brim-codegen/runtime/brim_rt.c`, which the compiler embeds and compiles at link time. The two must behave identically; the differential tests enforce that (see [Code generation](#code-generation-llvm)).
+
+Besides the functions above, the C runtime has three backend-internal entry points that are not part of the IR: `brim_rt_enter(name, ...)` and `brim_rt_leave()` bracket every Brim call to maintain the call stack and enforce the call-depth limit (`brim_runtime::MAX_CALL_DEPTH`, shared with the interpreter), and `brim_rt_trap(...)` reports a run-time error and exits with 101. The runtime also defines the process entry point `main`, which calls the generated `brim_entry`.
+
+Integer arithmetic is **not** a runtime call. The backend emits the operation together with an overflow check (LLVM's `llvm.s{add,sub,mul}.with.overflow` intrinsics, and explicit checks for division by zero and `i64::MIN / -1`), and branches to a trap. The semantics are defined once, in `brim_runtime::ops`, and the interpreter uses those functions directly.
 
 ## Memory management
 
-**Current state.** The only heap-allocated values are strings. They are immutable. In the interpreter they are `Rc<str>`: cloning is cheap and memory is freed when the last reference goes away.
+**Current state.** The only heap-allocated values are strings. They are immutable. In the interpreter they are `Rc<str>`: cloning is cheap and memory is freed when the last reference goes away. **Native executables never free strings yet**: every concatenation and `to_string` allocates, and the memory is released when the process exits. That is acceptable for short-lived programs and is the first thing the runtime phase changes. The `BrimStr` layout already reserves the reference count.
 
 **Recommendation for the native backend: automatic reference counting (ARC) of immutable heap values.** For now that means strings only.
 
@@ -158,24 +162,29 @@ Integer arithmetic is **not** a runtime call. The backend emits the operation to
 
 ARC keeps the runtime small, matches the use cases (long-running servers favor predictable memory over peak throughput), and leaves room to add escape analysis (stack allocation) or ownership-style optimizations later without changing language semantics. This decision should be revisited before aggregate types (structs, collections) are added, because that is when cycles become possible.
 
-**Safety claims.** Brim 0.1 programs cannot express pointers, manual memory management or out-of-bounds access, and the interpreter is written in safe Rust. That is a property of today's tiny language, **not a memory-safety guarantee** of the future native implementation. Native code generation and FFI will need their own explicit safety design.
+**Safety claims.** Brim 0.1 programs cannot express pointers, manual memory management or out-of-bounds access, and the interpreter is written in safe Rust. That is a property of today's tiny language, **not a memory-safety guarantee** of the native implementation: native executables run generated code and a C runtime. The runtime is small and only handles strings whose lengths the generated code never changes, but FFI and richer runtime types will need their own explicit safety design.
 
-## Code generation plan (LLVM)
+## Code generation (LLVM)
 
-Findings from the environment used to set up the project (October 2026):
+`brim build` compiles a program to a native executable. The LLVM backend lives in `brim-codegen` behind the non-default Cargo feature `llvm`, so the frontend, its tests and the default CI jobs never need LLVM. Without the feature, `brim build` checks the program and reports the backend as unavailable (exit 4).
 
-- Rust stable 1.98 (via rustup). The workspace's minimum supported Rust version is 1.88 (edition 2024 and let-chains).
-- LLVM 22.1.8 and 23.1.3 are available through Homebrew on the development machine.
-- `inkwell` 0.10.0, a maintained safe wrapper over `llvm-sys`, supports LLVM up to **22**. LLVM 23 is not supported yet.
+**Supported toolchain.** LLVM 22, through `inkwell` 0.10 (its `llvm22-1` feature; LLVM 23 is not supported by `inkwell` yet). Linking uses the system C compiler: `$BRIM_CC`, else `$CC`, else `cc`. Tested on Linux (x86-64) and macOS (arm64) in CI. Windows is not supported yet: the runtime assumes a C11 compiler with the `cc` command-line interface.
 
-Plan:
+**Lowering.** Each IR function is translated directly:
 
-1. Implement `LlvmBackend` in `brim-codegen` behind a non-default Cargo feature (for example `llvm`), using `inkwell` with its `llvm22-1` feature. Without the feature, `brim build` keeps reporting the backend as unavailable. The frontend, its tests and the default CI job must never need LLVM.
-2. Lower each IR function directly: slots become `alloca`s in the entry block, values become LLVM SSA values, blocks map one to one, checked arithmetic uses `llvm.*.with.overflow` plus a branch to a trap, and runtime calls become calls to the `brim_rt_*` symbols.
-3. Build `brim-runtime` as a static library with `extern "C"` entry points and link it with the system linker (invoked through `cc`, or `clang` where available).
-4. Add a CI job that installs LLVM 22 and runs differential tests: every `tests/integration` program must produce identical output in the interpreter and as a native executable.
+- Every function becomes an internal LLVM function `brim.<name>`; only `brim_entry` and `brim_max_call_depth` are exported, for the runtime's `main`.
+- Slots become `alloca`s in a dedicated entry block, which also stores the parameters and jumps to IR block 0. LLVM's `mem2reg` (part of the release pipeline) turns them into registers.
+- Values become SSA values, and IR blocks map one to one onto LLVM blocks. A checked operation splits its block: the failure edge goes to a block that calls `brim_rt_trap`.
+- `bool` is `i1` inside functions and is widened to `i8` at runtime calls, as the ABI specifies.
+- String literals become constant `BrimStr` objects (identical literals are shared).
 
-Supported LLVM versions and platforms will be documented here once the backend exists. Until then, **Brim has no native code generation**.
+**Run-time errors.** A native executable reports a run-time error exactly like `brim run`: the same message, code, source excerpt and call-stack notes, on stderr, with exit code 101. Everything except the call stack is known at compile time, so the backend renders the diagnostic for each trap site (`trap.rs`) and embeds the text. The runtime prints it and appends the call stack it tracks through `brim_rt_enter` / `brim_rt_leave`. Colors are never used.
+
+**Executables.** The object file is written to a temporary directory together with the runtime source, and both are compiled and linked in one C compiler invocation (`-O0` for debug builds, `-O2` with `--release`). Code is generated for the host's generic CPU, so executables also run on other machines of the same architecture and OS.
+
+**Testing.** With the feature enabled, `crates/brim-cli/tests/fixtures.rs` builds every `tests/integration` program and every example natively, in debug and release mode, and requires stdout, stderr and the exit code to be identical to the interpreter's. A separate CI job installs LLVM 22 and runs the whole test suite with `--features brim-cli/llvm`.
+
+**Not yet done:** debug information (DWARF), cross-compilation, Windows, freeing strings, and avoiding the C compiler by linking with the system linker directly.
 
 ## Decisions and trade-offs
 
@@ -187,5 +196,8 @@ Supported LLVM versions and platforms will be documented here once the backend e
 | Block-local IR values plus slots | Trivial validation and interpretation, and maps directly onto `alloca` + `mem2reg`. | An optimizer needs real SSA |
 | Iterative interpreter with a heap-allocated call stack | Deep Brim recursion produces a clean `R0003` error instead of crashing the host. | Never |
 | Checked integer arithmetic | Silent wraparound is a common source of bugs in server software. | Performance data from the native backend |
-| No `brim build` output yet, but the command exists | `build` validates the IR and then reports the missing backend clearly (exit 4) instead of pretending. | LLVM backend lands |
+| LLVM behind an opt-in Cargo feature | Contributors and the default CI jobs need no LLVM installation; the frontend can never accidentally depend on it. | LLVM is easy to install everywhere, or Brim ships prebuilt binaries |
+| Native runtime in C, compiled at link time | Native code needs C-ABI entry points. In Rust they would need `unsafe` code (forbidden in the workspace) and a separately built static library that `brim` must find at run time. A few dozen lines of C embedded in the compiler need neither; the system C compiler is needed for linking anyway. | The runtime grows (ARC, I/O, networking), or Brim links without a C compiler |
+| Run-time error text rendered at compile time | Native and interpreted programs print byte-identical errors, which makes differential testing exact, and the runtime needs no source files or debug information. Costs some binary size per trap site. | Binary size matters, or debug information lands |
+| Call stack tracked by runtime calls | Gives the same call-stack notes and the same `R0003` depth limit as the interpreter, without unwinding or debug information. Costs two cheap calls per Brim call. | Performance data shows the cost matters |
 | `toml` + `serde` for the manifest | TOML parsing is complex and well solved. Versions are pinned. | Never |

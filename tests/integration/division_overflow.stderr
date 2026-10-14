@@ -1,0 +1,7 @@
+error[R0001]: integer overflow in `/`
+ --> tests/integration/division_overflow.brim:5:12
+  |
+5 |     return a / b
+  |            ^^^^^
+  |
+  = note: call stack: main -> divide

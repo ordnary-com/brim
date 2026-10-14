@@ -1,0 +1,12 @@
+// exit: 101
+// `i64::MIN / -1` does not fit in an i64. The native backend checks for it
+// explicitly, because the hardware division instruction would crash instead.
+fn divide(a: i64, b: i64) -> i64 {
+    return a / b
+}
+
+fn main() {
+    let min: i64 = -9223372036854775808
+    print(divide(min, 2))
+    print(divide(min, -1))
+}

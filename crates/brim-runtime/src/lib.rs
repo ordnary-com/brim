@@ -11,9 +11,10 @@
 //!   (checked integer arithmetic).
 //! - [`RuntimeError`] describes run-time failures and their stable codes.
 //!
-//! Everything here is safe Rust. The native C-ABI entry points described in
-//! `docs/architecture.md` will be added together with the native backend; they
-//! are intentionally not exported yet because nothing could call them.
+//! Everything here is safe Rust. Native executables use a small C
+//! implementation of the same functions (`crates/brim-codegen/runtime`),
+//! which must behave identically; the differential tests in `brim-cli` check
+//! that they do.
 
 pub mod abi;
 pub mod ops;
@@ -27,6 +28,12 @@ pub use abi::{AbiType, RuntimeFn};
 /// The runtime representation of a Brim `string`: immutable, UTF-8,
 /// reference-counted. Cloning is cheap and never copies the text.
 pub type BrimStr = Rc<str>;
+
+/// The default maximum number of simultaneously active Brim calls,
+/// including `main`. Deeper recursion is the run-time error `R0003`. The
+/// interpreter and native executables use the same limit, so both stop a
+/// runaway recursion at the same point.
+pub const MAX_CALL_DEPTH: usize = 10_000;
 
 /// A failure that stops a running Brim program.
 #[derive(Clone, Debug, PartialEq, Eq)]
