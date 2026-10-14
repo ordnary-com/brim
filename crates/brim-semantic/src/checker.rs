@@ -3,12 +3,12 @@ use std::collections::HashMap;
 use brim_ast as ast;
 use brim_diagnostics::{Diagnostic, Span, has_errors};
 
-use crate::Type;
 use crate::checked::{
-    BinaryOp, CheckedExpr, CheckedExprKind, CheckedFn, CheckedProgram, CheckedStmt, FnId, Local,
-    LocalId, UnaryOp,
+    BinaryOp, CheckedExpr, CheckedExprKind, CheckedField, CheckedFn, CheckedProgram, CheckedStmt,
+    CheckedStruct, FnId, Local, LocalId, UnaryOp,
 };
 use crate::suggest;
+use crate::{StructId, Type};
 
 /// A resolved function signature.
 struct Signature {
@@ -25,8 +25,26 @@ struct ParamSig {
     span: Span,
 }
 
+/// A declared struct.
+struct StructInfo {
+    name: String,
+    name_span: Span,
+    span: Span,
+    fields: Vec<FieldInfo>,
+}
+
+struct FieldInfo {
+    name: String,
+    ty: Type,
+    span: Span,
+}
+
 pub(crate) struct Checker<'a> {
     diags: Vec<Diagnostic>,
+    /// One entry per AST struct, in declaration order.
+    structs: Vec<StructInfo>,
+    /// Struct names to the first struct declared with that name.
+    struct_by_name: HashMap<&'a str, StructId>,
     /// One signature per AST function, in declaration order.
     sigs: Vec<Signature>,
     /// Function names to the first function declared with that name.
@@ -82,9 +100,12 @@ impl<'a> Checker<'a> {
     pub(crate) fn check(program: &'a ast::Program) -> (Option<CheckedProgram>, Vec<Diagnostic>) {
         let mut checker = Checker {
             diags: Vec::new(),
+            structs: Vec::new(),
+            struct_by_name: HashMap::new(),
             sigs: Vec::new(),
             by_name: HashMap::new(),
         };
+        checker.collect_structs(program);
         checker.collect(program);
         let entry = checker.check_entry();
         let functions: Vec<CheckedFn> = program
@@ -101,7 +122,159 @@ impl<'a> Checker<'a> {
             return (None, diags);
         }
         let entry = entry.expect("a missing entry point is reported as an error");
-        (Some(CheckedProgram { functions, entry }), diags)
+        let structs = checker
+            .structs
+            .into_iter()
+            .map(|s| CheckedStruct {
+                name: s.name,
+                span: s.span,
+                fields: s
+                    .fields
+                    .into_iter()
+                    .map(|f| CheckedField {
+                        name: f.name,
+                        ty: f.ty,
+                    })
+                    .collect(),
+            })
+            .collect();
+        (
+            Some(CheckedProgram {
+                structs,
+                functions,
+                entry,
+            }),
+            diags,
+        )
+    }
+
+    /// A type as users write it, for messages.
+    fn show(&self, ty: Type) -> String {
+        match ty {
+            Type::Struct(id) => self.structs[id.0].name.clone(),
+            other => other.to_string(),
+        }
+    }
+
+    // ---- structs ------------------------------------------------------
+
+    fn collect_structs(&mut self, program: &'a ast::Program) {
+        // Names first, so fields can refer to structs declared later.
+        for (i, decl) in program.structs.iter().enumerate() {
+            let name = decl.name.name.as_str();
+            if Type::from_name(name).is_some() {
+                self.diags.push(
+                    Diagnostic::error(format!("`{name}` is a built-in type"))
+                        .with_code("E0219")
+                        .with_primary(decl.name.span, "cannot be used as a struct name")
+                        .with_help("choose a different name"),
+                );
+            } else if let Some(first) = self.struct_by_name.get(name) {
+                let first_span = self.structs[first.0].name_span;
+                self.diags.push(
+                    Diagnostic::error(format!("struct `{name}` is defined more than once"))
+                        .with_code("E0219")
+                        .with_primary(decl.name.span, "redefined here")
+                        .with_secondary(first_span, "first defined here"),
+                );
+            } else {
+                self.struct_by_name.insert(name, StructId(i));
+            }
+            self.structs.push(StructInfo {
+                name: name.to_string(),
+                name_span: decl.name.span,
+                span: decl.span,
+                fields: Vec::new(),
+            });
+        }
+        for (i, decl) in program.structs.iter().enumerate() {
+            let mut fields: Vec<FieldInfo> = Vec::new();
+            for field in &decl.fields {
+                if let Some(previous) = fields.iter().find(|f| f.name == field.name.name) {
+                    self.diags.push(
+                        Diagnostic::error(format!(
+                            "field `{}` is declared more than once",
+                            field.name.name
+                        ))
+                        .with_code("E0220")
+                        .with_primary(field.name.span, "duplicate field")
+                        .with_secondary(previous.span, "first declared here"),
+                    );
+                }
+                let ty = self.resolve_type(&field.ty, "a field");
+                fields.push(FieldInfo {
+                    name: field.name.name.clone(),
+                    ty,
+                    span: field.span,
+                });
+            }
+            self.structs[i].fields = fields;
+        }
+        self.check_recursive_structs();
+    }
+
+    /// A struct that contains itself, directly or through other structs,
+    /// would be infinitely large.
+    fn check_recursive_structs(&mut self) {
+        let mut reported = vec![false; self.structs.len()];
+        for start in 0..self.structs.len() {
+            if reported[start] {
+                continue;
+            }
+            // Depth-first search for a path of fields leading back to `start`.
+            let mut path: Vec<(usize, usize)> = Vec::new(); // (struct, field)
+            let mut visited = vec![false; self.structs.len()];
+            if !self.find_cycle(start, start, &mut path, &mut visited) {
+                continue;
+            }
+            let chain: Vec<String> = path
+                .iter()
+                .map(|&(s, f)| {
+                    format!(
+                        "{}.{}",
+                        self.structs[s].name, self.structs[s].fields[f].name
+                    )
+                })
+                .collect();
+            for &(s, _) in &path {
+                reported[s] = true;
+            }
+            let (first_struct, first_field) = path[0];
+            let field = &self.structs[first_struct].fields[first_field];
+            let name = &self.structs[start].name;
+            self.diags.push(
+                Diagnostic::error(format!("struct `{name}` contains itself"))
+                    .with_code("E0221")
+                    .with_primary(self.structs[start].name_span, "infinitely large")
+                    .with_secondary(field.span, format!("`{name}` contains itself through here"))
+                    .with_note(format!("the cycle is: {} -> {name}", chain.join(" -> ")))
+                    .with_note("structs are values: every field is stored inside its struct"),
+            );
+        }
+    }
+
+    fn find_cycle(
+        &self,
+        current: usize,
+        target: usize,
+        path: &mut Vec<(usize, usize)>,
+        visited: &mut [bool],
+    ) -> bool {
+        if visited[current] {
+            return false;
+        }
+        visited[current] = true;
+        for (f, field) in self.structs[current].fields.iter().enumerate() {
+            let Type::Struct(next) = field.ty else {
+                continue;
+            };
+            path.push((current, f));
+            if next.0 == target || self.find_cycle(next.0, target, path, visited) {
+                return true;
+            }
+            path.pop();
+        }
+        false
     }
 
     // ---- declarations -------------------------------------------------
@@ -115,6 +288,14 @@ impl<'a> Checker<'a> {
                         .with_code("E0216")
                         .with_primary(f.name.span, "this name belongs to a builtin")
                         .with_help("choose a different name"),
+                );
+            } else if let Some(s) = self.struct_by_name.get(name) {
+                self.diags.push(
+                    Diagnostic::error(format!("`{name}` is already the name of a struct"))
+                        .with_code("E0219")
+                        .with_primary(f.name.span, "function declared here")
+                        .with_secondary(self.structs[s.0].name_span, "struct declared here")
+                        .with_help("functions and structs need different names"),
                 );
             } else if let Some(first) = self.by_name.get(name) {
                 let first_span = self.sigs[first.0].name_span;
@@ -176,20 +357,28 @@ impl<'a> Checker<'a> {
                 Type::Error
             }
             Some(t) => t,
-            None => {
-                let mut diag = Diagnostic::error(format!("unknown type `{name}`"))
-                    .with_code("E0212")
-                    .with_primary(ty.span(), "not a known type");
-                diag = match suggest::type_name(name) {
-                    Some(s) => diag.with_help(format!("did you mean `{s}`?")),
-                    None => {
-                        diag.with_note("the available types are `i64`, `bool`, `string` and `void`")
-                    }
-                };
-                self.diags.push(diag);
-                Type::Error
-            }
+            None => match self.struct_by_name.get(name) {
+                Some(&id) => Type::Struct(id),
+                None => {
+                    self.unknown_type(name, ty.span());
+                    Type::Error
+                }
+            },
         }
+    }
+
+    fn unknown_type(&mut self, name: &str, span: Span) {
+        let mut diag = Diagnostic::error(format!("unknown type `{name}`"))
+            .with_code("E0212")
+            .with_primary(span, "not a known type");
+        let similar_struct = suggest::similar(name, self.struct_by_name.keys().copied());
+        diag = match similar_struct.or(suggest::type_name(name)) {
+            Some(s) => diag.with_help(format!("did you mean `{s}`?")),
+            None => diag.with_note(
+                "the available types are `i64`, `bool`, `string`, `void` and the declared structs",
+            ),
+        };
+        self.diags.push(diag);
     }
 
     fn check_entry(&mut self) -> Option<FnId> {
@@ -279,7 +468,8 @@ impl<'a> Checker<'a> {
             .with_code("E0207")
             .with_primary(close, "missing `return` before the end of the function");
             if let Some(span) = ctx.ret_span {
-                diag = diag.with_secondary(span, format!("`{}` must be returned", ctx.ret));
+                let ret = self.show(ctx.ret);
+                diag = diag.with_secondary(span, format!("`{ret}` must be returned"));
             }
             self.diags.push(diag);
         }
@@ -343,10 +533,14 @@ impl<'a> Checker<'a> {
             }
             ast::StmtKind::Assign {
                 target,
+                path,
                 op,
                 op_span,
                 value,
-            } => (self.check_assign(target, *op, *op_span, value, ctx), false),
+            } => (
+                self.check_assign(target, path, *op, *op_span, value, ctx),
+                false,
+            ),
             ast::StmtKind::If {
                 cond,
                 then_block,
@@ -420,13 +614,11 @@ impl<'a> Checker<'a> {
                     CheckedExprKind::Call { .. } | CheckedExprKind::Builtin { .. }
                 );
                 if !is_call && checked.ty != Type::Error {
+                    let ty = self.show(checked.ty);
                     self.diags.push(
                         Diagnostic::warning("unused value")
                             .with_code("W0002")
-                            .with_primary(
-                                checked.span,
-                                format!("this `{}` value is never used", checked.ty),
-                            )
+                            .with_primary(checked.span, format!("this `{ty}` value is never used"))
                             .with_help("store it with `let`, or remove the expression"),
                     );
                 }
@@ -451,9 +643,10 @@ impl<'a> Checker<'a> {
     fn check_condition(&mut self, cond: &ast::Expr, keyword: &str, ctx: &mut FnCtx) -> CheckedExpr {
         let cond = self.check_expr(cond, ctx);
         if !matches!(cond.ty, Type::Bool | Type::Error) {
+            let found = self.show(cond.ty);
             let mut diag = Diagnostic::error("mismatched types")
                 .with_code("E0206")
-                .with_primary(cond.span, format!("expected `bool`, found `{}`", cond.ty))
+                .with_primary(cond.span, format!("expected `bool`, found `{found}`"))
                 .with_note(format!("the condition of `{keyword}` must be a `bool`"));
             if cond.ty == Type::I64 {
                 diag = diag.with_help("compare explicitly, for example `x != 0`");
@@ -466,6 +659,7 @@ impl<'a> Checker<'a> {
     fn check_assign(
         &mut self,
         target: &ast::Ident,
+        path: &[ast::Ident],
         op: Option<ast::BinaryOp>,
         op_span: Span,
         value: &ast::Expr,
@@ -478,16 +672,54 @@ impl<'a> Checker<'a> {
             return CheckedStmt::Expr(value);
         };
         let local = &ctx.locals[id.0];
-        let (ty, mutable, decl_span) = (local.ty, local.mutable, local.span);
+        let (var_ty, mutable, decl_span) = (local.ty, local.mutable, local.span);
         let is_param = id.0 < ctx.param_count;
+
+        // Resolve the field path: `current` is the place being assigned, as
+        // an expression (needed for compound assignment).
+        let mut current = CheckedExpr {
+            kind: CheckedExprKind::Local(id),
+            ty: var_ty,
+            span: target.span,
+        };
+        let mut indices = Vec::with_capacity(path.len());
+        for field in path {
+            let Some((index, ty)) = self.field(current.ty, field, current.span) else {
+                return CheckedStmt::Expr(value);
+            };
+            indices.push(index);
+            current = CheckedExpr {
+                span: current.span.to(field.span),
+                kind: CheckedExprKind::Field {
+                    base: Box::new(current),
+                    index,
+                },
+                ty,
+            };
+        }
+        let ty = current.ty;
+
         if !mutable {
-            let mut diag = Diagnostic::error(format!(
-                "cannot assign to immutable variable `{}`",
-                target.name
-            ))
-            .with_code("E0218")
-            .with_primary(target.span, "cannot be reassigned")
-            .with_secondary(decl_span, "declared here");
+            let ty = self.show(var_ty);
+            let message = if path.is_empty() {
+                format!("cannot assign to immutable variable `{}`", target.name)
+            } else {
+                format!(
+                    "cannot assign to a field of immutable variable `{}`",
+                    target.name
+                )
+            };
+            let mut diag = Diagnostic::error(message)
+                .with_code("E0218")
+                .with_primary(
+                    target.span,
+                    if path.is_empty() {
+                        "cannot be reassigned"
+                    } else {
+                        "its fields cannot be changed"
+                    },
+                )
+                .with_secondary(decl_span, "declared here");
             diag = if is_param {
                 diag.with_note("function parameters cannot be reassigned")
                     .with_help(format!(
@@ -505,17 +737,69 @@ impl<'a> Checker<'a> {
         let value = match op {
             None => value,
             Some(op) => {
-                let current = CheckedExpr {
-                    kind: CheckedExprKind::Local(id),
-                    ty,
-                    span: target.span,
-                };
                 let span = target.span.to(value.span);
                 self.resolve_binary(op, op_span, current, value, span)
             }
         };
-        self.expect_type(&value, ty, Some(decl_span), "variable declared here");
-        CheckedStmt::Assign { local: id, value }
+        let reason = if path.is_empty() {
+            "variable declared here"
+        } else {
+            "the variable's type is declared here"
+        };
+        self.expect_type(&value, ty, Some(decl_span), reason);
+        CheckedStmt::Assign {
+            local: id,
+            path: indices,
+            value,
+        }
+    }
+
+    /// Looks up `field` in a value of type `ty`: its index and type.
+    /// Reports an error (unless `ty` is already an error) when there is none.
+    fn field(&mut self, ty: Type, field: &ast::Ident, base_span: Span) -> Option<(usize, Type)> {
+        let id = match ty {
+            Type::Struct(id) => id,
+            Type::Error => return None,
+            other => {
+                let shown = self.show(other);
+                self.diags.push(
+                    Diagnostic::error(format!("`{shown}` has no fields"))
+                        .with_code("E0224")
+                        .with_primary(field.span, "unknown field")
+                        .with_secondary(base_span, format!("this is `{shown}`"))
+                        .with_note("only structs have fields"),
+                );
+                return None;
+            }
+        };
+        let info = &self.structs[id.0];
+        if let Some(index) = info.fields.iter().position(|f| f.name == field.name) {
+            return Some((index, info.fields[index].ty));
+        }
+        let mut diag = Diagnostic::error(format!(
+            "struct `{}` has no field `{}`",
+            info.name, field.name
+        ))
+        .with_code("E0224")
+        .with_primary(field.span, "unknown field")
+        .with_secondary(info.name_span, format!("`{}` is declared here", info.name));
+        diag = match suggest::similar(&field.name, info.fields.iter().map(|f| f.name.as_str())) {
+            Some(similar) => diag.with_help(format!("did you mean `{similar}`?")),
+            None => {
+                let names: Vec<String> = info
+                    .fields
+                    .iter()
+                    .map(|f| format!("`{}`", f.name))
+                    .collect();
+                if names.is_empty() {
+                    diag.with_note(format!("`{}` has no fields", info.name))
+                } else {
+                    diag.with_note(format!("available fields: {}", names.join(", ")))
+                }
+            }
+        };
+        self.diags.push(diag);
+        None
     }
 
     fn declare(&mut self, name: &ast::Ident, ty: Type, mutable: bool, ctx: &mut FnCtx) -> LocalId {
@@ -551,6 +835,7 @@ impl<'a> Checker<'a> {
         match (value, ctx.ret) {
             (_, Type::Error) | (None, Type::Void) => {}
             (None, ret) => {
+                let ret = self.show(ret);
                 let mut diag = Diagnostic::error("missing return value")
                     .with_code("E0208")
                     .with_primary(span, format!("expected a `{ret}` value"));
@@ -568,7 +853,7 @@ impl<'a> Checker<'a> {
                 if !matches!(value.ty, Type::Void | Type::Error) {
                     diag = diag.with_help(format!(
                         "declare the return type with `-> {}` after the parameter list",
-                        value.ty
+                        self.show(value.ty)
                     ));
                 }
                 self.diags.push(diag);
@@ -594,7 +879,11 @@ impl<'a> Checker<'a> {
             .with_code("E0206")
             .with_primary(
                 expr.span,
-                format!("expected `{expected}`, found `{}`", expr.ty),
+                format!(
+                    "expected `{}`, found `{}`",
+                    self.show(expected),
+                    self.show(expr.ty)
+                ),
             );
         if let Some(span) = reason {
             diag = diag.with_secondary(span, reason_label);
@@ -634,8 +923,112 @@ impl<'a> Checker<'a> {
             ast::ExprKind::Call { callee, args } => {
                 return self.check_call(callee, args, span, ctx);
             }
+            ast::ExprKind::StructLit { name, fields } => {
+                return self.check_struct_lit(name, fields, span, ctx);
+            }
+            ast::ExprKind::Field { base, field } => {
+                let base = self.check_expr(base, ctx);
+                let Some((index, ty)) = self.field(base.ty, field, base.span) else {
+                    return error_expr(span);
+                };
+                (
+                    CheckedExprKind::Field {
+                        base: Box::new(base),
+                        index,
+                    },
+                    ty,
+                )
+            }
         };
         CheckedExpr { kind, ty, span }
+    }
+
+    fn check_struct_lit(
+        &mut self,
+        name: &ast::Ident,
+        fields: &[ast::FieldInit],
+        span: Span,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        let values: Vec<CheckedExpr> = fields
+            .iter()
+            .map(|f| self.check_expr(&f.value, ctx))
+            .collect();
+        let Some(&id) = self.struct_by_name.get(name.name.as_str()) else {
+            if Type::from_name(&name.name).is_some() {
+                self.diags.push(
+                    Diagnostic::error(format!("`{}` is not a struct", name.name))
+                        .with_code("E0212")
+                        .with_primary(name.span, "built-in type"),
+                );
+            } else {
+                self.unknown_type(&name.name, name.span);
+            }
+            return error_expr(span);
+        };
+        let mut checked: Vec<(usize, CheckedExpr)> = Vec::with_capacity(fields.len());
+        let mut ok = true;
+        let mut given: Vec<Option<Span>> = vec![None; self.structs[id.0].fields.len()];
+        for (field, value) in fields.iter().zip(values) {
+            let Some((index, ty)) = self.field(Type::Struct(id), &field.name, name.span) else {
+                ok = false;
+                continue;
+            };
+            if let Some(first) = given[index] {
+                self.diags.push(
+                    Diagnostic::error(format!(
+                        "field `{}` is given more than once",
+                        field.name.name
+                    ))
+                    .with_code("E0223")
+                    .with_primary(field.name.span, "given again here")
+                    .with_secondary(first, "first given here"),
+                );
+                ok = false;
+                continue;
+            }
+            given[index] = Some(field.name.span);
+            let declared = self.structs[id.0].fields[index].span;
+            self.expect_type(&value, ty, Some(declared), "field declared here");
+            checked.push((index, value));
+        }
+        let missing: Vec<String> = self.structs[id.0]
+            .fields
+            .iter()
+            .zip(&given)
+            .filter(|(_, g)| g.is_none())
+            .map(|(f, _)| format!("`{}`", f.name))
+            .collect();
+        if !missing.is_empty() {
+            let info = &self.structs[id.0];
+            let (noun, list) = if missing.len() == 1 {
+                ("field", missing[0].clone())
+            } else {
+                let (last, rest) = missing.split_last().expect("not empty");
+                ("fields", format!("{} and {last}", rest.join(", ")))
+            };
+            self.diags.push(
+                Diagnostic::error(format!("missing {noun} {list} in `{}`", info.name))
+                    .with_code("E0222")
+                    .with_primary(
+                        span,
+                        format!("every field of `{}` needs a value", info.name),
+                    )
+                    .with_secondary(info.name_span, format!("`{}` is declared here", info.name)),
+            );
+            ok = false;
+        }
+        if !ok {
+            return error_expr(span);
+        }
+        CheckedExpr {
+            kind: CheckedExprKind::StructLit {
+                id,
+                fields: checked,
+            },
+            ty: Type::Struct(id),
+            span,
+        }
     }
 
     fn int_out_of_range(&mut self, value: u64, span: Span) {
@@ -662,7 +1055,16 @@ impl<'a> Checker<'a> {
             };
         }
         let name = ident.name.as_str();
-        if self.by_name.contains_key(name) || brim_stdlib::lookup(name).is_some() {
+        if self.struct_by_name.contains_key(name) {
+            self.diags.push(
+                Diagnostic::error(format!("`{name}` is a struct, not a value"))
+                    .with_code("E0214")
+                    .with_primary(ident.span, "structs cannot be used as values")
+                    .with_help(format!(
+                        "to create a `{name}`, write `{name} {{ field: value, ... }}`"
+                    )),
+            );
+        } else if self.by_name.contains_key(name) || brim_stdlib::lookup(name).is_some() {
             self.diags.push(
                 Diagnostic::error(format!("`{name}` is a function, not a value"))
                     .with_code("E0214")
@@ -708,6 +1110,7 @@ impl<'a> Checker<'a> {
             (ast::UnaryOp::Neg, Type::I64) => (UnaryOp::IntNeg, Type::I64),
             (ast::UnaryOp::Not, Type::Bool) => (UnaryOp::BoolNot, Type::Bool),
             (op, ty) => {
+                let ty = self.show(ty);
                 let expected = if op == ast::UnaryOp::Neg {
                     "i64"
                 } else {
@@ -811,14 +1214,18 @@ impl<'a> Checker<'a> {
     ) {
         use ast::BinaryOp as Op;
         let sym = op.as_str();
-        let (l, r) = (lhs.ty, rhs.ty);
+        let (l, r) = (self.show(lhs.ty), self.show(rhs.ty));
+        let either_struct = matches!(lhs.ty, Type::Struct(_)) || matches!(rhs.ty, Type::Struct(_));
         let mut diag = Diagnostic::error(format!("cannot apply `{sym}` to `{l}` and `{r}`"))
             .with_code("E0209")
             .with_primary(op_span, format!("`{l} {sym} {r}` is not defined"))
             .with_secondary(lhs.span, format!("`{l}`"))
             .with_secondary(rhs.span, format!("`{r}`"));
         diag = match op {
-            Op::Add if l == Type::String || r == Type::String => diag
+            Op::Eq | Op::Ne if either_struct && lhs.ty == rhs.ty => diag
+                .with_note(format!("structs cannot be compared with `{sym}` yet"))
+                .with_help("compare their fields instead"),
+            Op::Add if lhs.ty == Type::String || rhs.ty == Type::String => diag
                 .with_note("`+` joins two strings or adds two integers")
                 .with_note("Brim never converts values to strings implicitly"),
             Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Rem => {
@@ -919,18 +1326,18 @@ impl<'a> Checker<'a> {
                 );
                 return error_expr(span);
             }
-            let Some(prims) = args
+            if args.iter().any(|a| a.ty == Type::Error) {
+                return error_expr(span);
+            }
+            let prims = args
                 .iter()
                 .map(|a| a.ty.to_prim())
-                .collect::<Option<Vec<_>>>()
-            else {
-                // An argument already has an error.
-                return error_expr(span);
-            };
-            let Some(overload) = builtin.resolve(&prims) else {
-                let found = prims
+                .collect::<Option<Vec<_>>>();
+            let overload = prims.as_deref().and_then(|p| builtin.resolve(p));
+            let Some(overload) = overload else {
+                let found = args
                     .iter()
-                    .map(|p| format!("`{p}`"))
+                    .map(|a| format!("`{}`", self.show(a.ty)))
                     .collect::<Vec<_>>()
                     .join(", ");
                 let accepted = builtin
@@ -967,6 +1374,13 @@ impl<'a> Checker<'a> {
         let mut diag = Diagnostic::error(format!("undefined function `{name}`"))
             .with_code("E0201")
             .with_primary(callee.span, "not found");
+        if self.struct_by_name.contains_key(name) {
+            diag = diag.with_help(format!(
+                "`{name}` is a struct; create one with `{name} {{ field: value, ... }}`"
+            ));
+            self.diags.push(diag);
+            return error_expr(span);
+        }
         let candidates = self
             .by_name
             .keys()

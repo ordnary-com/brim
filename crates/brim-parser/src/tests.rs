@@ -212,7 +212,7 @@ fn error_reserved_keywords() {
         errors("fn main() {\n    for x {\n        print(1)\n    }\n}"),
         vec![("E0101", "`for` is not supported yet".to_string())]
     );
-    assert_eq!(codes("struct Point {}"), vec!["E0101"]);
+    assert_eq!(codes("enum Color {}"), vec!["E0101"]);
     assert_eq!(codes("fn match() {}"), vec!["E0101"]);
     // Keywords cannot be used as names either.
     assert_eq!(
@@ -483,4 +483,109 @@ fn garbage_input_does_not_panic() {
     ] {
         let _ = parse(src);
     }
+}
+
+#[test]
+fn parses_struct_declarations() {
+    let program = parse_ok(
+        "struct Point {\n    x: i64\n    y: i64\n}\nstruct Pair { a: string, b: bool, }\nstruct Empty {}\nfn main() {}",
+    );
+    let fields = |i: usize| -> Vec<String> {
+        program.structs[i]
+            .fields
+            .iter()
+            .map(|f| format!("{}: {}", f.name.name, f.ty.name.name))
+            .collect()
+    };
+    assert_eq!(program.structs.len(), 3);
+    assert_eq!(program.structs[0].name.name, "Point");
+    assert_eq!(fields(0), ["x: i64", "y: i64"]);
+    assert_eq!(fields(1), ["a: string", "b: bool"]);
+    assert!(fields(2).is_empty());
+}
+
+#[test]
+fn parses_struct_literals_and_fields() {
+    assert_eq!(
+        expr("Point { x: 1, y: 2 + 3 }"),
+        "Point { x: 1, y: (2 + 3) }"
+    );
+    assert_eq!(
+        expr("Point {\n    x: 1,\n    y: 2,\n}"),
+        "Point { x: 1, y: 2 }"
+    );
+    assert_eq!(expr("Empty {}"), "Empty {}");
+    assert_eq!(expr("a.b.c + f(x).y"), "(((a.b).c) + (f(x).y))");
+    assert_eq!(expr("-p.x"), "(-(p.x))");
+    assert_eq!(
+        expr("Line { from: Point { x: 0, y: 0 } }.from.x"),
+        "((Line { from: Point { x: 0, y: 0 } }.from).x)"
+    );
+}
+
+#[test]
+fn no_struct_literal_in_conditions() {
+    // `if x {` starts the body; a literal needs parentheses there.
+    let StmtKind::If { cond, .. } = stmt("if ok {\n}") else {
+        panic!()
+    };
+    assert_eq!(cond.to_string(), "ok");
+    let StmtKind::While { cond, .. } = stmt("while (P { a: 1 }).a < 3 {\n}") else {
+        panic!()
+    };
+    assert_eq!(cond.to_string(), "((P { a: 1 }.a) < 3)");
+}
+
+#[test]
+fn parses_field_assignment() {
+    let StmtKind::Assign {
+        target, path, op, ..
+    } = stmt("p.from.x += 1")
+    else {
+        panic!()
+    };
+    assert_eq!(target.name, "p");
+    let path: Vec<&str> = path.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(path, ["from", "x"]);
+    assert_eq!(op, Some(BinaryOp::Add));
+    let StmtKind::Assign { path, .. } = stmt("p = q") else {
+        panic!()
+    };
+    assert!(path.is_empty());
+}
+
+#[test]
+fn struct_errors() {
+    assert_eq!(
+        errors("fn main() {\n    struct P {}\n}"),
+        vec![(
+            "E0103",
+            "structs cannot be declared inside functions".to_string()
+        )]
+    );
+    assert_eq!(
+        errors("struct P {\n    x\n}"),
+        vec![("E0102", "field `x` needs a type".to_string())]
+    );
+    assert_eq!(
+        errors("fn main() {\n    let p: P = P { x }\n}"),
+        vec![("E0100", "field `x` needs a value".to_string())]
+    );
+    assert_eq!(codes("fn main() {\n    f().x = 1\n}"), vec!["E0104"]);
+    assert_eq!(
+        errors("fn main() {\n    p.len()\n}"),
+        vec![("E0107", "only named functions can be called".to_string())]
+    );
+    assert_eq!(codes("fn main() {\n    p.1\n}"), vec!["E0100"]);
+    // Structs and functions after an error are still parsed.
+    let (program, diags) = parse("struct A { x i64 }\nstruct B { y: i64 }\nfn main() {}");
+    assert_eq!(diags.len(), 1);
+    assert_eq!(program.structs.len(), 1);
+    assert_eq!(program.functions.len(), 1);
+}
+
+#[test]
+fn long_field_chains_are_rejected_without_overflow() {
+    let src = format!("fn main() {{\n    a{}\n}}", ".b".repeat(10_000));
+    assert_eq!(codes(&src), vec!["E0105"]);
 }

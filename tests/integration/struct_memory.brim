@@ -1,0 +1,59 @@
+// Strings inside structs are reference counted with their struct. Native
+// builds run with BRIM_RT_CHECK=1 in the tests, so leaks and use after free
+// in any of these paths fail the test.
+
+struct Name {
+    first: string
+    last: string
+}
+
+struct Person {
+    name: Name
+    title: string
+    age: i64
+}
+
+fn full(n: Name) -> string {
+    return n.first + " " + n.last
+}
+
+fn person(first: string, last: string) -> Person {
+    return Person {
+        name: Name { first: first, last: last },
+        title: "",
+        age: 0,
+    }
+}
+
+fn promoted(p: Person, title: string) -> Person {
+    let mut q: Person = p
+    q.title = title
+    q.age += 1
+    return q
+}
+
+fn main() {
+    let mut p: Person = person("Ada", "Lovelace")
+    print(full(p.name))
+
+    // Replacing strings inside a struct releases the old ones.
+    let mut i: i64 = 0
+    while i < 50 {
+        p.name.last = p.name.last + "!"
+        p.title = "step " + to_string(i)
+        i += 1
+    }
+    print(p.title)
+    print(p.name.last == "Lovelace" + "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
+    // Copies share strings until one of them is changed.
+    let before: Person = p
+    p = promoted(p, "Countess")
+    print(before.title + " / " + p.title)
+    print(full(before.name) == full(p.name))
+
+    // Temporaries: field access on call results and literals.
+    print(person("Grace", "Hopper").name.first)
+    print(Name { first: "Alan", last: "Turing" }.last)
+    print(full(person("Edsger", "Dijkstra").name))
+}

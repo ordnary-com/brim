@@ -449,3 +449,122 @@ fn to_string_builtin() {
     ));
     assert_eq!(codes(&main_with("print(to_string(\"s\"))")), vec!["E0206"]);
 }
+
+const POINT: &str = "struct Point {\n    x: i64\n    y: i64\n}\n";
+
+#[test]
+fn checks_structs() {
+    let program = ok(&format!(
+        "{POINT}struct Line {{ from: Point, to: Point, label: string }}\n\
+         fn length(l: Line) -> i64 {{\n    return l.to.x - l.from.x\n}}\n\
+         fn main() {{\n\
+             let mut l: Line = Line {{ label: \"a\", to: Point {{ x: 3, y: 4 }}, from: Point {{ x: 0, y: 0 }} }}\n\
+             l.from.x = 1\n\
+             l.to.y += 2\n\
+             l = l\n\
+             print(length(l))\n\
+         }}"
+    ));
+    assert_eq!(program.structs.len(), 2);
+    assert_eq!(program.structs[1].name, "Line");
+    assert_eq!(program.structs[1].fields[0].ty, Type::Struct(StructId(0)));
+    let main = &program.functions[program.entry.0];
+    let CheckedStmt::Let { init, .. } = &main.body[0] else {
+        panic!()
+    };
+    // Fields stay in source order with their declaration index.
+    let CheckedExprKind::StructLit { fields, .. } = &init.kind else {
+        panic!()
+    };
+    let order: Vec<usize> = fields.iter().map(|(i, _)| *i).collect();
+    assert_eq!(order, [2, 1, 0]);
+    let CheckedStmt::Assign { path, .. } = &main.body[1] else {
+        panic!()
+    };
+    assert_eq!(path, &[0, 0]);
+}
+
+#[test]
+fn structs_can_be_declared_after_use() {
+    ok(
+        "fn main() {\n    let b: B = B { a: A { n: 1 } }\n    print(b.a.n)\n}\nstruct B { a: A }\nstruct A { n: i64 }",
+    );
+}
+
+#[test]
+fn struct_declaration_errors() {
+    assert_eq!(codes("struct P {}\nstruct P {}\nfn main() {}"), ["E0219"]);
+    assert_eq!(codes("struct i64 {}\nfn main() {}"), ["E0219"]);
+    assert_eq!(codes("struct P {}\nfn P() {}\nfn main() {}"), ["E0219"]);
+    assert_eq!(
+        codes("struct P { a: i64, a: bool }\nfn main() {}"),
+        ["E0220"]
+    );
+    assert_eq!(codes("struct P { a: void }\nfn main() {}"), ["E0213"]);
+    assert_eq!(
+        diags("struct P { a: Pont }\nstruct Point {}\nfn main() {}"),
+        [("E0212", "unknown type `Pont`".to_string())]
+    );
+    // Recursion, direct and through another struct, is reported once.
+    assert_eq!(
+        diags("struct Node { next: Node }\nfn main() {}"),
+        [("E0221", "struct `Node` contains itself".to_string())]
+    );
+    assert_eq!(
+        codes("struct A { b: B }\nstruct B { c: C }\nstruct C { a: A }\nfn main() {}"),
+        ["E0221"]
+    );
+}
+
+#[test]
+fn struct_expression_errors() {
+    let check = |body: &str| diags(&format!("{POINT}{}", main_with(body)));
+    assert_eq!(
+        check("    let p: Point = Point { x: 1 }"),
+        [("E0222", "missing field `y` in `Point`".to_string())]
+    );
+    assert_eq!(
+        check("    let p: Point = Point { x: 1, y: 2, z: 3 }"),
+        [("E0224", "struct `Point` has no field `z`".to_string())]
+    );
+    assert_eq!(
+        check("    let p: Point = Point { x: 1, x: 2, y: 3 }"),
+        [("E0223", "field `x` is given more than once".to_string())]
+    );
+    assert_eq!(
+        check("    let p: Point = Point { x: true, y: 2 }"),
+        [("E0206", "mismatched types".to_string())]
+    );
+    assert_eq!(
+        check("    let p: Point = Pont { x: 1, y: 2 }"),
+        [("E0212", "unknown type `Pont`".to_string())]
+    );
+    assert_eq!(
+        check("    let n: i64 = 5\n    print(n.x)"),
+        [("E0224", "`i64` has no fields".to_string())]
+    );
+    assert_eq!(
+        check("    let p: Point = Point { x: 1, y: 2 }\n    p.x = 3"),
+        [(
+            "E0218",
+            "cannot assign to a field of immutable variable `p`".to_string()
+        )]
+    );
+    assert_eq!(
+        check("    let p: Point = Point { x: 1, y: 2 }\n    print(p == p)"),
+        [(
+            "E0209",
+            "cannot apply `==` to `Point` and `Point`".to_string()
+        )]
+    );
+    assert_eq!(
+        check("    let p: Point = Point { x: 1, y: 2 }\n    print(p)"),
+        [("E0206", "`print` cannot be called with `Point`".to_string())]
+    );
+    assert_eq!(
+        check("    let p: i64 = Point { x: 1, y: 2 }"),
+        [("E0206", "mismatched types".to_string())]
+    );
+    assert_eq!(check("    print(Point)")[0].0, "E0214");
+    assert_eq!(check("    let p: Point = Point(1, 2)")[0].0, "E0201");
+}

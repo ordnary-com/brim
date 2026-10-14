@@ -47,19 +47,20 @@ Guidelines for writing diagnostics:
 | E0004 | Integer literal does not fit in 64 bits |
 | E0005 | Integer literal with leading zeros |
 | E0006 | Invalid suffix on an integer literal (`10px`, `0xFF`) |
+| E0007 | Floating-point literal (`9.99`); not supported yet |
 
 ### Syntax errors (`brim-parser`)
 
 | Code  | Meaning |
 |-------|---------|
 | E0100 | Unexpected token ("expected X, found Y"), including unclosed blocks and parentheses |
-| E0101 | Reserved keyword used (`for`, `struct`, `match`, ...): the feature is not supported yet |
-| E0102 | Missing type annotation on a `let` or a parameter |
-| E0103 | Something other than a function declaration at the top level |
-| E0104 | Invalid assignment target (only variables can be assigned to) |
+| E0101 | Reserved keyword used (`for`, `enum`, `match`, ...): the feature is not supported yet |
+| E0102 | Missing type annotation on a `let`, a parameter or a struct field |
+| E0103 | Something other than a function or struct declaration at the top level, or a struct declared inside a function |
+| E0104 | Invalid assignment target (only variables and their fields can be assigned to) |
 | E0105 | Blocks or expressions nested too deeply (implementation limit: 128) |
 | E0106 | Chained comparison such as `a < b < c` |
-| E0107 | Call of something that is not a function name |
+| E0107 | Call of something that is not a function name (including method-style calls `p.f()`) |
 
 ### Semantic errors (`brim-semantic`)
 
@@ -77,13 +78,19 @@ Guidelines for writing diagnostics:
 | E0209 | Operator applied to unsupported operand types |
 | E0210 | No `main` function |
 | E0211 | `main` has parameters or a return type |
-| E0212 | Unknown type name |
-| E0213 | `void` used as a variable or parameter type |
-| E0214 | Function used as a value, or a variable called as a function |
+| E0212 | Unknown type name, including an unknown struct in a struct literal |
+| E0213 | `void` used as a variable, parameter or field type |
+| E0214 | Function or struct used as a value, or a variable called as a function |
 | E0215 | Integer literal out of range for `i64` |
 | E0216 | Function redefines a builtin |
 | E0217 | `break` or `continue` outside of a loop |
-| E0218 | Assignment to an immutable variable or a parameter |
+| E0218 | Assignment to an immutable variable, a parameter, or a field of one |
+| E0219 | Struct name already used: by another struct, a built-in type or a function |
+| E0220 | Field declared more than once in a struct |
+| E0221 | Struct contains itself, directly or through other structs |
+| E0222 | Struct literal is missing fields |
+| E0223 | Field given more than once in a struct literal |
+| E0224 | Unknown field, or field access on a value that is not a struct |
 
 ### Warnings
 

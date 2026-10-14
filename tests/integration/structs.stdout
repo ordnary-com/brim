@@ -1,0 +1,11 @@
+diagonal: (0, 0) -> (3, 4)
+diagonal!: (0, -2) -> (10, 4)
+10
+15
+true
+eval y
+eval x
+12
+8
+5
+10,5

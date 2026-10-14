@@ -14,7 +14,7 @@ use std::fmt;
 use brim_diagnostics::Span;
 use brim_runtime::RuntimeFn;
 
-use crate::Type;
+use crate::{StructId, Type};
 
 /// Index into [`CheckedProgram::functions`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -32,9 +32,26 @@ impl fmt::Display for LocalId {
 
 #[derive(Clone, Debug)]
 pub struct CheckedProgram {
+    /// Indexed by [`StructId`]. Struct types never contain themselves,
+    /// directly or indirectly.
+    pub structs: Vec<CheckedStruct>,
     pub functions: Vec<CheckedFn>,
     /// The `main` function.
     pub entry: FnId,
+}
+
+#[derive(Clone, Debug)]
+pub struct CheckedStruct {
+    pub name: String,
+    pub span: Span,
+    /// In declaration order; field indices refer to this list.
+    pub fields: Vec<CheckedField>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CheckedField {
+    pub name: String,
+    pub ty: Type,
 }
 
 #[derive(Clone, Debug)]
@@ -63,10 +80,12 @@ pub enum CheckedStmt {
         local: LocalId,
         init: CheckedExpr,
     },
-    /// `local = value`. Compound assignments are already expanded, so
+    /// `local = value`, or with a non-empty `path` of field indices,
+    /// `local.a.b = value`. Compound assignments are already expanded, so
     /// `x += 1` is `x = x + 1`.
     Assign {
         local: LocalId,
+        path: Vec<usize>,
         value: CheckedExpr,
     },
     If {
@@ -125,6 +144,18 @@ pub enum CheckedExprKind {
     Builtin {
         runtime: RuntimeFn,
         args: Vec<CheckedExpr>,
+    },
+    /// A struct literal. `fields` holds every field exactly once, as
+    /// `(field index, value)` in **source order**, which is the order the
+    /// values are evaluated in.
+    StructLit {
+        id: StructId,
+        fields: Vec<(usize, CheckedExpr)>,
+    },
+    /// `base.field`, with the field's index in its struct.
+    Field {
+        base: Box<CheckedExpr>,
+        index: usize,
     },
 }
 

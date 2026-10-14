@@ -1,0 +1,68 @@
+error[E0221]: struct `Node` contains itself
+ --> tests/diagnostics/struct_declarations.brim:1:8
+  |
+1 | struct Node {
+  |        ^^^^ infinitely large
+...
+3 |     next: Node
+  |     ---------- `Node` contains itself through here
+  |
+  = note: the cycle is: Node.next -> Node
+  = note: structs are values: every field is stored inside its struct
+
+error[E0221]: struct `Tree` contains itself
+ --> tests/diagnostics/struct_declarations.brim:6:8
+  |
+6 | struct Tree {
+  |        ^^^^ infinitely large
+7 |     left: Branch
+  |     ------------ `Tree` contains itself through here
+  |
+  = note: the cycle is: Tree.left -> Branch.tree -> Tree
+  = note: structs are values: every field is stored inside its struct
+
+error[E0220]: field `a` is declared more than once
+  --> tests/diagnostics/struct_declarations.brim:16:5
+   |
+15 |     a: i64
+   |     ------ first declared here
+16 |     a: string
+   |     ^ duplicate field
+
+error[E0219]: struct `Pair` is defined more than once
+  --> tests/diagnostics/struct_declarations.brim:19:8
+   |
+14 | struct Pair {
+   |        ---- first defined here
+...
+19 | struct Pair {}
+   |        ^^^^ redefined here
+
+error[E0219]: `string` is a built-in type
+  --> tests/diagnostics/struct_declarations.brim:21:8
+   |
+21 | struct string {}
+   |        ^^^^^^ cannot be used as a struct name
+   |
+   = help: choose a different name
+
+error[E0213]: `void` cannot be the type of a field
+  --> tests/diagnostics/struct_declarations.brim:24:14
+   |
+24 |     nothing: void
+   |              ^^^^ `void` has no values
+   |
+   = note: `void` is only valid as a function return type
+
+error[E0219]: `Empty` is already the name of a struct
+  --> tests/diagnostics/struct_declarations.brim:27:4
+   |
+23 | struct Empty {
+   |        ----- struct declared here
+...
+27 | fn Empty() {}
+   |    ^^^^^ function declared here
+   |
+   = help: functions and structs need different names
+
+error: could not compile tests/diagnostics/struct_declarations.brim due to 7 errors

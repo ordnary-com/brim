@@ -145,6 +145,22 @@ impl Lexer<'_> {
             self.push(TokenKind::Int(0), start);
             return;
         }
+        // A fraction (`1.5`) would otherwise lex as a field access on `1`.
+        let rest = &self.src[self.pos..];
+        if rest.starts_with('.') && rest[1..].starts_with(|c: char| c.is_ascii_digit()) {
+            self.bump();
+            while matches!(self.peek(), Some('0'..='9' | '_')) {
+                self.bump();
+            }
+            self.diags.push(
+                Diagnostic::error("floating-point numbers are not supported yet")
+                    .with_code("E0007")
+                    .with_primary(Span::new(start, self.pos), "")
+                    .with_note("`i64` is the only number type"),
+            );
+            self.push(TokenKind::Int(0), start);
+            return;
+        }
         let text = &self.src[start..self.pos];
         let digits: String = text.chars().filter(|c| *c != '_').collect();
         if digits.len() > 1 && digits.starts_with('0') {
@@ -295,6 +311,7 @@ impl Lexer<'_> {
             ',' => TokenKind::Comma,
             ':' => TokenKind::Colon,
             ';' => TokenKind::Semi,
+            '.' => TokenKind::Dot,
             '+' if self.eat('=') => TokenKind::PlusEq,
             '+' => TokenKind::Plus,
             '*' if self.eat('=') => TokenKind::StarEq,
@@ -424,7 +441,7 @@ mod tests {
                 While,
                 Break,
                 Continue,
-                Reserved("struct"),
+                Struct,
                 ident("letter"),
                 Eof
             ]
@@ -464,6 +481,27 @@ mod tests {
                 "E0006",
                 "invalid suffix `x1F` on integer literal".to_string()
             )]
+        );
+        assert_eq!(
+            errors("1.5"),
+            vec![(
+                "E0007",
+                "floating-point numbers are not supported yet".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn field_access_and_structs() {
+        assert_eq!(
+            kinds("struct p.x"),
+            vec![
+                TokenKind::Struct,
+                TokenKind::Ident("p".into()),
+                TokenKind::Dot,
+                TokenKind::Ident("x".into()),
+                TokenKind::Eof
+            ]
         );
     }
 

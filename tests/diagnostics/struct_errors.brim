@@ -1,0 +1,18 @@
+struct User {
+    name: string
+    age: i64
+    admin: bool
+}
+
+fn main() {
+    let u: User = User { name: "Ada", age: 36 }
+    let v: User = User { name: "Bob", age: 40, admin: false, email: "b@x" }
+    let w: User = User { name: "Cy", nmae: "C", age: 1, admin: true }
+    print(w.agee)
+    w.age = 2
+    let n: i64 = 5
+    print(n.size)
+    print(w == w)
+    print(w)
+    let x: Usr = User { name: 1, age: 2, admin: true }
+}
