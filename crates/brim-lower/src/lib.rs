@@ -1937,7 +1937,8 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             .collect();
         let ret = self.ret;
         let returned = self.make_variant(ret, 1, &payload, span);
-        self.terminate(Terminator::Return(Some(returned)));
+        // Through `return_value`: a `mut self` method also returns `self`.
+        self.return_value(Some(returned), span);
 
         self.switch_to(ok);
         let loaded = self.emit_value(InstKind::Load(slot), ir_ty, span);

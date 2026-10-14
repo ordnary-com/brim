@@ -1,0 +1,60 @@
+// `?` in a `mut self` method returns the error and keeps the changes made
+// to `self` before it.
+
+struct Reader {
+    items: List[string],
+    pos: i64,
+}
+
+impl Reader {
+    fn next(mut self) -> Result[i64, string] {
+        if self.pos >= self.items.len() {
+            return Err("end of input")
+        }
+        let item: string = self.items[self.pos]
+        self.pos += 1
+        match item.parse_int() {
+            Some(n) => return Ok(n)
+            None => return Err("not a number: " + item)
+        }
+    }
+
+    fn sum_two(mut self) -> Result[i64, string] {
+        let a: i64 = self.next()?
+        let b: i64 = self.next()?
+        return Ok(a + b)
+    }
+
+    fn first(mut self) -> Option[i64] {
+        let r: Result[i64, string] = self.next()
+        match r {
+            Ok(n) => return Some(n)
+            Err(_) => return None
+        }
+    }
+
+    fn first_plus_one(mut self) -> Option[i64] {
+        return Some(self.first()? + 1)
+    }
+}
+
+fn show(r: Result[i64, string]) {
+    match r {
+        Ok(n) => print("ok " + to_string(n))
+        Err(e) => print("error: " + e)
+    }
+}
+
+fn main() {
+    let mut r: Reader = Reader { items: ["1", "2", "x", "4"], pos: 0 }
+    show(r.sum_two())
+    show(r.sum_two())
+    print(r.pos)
+    show(r.sum_two())
+    print(r.pos)
+    match r.first_plus_one() {
+        Some(n) => print(n)
+        None => print("none")
+    }
+    print(r.pos)
+}

@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- `?` in a method with `mut self` produced invalid IR (an internal compiler error): its early return now also gives back `self`.
+
 ## [0.1.0] - 2026-10-14
 
 ### Added
