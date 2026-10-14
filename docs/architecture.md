@@ -121,7 +121,9 @@ bb0:
 }
 ```
 
-`brim_ir::validate` checks: the entry function signature, slot and value types, single definition and same-block use of values, operand and result types of every instruction, call argument counts and types (including runtime calls), return types, and branch targets. Lowering is expected to always produce valid IR, so a validation failure is reported as an internal compiler error (exit code 70).
+Structs are aggregate values in the IR: `Module::structs` lists every struct type (`%0`, `%1`, ...) with its fields, and three instructions work on them: `make %N(v...)` builds a struct from one value per field, `extract v.i` reads field `i`, and `insert v.i, x` returns a copy of `v` with field `i` replaced. A field assignment `p.a.b = x` lowers to loading `p`, extracting `a`, inserting `x` into it, inserting the result into `p`, and storing `p` again. Struct types never contain themselves, so every struct has a fixed layout. The interpreter represents a struct as a shared, immutable `Rc<[Value]>`, and the LLVM backend as a named LLVM struct type, built with `insertvalue` and read with `extractvalue`.
+
+`brim_ir::validate` checks: struct field types (no `void`, no struct containing itself), the entry function signature, slot and value types, single definition and same-block use of values, operand and result types of every instruction, call argument counts and types (including runtime calls), return types, and branch targets. Lowering is expected to always produce valid IR, so a validation failure is reported as an internal compiler error (exit code 70).
 
 Brim IR has no optimization passes of its own. `brim build --release` runs LLVM's standard `default<O2>` pipeline on the generated code; IR-level passes should only be added when measurements show LLVM cannot do the job.
 
@@ -143,13 +145,19 @@ Native representation: `i64` is a 64-bit integer, `bool` an 8-bit `0`/`1`, and `
 
 The interpreter implements these functions with `brim-runtime`'s Rust functions. Native executables link a small C implementation of the same symbols, `crates/brim-codegen/runtime/brim_rt.c`, which the compiler embeds and compiles at link time. The two must behave identically; the differential tests enforce that (see [Code generation](#code-generation-llvm)).
 
-Besides the functions above, the C runtime has three backend-internal entry points that are not part of the IR: `brim_rt_enter(name, ...)` and `brim_rt_leave()` bracket every Brim call to maintain the call stack and enforce the call-depth limit (`brim_runtime::MAX_CALL_DEPTH`, shared with the interpreter), and `brim_rt_trap(...)` reports a run-time error and exits with 101. The runtime also defines the process entry point `main`, which calls the generated `brim_entry`.
+Besides the functions above, the C runtime has backend-internal entry points that are not part of the IR: `brim_rt_enter(name, ...)` and `brim_rt_leave()` bracket every Brim call to maintain the call stack and enforce the call-depth limit (`brim_runtime::MAX_CALL_DEPTH`, shared with the interpreter), `brim_rt_trap(...)` reports a run-time error and exits with 101, and `brim_rt_retain(str)` / `brim_rt_release(str)` manage string memory (see [Memory management](#memory-management)). The runtime also defines the process entry point `main`, which calls the generated `brim_entry`.
 
 Integer arithmetic is **not** a runtime call. The backend emits the operation together with an overflow check (LLVM's `llvm.s{add,sub,mul}.with.overflow` intrinsics, and explicit checks for division by zero and `i64::MIN / -1`), and branches to a trap. The semantics are defined once, in `brim_runtime::ops`, and the interpreter uses those functions directly.
 
 ## Memory management
 
-**Current state.** The only heap-allocated values are strings. They are immutable. In the interpreter they are `Rc<str>`: cloning is cheap and memory is freed when the last reference goes away. **Native executables never free strings yet**: every concatenation and `to_string` allocates, and the memory is released when the process exits. That is acceptable for short-lived programs and is the first thing the runtime phase changes. The `BrimStr` layout already reserves the reference count.
+**Current state.** The only heap-allocated values are strings. They are immutable. In the interpreter they are `Rc<str>`: cloning is cheap and memory is freed when the last reference goes away. Native executables use **automatic reference counting**, as recommended below:
+
+- Every `BrimStr` carries a reference count. String literals are static objects with count `-1`, which retain and release ignore. Strings from concatenation and `to_string` start at 1 and are freed when the count reaches 0.
+- The backend inserts the counting; the IR has no ownership information. The rules apply to every value that **contains** strings, including structs with string fields (counting a struct counts each string in it): every **slot** owns one reference (slots start as null; a store retains the new value, then releases the old one; every return releases all string slots). Every non-constant string **value** is owned by its block: loads retain, calls return strings at +1, and the block releases them just before its terminator. Since IR values never outlive their block, that is always after their last use. **Parameters** are borrowed: the caller keeps its reference during the call and the callee retains the parameter into its slot. A **returned** string is retained once more, so the caller receives it at +1.
+- This is correct by construction but not minimal: a load followed by a call costs a retain and a release. Eliminating redundant pairs is an optimization for later.
+- Counts are not atomic; Brim has no threads.
+- With `BRIM_RT_CHECK=1` in the environment, the runtime checks memory instead of freeing it: retaining or releasing a freed string aborts the program, and strings still allocated when `main` returns are reported as a leak (exit code 102). The differential tests run every native program this way.
 
 **Recommendation for the native backend: automatic reference counting (ARC) of immutable heap values.** For now that means strings only.
 
@@ -184,7 +192,7 @@ ARC keeps the runtime small, matches the use cases (long-running servers favor p
 
 **Testing.** With the feature enabled, `crates/brim-cli/tests/fixtures.rs` builds every `tests/integration` program and every example natively, in debug and release mode, and requires stdout, stderr and the exit code to be identical to the interpreter's. A separate CI job installs LLVM 22 and runs the whole test suite with `--features brim-cli/llvm`.
 
-**Not yet done:** debug information (DWARF), cross-compilation, Windows, freeing strings, and avoiding the C compiler by linking with the system linker directly.
+**Not yet done:** debug information (DWARF), cross-compilation, Windows, and avoiding the C compiler by linking with the system linker directly.
 
 ## Decisions and trade-offs
 

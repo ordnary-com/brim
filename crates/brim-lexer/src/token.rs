@@ -32,6 +32,7 @@ pub enum TokenKind {
     While,
     Break,
     Continue,
+    Struct,
     /// A keyword reserved for a future language feature (`if`, `struct`, ...).
     Reserved(&'static str),
 
@@ -44,6 +45,7 @@ pub enum TokenKind {
     Colon,
     Semi,
     Arrow,
+    Dot,
 
     // Operators.
     Plus,
@@ -89,13 +91,14 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("while", TokenKind::While),
     ("break", TokenKind::Break),
     ("continue", TokenKind::Continue),
+    ("struct", TokenKind::Struct),
 ];
 
 /// Words reserved for planned features. They cannot be used as identifiers,
 /// which lets those features be added later without breaking programs.
 pub const RESERVED: &[&str] = &[
     "as", "async", "await", "const", "enum", "for", "impl", "import", "in", "loop", "match", "pub",
-    "self", "struct", "trait", "type", "use",
+    "self", "trait", "type", "use",
 ];
 
 impl TokenKind {
@@ -131,6 +134,7 @@ impl fmt::Display for TokenKind {
             TokenKind::While => "while",
             TokenKind::Break => "break",
             TokenKind::Continue => "continue",
+            TokenKind::Struct => "struct",
             TokenKind::Reserved(word) => word,
             TokenKind::LParen => "(",
             TokenKind::RParen => ")",
@@ -140,6 +144,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Colon => ":",
             TokenKind::Semi => ";",
             TokenKind::Arrow => "->",
+            TokenKind::Dot => ".",
             TokenKind::Plus => "+",
             TokenKind::Minus => "-",
             TokenKind::Star => "*",

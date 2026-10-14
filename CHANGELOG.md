@@ -6,11 +6,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Structs: `struct` declarations, struct literals (`Point { x: 1, y: 2 }`), field access (`p.x`) and field assignment (`p.x = 3`, `p.from.y += 1`), with value semantics. Supported by the interpreter and the native backend, including reference counting of strings inside structs. New diagnostics `E0219` to `E0224`; `struct` is now a keyword.
+- `E0007` for floating-point literals such as `9.99`.
+- `examples/structs.brim`.
 - Native code generation: `brim build` compiles a program with LLVM 22 and links it with a small C runtime into a native executable. Opt-in at compile time with the `llvm` Cargo feature (`cargo build --features brim-cli/llvm`); without it, `brim build` still reports the backend as unavailable.
 - `brim build -o <path>` and `brim build --release`. Projects build to `target/<package name>`.
 - Native executables report run-time errors exactly like `brim run`, including the call stack and the 10,000-call depth limit.
 - Differential tests that build every integration program and example natively (debug and release) and compare stdout, stderr and exit code with the interpreter; a CI job with LLVM 22 on Linux and macOS.
 - Integration programs for `i64::MIN / -1` and negation overflow.
+- Reference counting for strings in native executables: strings are freed when their last reference goes away (a loop building 5 million strings now peaks at under 2 MB instead of over 300 MB).
+- `BRIM_RT_CHECK=1` runtime check mode for native executables: use after free aborts and leaks are reported. The differential tests run every program with it.
 - Control flow: `if` / `else` / `else if`, `while` loops, `break` and `continue`.
 - Mutable variables with `let mut`, assignment and compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`).
 - `to_string` builtin for `i64` and `bool`.
@@ -30,6 +35,10 @@ All notable changes to this project are documented here. The format follows [Kee
 - `brim.toml` manifest parsing and validation.
 - `brim` CLI: `check` (with `--emit tokens|ast|ir`), `run`, `build`, `help`, `version`.
 - Examples, fixture-based test suites, and CI for formatting, linting and tests on Linux, macOS and Windows.
+
+### Fixed
+
+- Internal compiler error (invalid IR) when `&&` or `||` appeared in an operand or argument after another value, as in `to_string(1) + to_string(a && b)` or `f(x, a || b)`.
 
 ### Changed
 

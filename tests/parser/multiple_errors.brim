@@ -4,7 +4,7 @@ fn main() {
     let y: i64 = 1 2
 }
 
-struct Point {}
+enum Color {}
 
 fn helper( {
 }

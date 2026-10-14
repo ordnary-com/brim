@@ -21,8 +21,8 @@
 //! phases.
 
 use brim_ast::{
-    BinaryOp, Block, Expr, ExprKind, FnDecl, Ident, Param, Program, Stmt, StmtKind, TypeExpr,
-    UnaryOp,
+    BinaryOp, Block, Expr, ExprKind, FieldDecl, FieldInit, FnDecl, Ident, Param, Program, Stmt,
+    StmtKind, StructDecl, TypeExpr, UnaryOp,
 };
 use brim_diagnostics::{Diagnostic, Span};
 use brim_lexer::{Token, TokenKind, lex};
@@ -56,6 +56,7 @@ pub fn parse_tokens(mut tokens: Vec<Token>) -> (Program, Vec<Diagnostic>) {
         pos: 0,
         paren_depth: 0,
         nesting: 0,
+        no_struct_literal: false,
         diags: Vec::new(),
     };
     let program = parser.program();
@@ -75,6 +76,9 @@ struct Parser {
     paren_depth: usize,
     /// Current expression nesting depth.
     nesting: usize,
+    /// Set while parsing an `if` or `while` condition, where `Name {` starts
+    /// the body rather than a struct literal. Cleared inside parentheses.
+    no_struct_literal: bool,
     diags: Vec<Diagnostic>,
 }
 
@@ -149,7 +153,9 @@ impl Parser {
     /// Runs `f` with newlines ignored, restoring the previous mode afterwards.
     fn in_parens<T>(&mut self, f: impl FnOnce(&mut Self) -> PResult<T>) -> PResult<T> {
         self.paren_depth += 1;
+        let no_struct = std::mem::replace(&mut self.no_struct_literal, false);
         let result = f(self);
+        self.no_struct_literal = no_struct;
         self.paren_depth -= 1;
         result
     }
@@ -236,7 +242,11 @@ impl Parser {
     /// Skips to the start of the next top-level item.
     fn recover_item(&mut self) {
         self.paren_depth = 0;
-        while !matches!(self.peek_kind(), TokenKind::Fn | TokenKind::Eof) {
+        self.no_struct_literal = false;
+        while !matches!(
+            self.peek_kind(),
+            TokenKind::Fn | TokenKind::Struct | TokenKind::Eof
+        ) {
             self.bump();
         }
     }
@@ -245,6 +255,7 @@ impl Parser {
     /// or before a `}` closing the enclosing block or a `fn`.
     fn recover_stmt(&mut self) {
         self.paren_depth = 0;
+        self.no_struct_literal = false;
         let mut braces = 0usize;
         loop {
             match self.peek_kind() {
@@ -266,6 +277,7 @@ impl Parser {
 
     fn program(&mut self) -> Program {
         let mut functions = Vec::new();
+        let mut structs = Vec::new();
         loop {
             while matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Semi) {
                 self.bump();
@@ -275,6 +287,10 @@ impl Parser {
                 TokenKind::Eof => break,
                 TokenKind::Fn => match self.function() {
                     Ok(f) => functions.push(f),
+                    Err(Reported) => self.recover_item(),
+                },
+                TokenKind::Struct => match self.struct_decl() {
+                    Ok(s) => structs.push(s),
                     Err(Reported) => self.recover_item(),
                 },
                 TokenKind::Let => {
@@ -298,19 +314,70 @@ impl Parser {
                 }
                 _ => {
                     let diag = Diagnostic::error(format!(
-                        "expected `fn`, found {}",
+                        "expected `fn` or `struct`, found {}",
                         token.kind.describe()
                     ))
                     .with_code("E0103")
-                    .with_primary(token.span, "expected a function declaration")
-                    .with_note("only function declarations are allowed at the top level");
+                    .with_primary(token.span, "expected a declaration")
+                    .with_note("only functions and structs can be declared at the top level");
                     self.report(diag);
                     self.bump();
                     self.recover_item();
                 }
             }
         }
-        Program { functions }
+        Program { structs, functions }
+    }
+
+    fn struct_decl(&mut self) -> PResult<StructDecl> {
+        let struct_token = self.expect(&TokenKind::Struct)?;
+        let name = self.expect_ident("a struct name")?;
+        self.skip_newlines();
+        if !self.at(&TokenKind::LBrace) {
+            return Err(self.error_unexpected("`{` to start the struct's fields"));
+        }
+        self.bump();
+        let mut fields = Vec::new();
+        let close = loop {
+            while matches!(
+                self.peek_kind(),
+                TokenKind::Newline | TokenKind::Semi | TokenKind::Comma
+            ) {
+                self.bump();
+            }
+            if let Some(close) = self.eat(&TokenKind::RBrace) {
+                break close;
+            }
+            let field_name = self.expect_ident("a field name or `}`")?;
+            if !self.at(&TokenKind::Colon) {
+                let diag = Diagnostic::error(format!("field `{}` needs a type", field_name.name))
+                    .with_code("E0102")
+                    .with_primary(field_name.span, "missing type annotation")
+                    .with_help(format!(
+                        "write `{}: i64` (or another type)",
+                        field_name.name
+                    ));
+                return Err(self.report(diag));
+            }
+            self.bump();
+            let ty = self.type_expr()?;
+            fields.push(FieldDecl {
+                span: field_name.span.to(ty.span()),
+                name: field_name,
+                ty,
+            });
+            if !matches!(
+                self.peek_kind(),
+                TokenKind::Newline | TokenKind::Semi | TokenKind::Comma | TokenKind::RBrace
+            ) {
+                return Err(self.error_unexpected("a newline, `,` or `}` after the field"));
+            }
+        };
+        Ok(StructDecl {
+            span: struct_token.span.to(close.span),
+            name,
+            fields,
+        })
     }
 
     fn function(&mut self) -> PResult<FnDecl> {
@@ -498,6 +565,16 @@ impl Parser {
                 Err(self.report(diag))
             }
             TokenKind::Reserved(word) => Err(self.reserved_keyword(word, token.span)),
+            TokenKind::Struct => {
+                let diag = Diagnostic::error("structs cannot be declared inside functions")
+                    .with_code("E0103")
+                    .with_primary(token.span, "")
+                    .with_help("move the `struct` declaration to the top level of the file");
+                self.report(diag);
+                // Skip the whole declaration; errors inside it are reported.
+                let _ = self.struct_decl();
+                Err(Reported)
+            }
             _ => {
                 let expr = self.expr()?;
                 if let Some(op) = Self::assign_op(self.peek_kind()) {
@@ -527,19 +604,33 @@ impl Parser {
 
     fn assignment(&mut self, target: Expr, op: Option<BinaryOp>) -> PResult<Stmt> {
         let op_token = self.bump();
-        let ExprKind::Name(target) = target.kind else {
-            let diag = Diagnostic::error("invalid assignment target")
-                .with_code("E0104")
-                .with_primary(target.span, "cannot assign to this expression")
-                .with_note("only variables can be assigned to");
-            return Err(self.report(diag));
+        // `a.b.c` is the variable `a` with the path `[b, c]`.
+        let mut path = Vec::new();
+        let mut place = &target;
+        let target = loop {
+            match &place.kind {
+                ExprKind::Name(name) => break name.clone(),
+                ExprKind::Field { base, field } => {
+                    path.push(field.clone());
+                    place = base;
+                }
+                _ => {
+                    let diag = Diagnostic::error("invalid assignment target")
+                        .with_code("E0104")
+                        .with_primary(target.span, "cannot assign to this expression")
+                        .with_note("only variables and their fields can be assigned to");
+                    return Err(self.report(diag));
+                }
+            }
         };
+        path.reverse();
         self.skip_newlines();
         let value = self.expr()?;
         Ok(Stmt {
             span: target.span.to(value.span),
             kind: StmtKind::Assign {
                 target,
+                path,
                 op,
                 op_span: op_token.span,
                 value,
@@ -550,7 +641,10 @@ impl Parser {
     /// Parses the condition of an `if` or `while`, which must be followed by
     /// the `{` of its block.
     fn condition(&mut self, keyword: &str) -> PResult<Expr> {
-        let cond = self.expr()?;
+        let no_struct = std::mem::replace(&mut self.no_struct_literal, true);
+        let cond = self.expr();
+        self.no_struct_literal = no_struct;
+        let cond = cond?;
         // As with function bodies, the `{` may start on the next line.
         if *self.peek_past_newlines() == TokenKind::LBrace {
             self.skip_newlines();
@@ -783,36 +877,127 @@ impl Parser {
 
     fn postfix(&mut self) -> PResult<Expr> {
         let mut expr = self.primary()?;
-        while self.at(&TokenKind::LParen) {
-            let ExprKind::Name(callee) = &expr.kind else {
-                let diag = Diagnostic::error("only named functions can be called")
-                    .with_code("E0107")
-                    .with_primary(expr.span, "this is not a function name")
-                    .with_note("functions are not values yet; call them directly by name");
-                return Err(self.report(diag));
-            };
-            let callee = callee.clone();
-            self.bump();
-            let args = self.in_parens(|p| {
-                let mut args = Vec::new();
-                while !p.at(&TokenKind::RParen) {
-                    args.push(p.expr()?);
-                    if p.eat(&TokenKind::Comma).is_none() {
+        // Each postfix operation nests the expression one level deeper.
+        let mut chain = 0;
+        loop {
+            match self.peek_kind() {
+                TokenKind::LParen => {
+                    let ExprKind::Name(callee) = &expr.kind else {
+                        let mut diag = Diagnostic::error("only named functions can be called")
+                            .with_code("E0107")
+                            .with_primary(expr.span, "this is not a function name");
+                        diag = if matches!(expr.kind, ExprKind::Field { .. }) {
+                            diag.with_note("methods are not supported yet")
+                        } else {
+                            diag.with_note(
+                                "functions are not values yet; call them directly by name",
+                            )
+                        };
+                        return Err(self.report(diag));
+                    };
+                    let callee = callee.clone();
+                    self.bump();
+                    let (args, close) = self.in_parens(|p| {
+                        let mut args = Vec::new();
+                        while !p.at(&TokenKind::RParen) {
+                            args.push(p.expr()?);
+                            if p.eat(&TokenKind::Comma).is_none() {
+                                break;
+                            }
+                        }
+                        if !p.at(&TokenKind::RParen) {
+                            return Err(p.error_unexpected("`,` or `)`"));
+                        }
+                        Ok((args, p.bump()))
+                    })?;
+                    expr = Expr {
+                        span: callee.span.to(close.span),
+                        kind: ExprKind::Call { callee, args },
+                    };
+                }
+                TokenKind::Dot => {
+                    self.bump();
+                    let field = self.expect_ident("a field name after `.`")?;
+                    expr = Expr {
+                        span: expr.span.to(field.span),
+                        kind: ExprKind::Field {
+                            base: Box::new(expr),
+                            field,
+                        },
+                    };
+                }
+                TokenKind::LBrace if !self.no_struct_literal => {
+                    let ExprKind::Name(name) = &expr.kind else {
                         break;
-                    }
+                    };
+                    let name = name.clone();
+                    expr = self.struct_literal(name)?;
                 }
-                if !p.at(&TokenKind::RParen) {
-                    return Err(p.error_unexpected("`,` or `)`"));
-                }
-                Ok((args, p.bump()))
-            })?;
-            let (args, close) = args;
-            expr = Expr {
-                span: callee.span.to(close.span),
-                kind: ExprKind::Call { callee, args },
-            };
+                _ => break,
+            }
+            chain += 1;
+            self.enter(chain, expr.span)?;
         }
         Ok(expr)
+    }
+
+    /// After an error inside a struct literal: skips past its closing `}`,
+    /// so statement recovery does not mistake it for the end of a block.
+    fn skip_to_closing_brace(&mut self) {
+        let mut depth = 0usize;
+        loop {
+            match self.tokens[self.pos].kind {
+                TokenKind::Eof | TokenKind::Fn | TokenKind::Struct => return,
+                TokenKind::LBrace => depth += 1,
+                TokenKind::RBrace if depth == 0 => {
+                    self.pos += 1;
+                    return;
+                }
+                TokenKind::RBrace => depth -= 1,
+                _ => {}
+            }
+            self.pos += 1;
+        }
+    }
+
+    /// `Name { field: value, ... }`, after the name.
+    fn struct_literal(&mut self, name: Ident) -> PResult<Expr> {
+        self.bump();
+        let result = self.in_parens(|p| {
+            let mut fields = Vec::new();
+            while !p.at(&TokenKind::RBrace) {
+                let field = p.expect_ident("a field name or `}`")?;
+                if !p.at(&TokenKind::Colon) {
+                    let diag = Diagnostic::error(format!("field `{}` needs a value", field.name))
+                        .with_code("E0100")
+                        .with_primary(field.span, "expected `:` and a value")
+                        .with_help(format!("write `{}: value`", field.name));
+                    return Err(p.report(diag));
+                }
+                p.bump();
+                let value = p.expr()?;
+                fields.push(FieldInit {
+                    span: field.span.to(value.span),
+                    name: field,
+                    value,
+                });
+                if p.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            if !p.at(&TokenKind::RBrace) {
+                return Err(p.error_unexpected("`,` or `}`"));
+            }
+            Ok((fields, p.bump()))
+        });
+        let Ok((fields, close)) = result else {
+            self.skip_to_closing_brace();
+            return Err(Reported);
+        };
+        Ok(Expr {
+            span: name.span.to(close.span),
+            kind: ExprKind::StructLit { name, fields },
+        })
     }
 
     fn primary(&mut self) -> PResult<Expr> {

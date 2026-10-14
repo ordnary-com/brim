@@ -50,6 +50,8 @@ target/debug/brim build --release -o /tmp/app examples/control_flow.brim
 
 Without `LLVM_SYS_221_PREFIX`, `llvm-sys` looks for `llvm-config` on `PATH`, which is often a different LLVM version.
 
+To debug memory management in a native executable, run it with `BRIM_RT_CHECK=1`: use of a freed string aborts, and leaked strings are reported when the program ends. The differential tests always set it. When changing how the backend handles strings, also check that the tests still fail when a retain or release is removed.
+
 ## Test layout
 
 | Location | What it covers |

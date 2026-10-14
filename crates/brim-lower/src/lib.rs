@@ -18,20 +18,58 @@
 //!   are not lowered.
 
 use brim_ir::{
-    Block, BlockId, Const, FuncId, Function, Inst, InstKind, Module, Slot, SlotId, Span,
-    Terminator, Type as IrType, ValueId,
+    Block, BlockId, Const, Field, FuncId, Function, Inst, InstKind, Module, Slot, SlotId, Span,
+    StructDef, StructId, Terminator, Type as IrType, ValueId,
 };
 use brim_runtime::RuntimeFn;
 use brim_semantic::Type;
 use brim_semantic::checked::{
-    BinaryOp, CheckedExpr, CheckedExprKind, CheckedFn, CheckedProgram, CheckedStmt, UnaryOp,
+    BinaryOp, CheckedExpr, CheckedExprKind, CheckedFn, CheckedProgram, CheckedStmt, CheckedStruct,
+    UnaryOp,
 };
 
 /// Lowers a checked program to IR.
 pub fn lower(program: &CheckedProgram) -> Module {
     Module {
-        functions: program.functions.iter().map(FnLowerer::lower).collect(),
+        structs: program
+            .structs
+            .iter()
+            .map(|s| StructDef {
+                name: s.name.clone(),
+                fields: s
+                    .fields
+                    .iter()
+                    .map(|f| Field {
+                        name: f.name.clone(),
+                        ty: ir_type(f.ty),
+                    })
+                    .collect(),
+            })
+            .collect(),
+        functions: program
+            .functions
+            .iter()
+            .map(|f| FnLowerer::lower(f, &program.structs))
+            .collect(),
         entry: func_id(program.entry.0),
+    }
+}
+
+/// Whether lowering `expr` creates new blocks (it contains `&&` or `||`).
+fn branches(expr: &CheckedExpr) -> bool {
+    match &expr.kind {
+        CheckedExprKind::And(..) | CheckedExprKind::Or(..) => true,
+        CheckedExprKind::Int(_)
+        | CheckedExprKind::Bool(_)
+        | CheckedExprKind::Str(_)
+        | CheckedExprKind::Local(_) => false,
+        CheckedExprKind::Unary { operand, .. } => branches(operand),
+        CheckedExprKind::Binary { lhs, rhs, .. } => branches(lhs) || branches(rhs),
+        CheckedExprKind::Call { args, .. } | CheckedExprKind::Builtin { args, .. } => {
+            args.iter().any(branches)
+        }
+        CheckedExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| branches(v)),
+        CheckedExprKind::Field { base, .. } => branches(base),
     }
 }
 
@@ -45,11 +83,15 @@ fn ir_type(ty: Type) -> IrType {
         Type::Bool => IrType::Bool,
         Type::String => IrType::Str,
         Type::Void => IrType::Void,
+        Type::Struct(id) => IrType::Struct(StructId(
+            u32::try_from(id.0).expect("struct count fits in u32"),
+        )),
         Type::Error => unreachable!("checked programs never contain error types"),
     }
 }
 
-struct FnLowerer {
+struct FnLowerer<'a> {
+    structs: &'a [CheckedStruct],
     func: Function,
     current: BlockId,
     /// Whether the current block already has its terminator.
@@ -58,8 +100,8 @@ struct FnLowerer {
     loops: Vec<(BlockId, BlockId)>,
 }
 
-impl FnLowerer {
-    fn lower(f: &CheckedFn) -> Function {
+impl<'a> FnLowerer<'a> {
+    fn lower(f: &CheckedFn, structs: &'a [CheckedStruct]) -> Function {
         let slots = f
             .locals
             .iter()
@@ -69,6 +111,7 @@ impl FnLowerer {
             })
             .collect();
         let mut lowerer = FnLowerer {
+            structs,
             func: Function {
                 name: f.name.clone(),
                 param_count: f.param_count,
@@ -173,9 +216,14 @@ impl FnLowerer {
                 self.terminate(Terminator::Return(value));
             }
             CheckedStmt::Block(stmts) => self.stmts(stmts),
-            CheckedStmt::Assign { local, value } => {
+            CheckedStmt::Assign { local, path, value } => {
                 let v = self.value(value);
                 let slot = SlotId(local.0 as u32);
+                let v = if path.is_empty() {
+                    v
+                } else {
+                    self.update_path(slot, path, v, value.span)
+                };
                 self.emit(InstKind::Store(slot, v), None, value.span);
             }
             CheckedStmt::If {
@@ -260,6 +308,35 @@ impl FnLowerer {
         self.switch_to(exit);
     }
 
+    /// For `slot.a.b = v`: the slot's new struct value, with field `a.b`
+    /// replaced by `v`.
+    fn update_path(&mut self, slot: SlotId, path: &[usize], v: ValueId, span: Span) -> ValueId {
+        let root_ty = self.func.slots[slot.index()].ty;
+        // levels[i] is the struct that contains field path[i].
+        let mut levels = vec![(
+            self.emit_value(InstKind::Load(slot), root_ty, span),
+            root_ty,
+        )];
+        for &index in &path[..path.len() - 1] {
+            let (value, ty) = *levels.last().expect("not empty");
+            let field_ty = self.field_type(ty, index);
+            let field = self.emit_value(InstKind::Extract(value, index), field_ty, span);
+            levels.push((field, field_ty));
+        }
+        let mut new = v;
+        for (&index, (value, ty)) in path.iter().zip(levels).rev() {
+            new = self.emit_value(InstKind::Insert(value, index, new), ty, span);
+        }
+        new
+    }
+
+    fn field_type(&self, ty: IrType, index: usize) -> IrType {
+        let IrType::Struct(id) = ty else {
+            unreachable!("checked: only structs have fields");
+        };
+        ir_type(self.structs[id.index()].fields[index].ty)
+    }
+
     // ---- expressions --------------------------------------------------
 
     /// Lowers an expression that must produce a value.
@@ -290,22 +367,77 @@ impl FnLowerer {
                 self.emit_value(InstKind::Unary(op, v), ty, span)
             }
             CheckedExprKind::Binary { op, lhs, rhs } => {
-                let a = self.value(lhs);
-                let b = self.value(rhs);
+                let [a, b] = self.values(&[lhs, rhs]).try_into().expect("two operands");
                 self.binary(*op, a, b, span)
             }
             CheckedExprKind::And(lhs, rhs) => self.short_circuit(lhs, rhs, true, span),
             CheckedExprKind::Or(lhs, rhs) => self.short_circuit(lhs, rhs, false, span),
             CheckedExprKind::Call { func, args } => {
-                let args = args.iter().map(|a| self.value(a)).collect();
+                let args = self.values(&args.iter().collect::<Vec<_>>());
                 return self.emit(InstKind::Call(func_id(func.0), args), Some(ty), span);
             }
             CheckedExprKind::Builtin { runtime, args } => {
-                let args = args.iter().map(|a| self.value(a)).collect();
+                let args = self.values(&args.iter().collect::<Vec<_>>());
                 return self.emit(InstKind::CallRuntime(*runtime, args), Some(ty), span);
+            }
+            CheckedExprKind::StructLit { fields, .. } => {
+                // Evaluate in source order, then put the values in field order.
+                let exprs: Vec<&CheckedExpr> = fields.iter().map(|(_, e)| e).collect();
+                let values = self.values(&exprs);
+                let mut ordered: Vec<Option<ValueId>> = vec![None; fields.len()];
+                for ((index, _), value) in fields.iter().zip(values) {
+                    ordered[*index] = Some(value);
+                }
+                let ordered = ordered
+                    .into_iter()
+                    .map(|v| v.expect("checked: every field is given once"))
+                    .collect();
+                let IrType::Struct(id) = ty else {
+                    unreachable!("checked: a struct literal has a struct type");
+                };
+                self.emit_value(InstKind::MakeStruct(id, ordered), ty, span)
+            }
+            CheckedExprKind::Field { base, index } => {
+                let v = self.value(base);
+                self.emit_value(InstKind::Extract(v, *index), ty, span)
             }
         };
         Some(value)
+    }
+
+    /// Lowers several operands, left to right, so that all their values are
+    /// usable in the block that is current afterwards.
+    ///
+    /// IR values only live within their block, but an operand containing
+    /// `&&` or `||` ends the current block. Values computed before such an
+    /// operand are therefore stored in temporary slots and loaded again
+    /// after it.
+    fn values(&mut self, exprs: &[&CheckedExpr]) -> Vec<ValueId> {
+        let mut values: Vec<ValueId> = Vec::with_capacity(exprs.len());
+        for (i, expr) in exprs.iter().enumerate() {
+            if i > 0 && branches(expr) {
+                let spilled: Vec<(SlotId, IrType)> = values
+                    .iter()
+                    .zip(exprs)
+                    .map(|(v, e)| {
+                        let ty = ir_type(e.ty);
+                        let slot = self.new_slot("tmp", ty);
+                        self.emit(InstKind::Store(slot, *v), None, e.span);
+                        (slot, ty)
+                    })
+                    .collect();
+                let value = self.value(expr);
+                values = spilled
+                    .into_iter()
+                    .zip(exprs)
+                    .map(|((slot, ty), e)| self.emit_value(InstKind::Load(slot), ty, e.span))
+                    .collect();
+                values.push(value);
+            } else {
+                values.push(self.value(expr));
+            }
+        }
+        values
     }
 
     fn binary(&mut self, op: BinaryOp, a: ValueId, b: ValueId, span: Span) -> ValueId {

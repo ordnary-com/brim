@@ -1,0 +1,101 @@
+error[E0222]: missing field `admin` in `User`
+ --> tests/diagnostics/struct_errors.brim:8:19
+  |
+1 | struct User {
+  |        ---- `User` is declared here
+...
+8 |     let u: User = User { name: "Ada", age: 36 }
+  |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ every field of `User` needs a value
+
+error[E0224]: struct `User` has no field `email`
+ --> tests/diagnostics/struct_errors.brim:9:62
+  |
+1 | struct User {
+  |        ---- `User` is declared here
+...
+9 |     let v: User = User { name: "Bob", age: 40, admin: false, email: "b@x" }
+  |                                                              ^^^^^ unknown field
+  |
+  = note: available fields: `name`, `age`, `admin`
+
+error[E0224]: struct `User` has no field `nmae`
+  --> tests/diagnostics/struct_errors.brim:10:38
+   |
+ 1 | struct User {
+   |        ---- `User` is declared here
+...
+10 |     let w: User = User { name: "Cy", nmae: "C", age: 1, admin: true }
+   |                                      ^^^^ unknown field
+   |
+   = help: did you mean `name`?
+
+error[E0224]: struct `User` has no field `agee`
+  --> tests/diagnostics/struct_errors.brim:11:13
+   |
+ 1 | struct User {
+   |        ---- `User` is declared here
+...
+11 |     print(w.agee)
+   |             ^^^^ unknown field
+   |
+   = help: did you mean `age`?
+
+error[E0218]: cannot assign to a field of immutable variable `w`
+  --> tests/diagnostics/struct_errors.brim:12:5
+   |
+10 |     let w: User = User { name: "Cy", nmae: "C", age: 1, admin: true }
+   |         - declared here
+...
+12 |     w.age = 2
+   |     ^ its fields cannot be changed
+   |
+   = help: make it mutable: `let mut w`
+
+error[E0224]: `i64` has no fields
+  --> tests/diagnostics/struct_errors.brim:14:13
+   |
+14 |     print(n.size)
+   |           - this is `i64`
+   |             ^^^^ unknown field
+   |
+   = note: only structs have fields
+
+error[E0209]: cannot apply `==` to `User` and `User`
+  --> tests/diagnostics/struct_errors.brim:15:13
+   |
+15 |     print(w == w)
+   |           - `User`
+   |             ^^ `User == User` is not defined
+   |                - `User`
+   |
+   = note: structs cannot be compared with `==` yet
+   = help: compare their fields instead
+
+error[E0206]: `print` cannot be called with `User`
+  --> tests/diagnostics/struct_errors.brim:16:11
+   |
+16 |     print(w)
+   |           ^ unsupported argument type
+   |
+   = note: available forms: `print(string)`, `print(i64)`, `print(bool)`
+
+error[E0212]: unknown type `Usr`
+  --> tests/diagnostics/struct_errors.brim:17:12
+   |
+17 |     let x: Usr = User { name: 1, age: 2, admin: true }
+   |            ^^^ not a known type
+   |
+   = help: did you mean `User`?
+
+error[E0206]: mismatched types
+  --> tests/diagnostics/struct_errors.brim:17:31
+   |
+ 2 |     name: string
+   |     ------------ field declared here
+...
+17 |     let x: Usr = User { name: 1, age: 2, admin: true }
+   |                               ^ expected `string`, found `i64`
+   |
+   = note: Brim never converts between types implicitly
+
+error: could not compile tests/diagnostics/struct_errors.brim due to 10 errors

@@ -25,6 +25,14 @@ fn list(values: &[ValueId]) -> String {
 impl Display for Module {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "; entry: {}", self.function(self.entry).name)?;
+        for (i, def) in self.structs.iter().enumerate() {
+            let fields: Vec<String> = def
+                .fields
+                .iter()
+                .map(|field| format!("{}: {}", field.name, field.ty))
+                .collect();
+            writeln!(f, "struct %{i} {} {{ {} }}", def.name, fields.join(", "))?;
+        }
         for function in &self.functions {
             writeln!(f)?;
             function.fmt_in(self, f)?;
@@ -88,6 +96,9 @@ impl Display for InstDisplay<'_> {
                 write!(f, "call {name}({})", list(args))
             }
             InstKind::CallRuntime(rt, args) => write!(f, "call @{rt}({})", list(args)),
+            InstKind::MakeStruct(id, args) => write!(f, "make {id}({})", list(args)),
+            InstKind::Extract(v, index) => write!(f, "extract {v}.{index}"),
+            InstKind::Insert(v, index, x) => write!(f, "insert {v}.{index}, {x}"),
         }
     }
 }

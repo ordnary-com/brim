@@ -9,6 +9,8 @@
 //! - With the `llvm` feature, every integration program and example is also
 //!   built as a native executable, which must produce exactly the same
 //!   stdout, stderr and exit code as the interpreter (differential testing).
+//!   The executables run with `BRIM_RT_CHECK=1`, so string leaks and use
+//!   after free are failures too.
 //!
 //! Expected exit codes default to 1 for `check` suites and 0 for
 //! `integration`; a first line `// exit: N` overrides that.
@@ -177,8 +179,10 @@ fn run_native(program: &str, release: bool) -> Result<Outcome, String> {
             built.code, built.stderr
         ));
     }
+    // Memory checking: leaks and use after free fail the comparison.
     let out = std::process::Command::new(&exe)
         .current_dir(workspace_root())
+        .env("BRIM_RT_CHECK", "1")
         .output()
         .map_err(|e| format!("{program}: cannot run {}: {e}", exe.display()))?;
     Ok(Outcome {

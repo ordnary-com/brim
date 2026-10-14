@@ -7,7 +7,7 @@
 
 use std::fmt;
 
-use crate::{BlockId, Function, InstKind, Module, Terminator, Type, ValueId};
+use crate::{BlockId, Function, InstKind, Module, StructId, Terminator, Type, ValueId};
 
 /// One violation of the IR rules.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,6 +45,7 @@ pub fn validate(module: &Module) -> Result<(), Vec<ValidationError>> {
             }
         }
     }
+    validate_structs(module, &mut errors);
     for function in &module.functions {
         FnValidator {
             module,
@@ -58,6 +59,57 @@ pub fn validate(module: &Module) -> Result<(), Vec<ValidationError>> {
         Ok(())
     } else {
         Err(errors)
+    }
+}
+
+/// Field types must exist and not be void, and no struct may contain itself.
+fn validate_structs(module: &Module, errors: &mut Vec<ValidationError>) {
+    let mut error = |name: &str, message: String| {
+        errors.push(ValidationError {
+            function: format!("struct {name}"),
+            block: None,
+            message,
+        });
+    };
+    for def in &module.structs {
+        for field in &def.fields {
+            match field.ty {
+                Type::Void => error(&def.name, format!("field `{}` has type void", field.name)),
+                Type::Struct(id) if id.index() >= module.structs.len() => {
+                    error(
+                        &def.name,
+                        format!("field `{}` has nonexistent type {id}", field.name),
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+    // Contains-graph cycle detection (0 = unvisited, 1 = in progress, 2 = done).
+    fn visit(module: &Module, id: usize, state: &mut [u8]) -> bool {
+        match state[id] {
+            1 => return true,
+            2 => return false,
+            _ => {}
+        }
+        state[id] = 1;
+        for field in &module.structs[id].fields {
+            if let Type::Struct(next) = field.ty
+                && next.index() < module.structs.len()
+                && visit(module, next.index(), state)
+            {
+                return true;
+            }
+        }
+        state[id] = 2;
+        false
+    }
+    let mut state = vec![0u8; module.structs.len()];
+    for id in 0..module.structs.len() {
+        if visit(module, id, &mut state) {
+            error(&module.structs[id].name, "struct contains itself".into());
+            return;
+        }
     }
 }
 
@@ -89,6 +141,20 @@ impl FnValidator<'_> {
         }
         if let Some(i) = f.slots.iter().position(|s| s.ty == Type::Void) {
             self.error(format!("slot s{i} has type void"));
+        }
+        let types = f
+            .slots
+            .iter()
+            .map(|s| s.ty)
+            .chain(f.values.iter().copied())
+            .chain([f.ret]);
+        for ty in types {
+            if let Type::Struct(id) = ty
+                && id.index() >= self.module.structs.len()
+            {
+                self.error(format!("nonexistent struct type {id}"));
+                return;
+            }
         }
         if f.blocks.is_empty() {
             self.error("function has no blocks");
@@ -139,6 +205,28 @@ impl FnValidator<'_> {
             && ty != expected
         {
             self.error(format!("{value} has type {ty}, expected {expected}"));
+        }
+    }
+
+    /// For `extract`/`insert`: the struct type of `v` and the type of its
+    /// field `index`.
+    fn struct_field(
+        &mut self,
+        v: ValueId,
+        index: usize,
+        local: &[bool],
+    ) -> Option<(StructId, Type)> {
+        let ty = self.operand(v, local)?;
+        let Type::Struct(id) = ty else {
+            self.error(format!("{v} has type {ty}, expected a struct"));
+            return None;
+        };
+        match self.module.structs[id.index()].fields.get(index) {
+            Some(field) => Some((id, field.ty)),
+            None => {
+                self.error(format!("{id} has no field {index}"));
+                None
+            }
         }
     }
 
@@ -200,6 +288,28 @@ impl FnValidator<'_> {
                 self.check_args(&format!("@{rt}"), args, &params, local);
                 let ret = Type::from(rt.ret());
                 (ret != Type::Void).then_some(ret)
+            }
+            InstKind::MakeStruct(id, args) => {
+                let Some(def) = self.module.structs.get(id.index()) else {
+                    self.error(format!("make of nonexistent struct {id}"));
+                    return;
+                };
+                let fields: Vec<Type> = def.fields.iter().map(|f| f.ty).collect();
+                self.check_args(&format!("make {id}"), args, &fields, local);
+                Some(Type::Struct(*id))
+            }
+            InstKind::Extract(v, index) => {
+                let Some((_, ty)) = self.struct_field(*v, *index, local) else {
+                    return;
+                };
+                Some(ty)
+            }
+            InstKind::Insert(v, index, x) => {
+                let Some((id, ty)) = self.struct_field(*v, *index, local) else {
+                    return;
+                };
+                self.expect_operand(*x, ty, local);
+                Some(Type::Struct(id))
             }
         };
         match (produced, result) {

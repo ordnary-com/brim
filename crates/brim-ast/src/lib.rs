@@ -14,7 +14,33 @@ pub use brim_diagnostics::Span;
 /// A whole source file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Program {
+    pub structs: Vec<StructDecl>,
     pub functions: Vec<FnDecl>,
+}
+
+/// `struct Name { field: type, ... }`
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StructDecl {
+    pub name: Ident,
+    pub fields: Vec<FieldDecl>,
+    /// From `struct` to the closing `}`.
+    pub span: Span,
+}
+
+/// `name: type` inside a struct declaration.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FieldDecl {
+    pub name: Ident,
+    pub ty: TypeExpr,
+    pub span: Span,
+}
+
+/// `name: value` inside a struct literal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FieldInit {
+    pub name: Ident,
+    pub value: Expr,
+    pub span: Span,
 }
 
 /// A name together with where it was written.
@@ -91,9 +117,11 @@ pub enum StmtKind {
         init: Expr,
     },
     /// `target = value`, or a compound assignment such as `target += value`
-    /// (then `op` is `Some(BinaryOp::Add)`).
+    /// (then `op` is `Some(BinaryOp::Add)`). With a non-empty `path`, a field
+    /// is assigned: `target.a.b = value` has the path `[a, b]`.
     Assign {
         target: Ident,
+        path: Vec<Ident>,
         op: Option<BinaryOp>,
         /// The span of `=` or of the compound operator.
         op_span: Span,
@@ -152,6 +180,16 @@ pub enum ExprKind {
     Call {
         callee: Ident,
         args: Vec<Expr>,
+    },
+    /// `Name { field: value, ... }`
+    StructLit {
+        name: Ident,
+        fields: Vec<FieldInit>,
+    },
+    /// `base.field`
+    Field {
+        base: Box<Expr>,
+        field: Ident,
     },
 }
 
@@ -248,6 +286,15 @@ impl fmt::Display for Expr {
                 }
                 f.write_str(")")
             }
+            ExprKind::StructLit { name, fields } => {
+                write!(f, "{} {{", name.name)?;
+                for (i, field) in fields.iter().enumerate() {
+                    let sep = if i > 0 { "," } else { "" };
+                    write!(f, "{sep} {}: {}", field.name.name, field.value)?;
+                }
+                f.write_str(if fields.is_empty() { "}" } else { " }" })
+            }
+            ExprKind::Field { base, field } => write!(f, "({base}.{})", field.name),
         }
     }
 }

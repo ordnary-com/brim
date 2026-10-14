@@ -15,6 +15,10 @@
 //!   Data flows between blocks only through slots. This keeps the IR easy to
 //!   validate and interpret, and maps directly onto LLVM's `alloca` +
 //!   `mem2reg` approach.
+//! - Structs are **aggregate values**, like LLVM's first-class structs:
+//!   [`InstKind::MakeStruct`] builds one, [`InstKind::Extract`] reads a field
+//!   and [`InstKind::Insert`] returns a copy with one field replaced. A struct
+//!   never contains itself, so every struct has a finite, fixed layout.
 //! - Operations are fully typed (`iadd` vs. `call @brim_rt_str_concat`); there
 //!   is no overloading or implicit conversion left at this level.
 //! - Instructions may carry a source [`Span`] used for run-time error
@@ -72,6 +76,11 @@ id_type!(
     ValueId,
     "v"
 );
+id_type!(
+    /// Index into [`Module::structs`].
+    StructId,
+    "%"
+);
 
 /// IR types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -79,6 +88,7 @@ pub enum Type {
     I64,
     Bool,
     Str,
+    Struct(StructId),
     /// Only valid as a function return type.
     Void,
 }
@@ -89,6 +99,7 @@ impl fmt::Display for Type {
             Type::I64 => "i64",
             Type::Bool => "bool",
             Type::Str => "str",
+            Type::Struct(id) => return write!(f, "{id}"),
             Type::Void => "void",
         })
     }
@@ -107,6 +118,7 @@ impl From<brim_runtime::AbiType> for Type {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
+    pub structs: Vec<StructDef>,
     pub functions: Vec<Function>,
     /// The function the program starts in. Takes no parameters, returns `void`.
     pub entry: FuncId,
@@ -116,6 +128,24 @@ impl Module {
     pub fn function(&self, id: FuncId) -> &Function {
         &self.functions[id.index()]
     }
+
+    pub fn struct_def(&self, id: StructId) -> &StructDef {
+        &self.structs[id.index()]
+    }
+}
+
+/// A struct type: its fields, in order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StructDef {
+    /// The source-level name, for readability and debug information.
+    pub name: String,
+    pub fields: Vec<Field>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Field {
+    pub name: String,
+    pub ty: Type,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -172,6 +202,12 @@ pub enum InstKind {
     Call(FuncId, Vec<ValueId>),
     /// A call into the runtime library.
     CallRuntime(RuntimeFn, Vec<ValueId>),
+    /// A struct value from one value per field, in field order.
+    MakeStruct(StructId, Vec<ValueId>),
+    /// Field `index` of a struct value.
+    Extract(ValueId, usize),
+    /// A copy of a struct value with field `index` replaced.
+    Insert(ValueId, usize, ValueId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

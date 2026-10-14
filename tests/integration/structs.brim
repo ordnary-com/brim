@@ -1,0 +1,73 @@
+// Structs are values: assignment, passing and returning copy them.
+
+struct Point {
+    x: i64
+    y: i64
+}
+
+struct Line {
+    from: Point
+    to: Point
+    label: string
+}
+
+fn point(x: i64, y: i64) -> Point {
+    return Point { x: x, y: y }
+}
+
+fn moved(p: Point, dx: i64) -> Point {
+    let mut q: Point = p
+    q.x += dx
+    return q
+}
+
+fn describe(l: Line) -> string {
+    return l.label + ": (" + to_string(l.from.x) + ", " + to_string(l.from.y) + ") -> (" +
+        to_string(l.to.x) + ", " + to_string(l.to.y) + ")"
+}
+
+fn trace(name: string, value: i64) -> i64 {
+    print("eval " + name)
+    return value
+}
+
+fn main() {
+    let origin: Point = point(0, 0)
+    let mut line: Line = Line {
+        label: "diagonal",
+        from: origin,
+        to: Point { y: 4, x: 3 },
+    }
+    print(describe(line))
+
+    // Field assignment, including nested fields and compound operators.
+    line.to.x = 10
+    line.from.y -= 2
+    line.label = line.label + "!"
+    print(describe(line))
+
+    // Copies are independent.
+    let copy: Line = line
+    line.to = moved(line.to, 5)
+    print(copy.to.x)
+    print(line.to.x)
+    print(origin.x == line.from.x)
+
+    // Fields are evaluated in the order they are written.
+    let p: Point = Point { y: trace("y", 2), x: trace("x", 1) }
+    print(p.x * 10 + p.y)
+
+    // Field access on call results and literals.
+    print(point(7, 8).y)
+    print(Point { x: 5, y: 6 }.x)
+
+    // Structs in loops.
+    let mut acc: Point = point(0, 0)
+    let mut i: i64 = 0
+    while i < 5 {
+        acc = moved(acc, i)
+        acc.y += 1
+        i += 1
+    }
+    print(to_string(acc.x) + "," + to_string(acc.y))
+}

@@ -1,0 +1,33 @@
+error[E0102]: field `y` needs a type
+ --> tests/parser/struct_syntax.brim:3:5
+  |
+3 |     y
+  |     ^ missing type annotation
+  |
+  = help: write `y: i64` (or another type)
+
+error[E0100]: field `y` needs a value
+ --> tests/parser/struct_syntax.brim:7:34
+  |
+7 |     let p: Point = Point { x: 1, y }
+  |                                  ^ expected `:` and a value
+  |
+  = help: write `y: value`
+
+error[E0107]: only named functions can be called
+ --> tests/parser/struct_syntax.brim:8:5
+  |
+8 |     p.len()
+  |     ^^^^^ this is not a function name
+  |
+  = note: methods are not supported yet
+
+error[E0103]: structs cannot be declared inside functions
+ --> tests/parser/struct_syntax.brim:9:5
+  |
+9 |     struct Inner {}
+  |     ^^^^^^
+  |
+  = help: move the `struct` declaration to the top level of the file
+
+error: could not compile tests/parser/struct_syntax.brim due to 4 errors

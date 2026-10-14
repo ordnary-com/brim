@@ -10,13 +10,13 @@ error[E0100]: expected a newline or `;` after the statement, found integer liter
 4 |     let y: i64 = 1 2
   |                    ^ expected a newline or `;` after the statement
 
-error[E0101]: `struct` is not supported yet
+error[E0101]: `enum` is not supported yet
  --> tests/parser/multiple_errors.brim:7:1
   |
-7 | struct Point {}
-  | ^^^^^^ reserved keyword
+7 | enum Color {}
+  | ^^^^ reserved keyword
   |
-  = note: `struct` is reserved for a future version of Brim and cannot be used as a name
+  = note: `enum` is reserved for a future version of Brim and cannot be used as a name
 
 error[E0100]: expected a parameter name, found `{`
  --> tests/parser/multiple_errors.brim:9:12
