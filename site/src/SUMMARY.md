@@ -8,6 +8,7 @@
 - [A tour of Brim](tour.md)
 - [Projects, tests and dependencies](projects.md)
 - [Tools and editors](tools.md)
+- [Standard library](stdlib.md)
 
 # Reference
 

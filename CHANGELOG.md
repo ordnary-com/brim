@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- `install.sh` (macOS, Linux) and `install.ps1` (Windows) install the latest release, after checking its checksum.
+- A standard library reference on the documentation site, with an example for every part.
+
 ### Fixed
 
 - `?` in a method with `mut self` produced invalid IR (an internal compiler error): its early return now also gives back `self`.

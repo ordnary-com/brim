@@ -142,7 +142,15 @@ The [roadmap](docs/roadmap.md) lists the milestones in order.
 
 ## Getting started
 
-You need Rust 1.88 or newer, installed with [rustup](https://rustup.rs). LLVM is only needed for native builds (see below).
+Install the latest release on macOS or Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ordnary-com/brim/main/install.sh | sh
+```
+
+On Windows (PowerShell): `irm https://raw.githubusercontent.com/ordnary-com/brim/main/install.ps1 | iex`.
+
+To build from source, you need Rust 1.88 or newer, installed with [rustup](https://rustup.rs). LLVM is only needed for native builds (see below).
 
 ```sh
 git clone https://github.com/ordnary-com/brim.git

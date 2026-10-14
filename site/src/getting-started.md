@@ -2,9 +2,22 @@
 
 ## Installing
 
-Download an archive for your platform from the
-[releases](https://github.com/ordnary-com/brim/releases) and put `brim` on
-your `PATH`. The `-native` archives can also compile native executables
+On macOS or Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ordnary-com/brim/main/install.sh | sh
+```
+
+On Windows, in PowerShell:
+
+```sh
+irm https://raw.githubusercontent.com/ordnary-com/brim/main/install.ps1 | iex
+```
+
+The script picks the build for your platform, checks its checksum and
+puts `brim` in `/usr/local/bin` (or `~/.local/bin`). You can also download
+an archive from the [releases](https://github.com/ordnary-com/brim/releases)
+yourself and put `brim` on your `PATH`. The `-native` archives can also compile native executables
 with `brim build`; they need a C compiler (`cc`) to link.
 
 Or build it from source with Rust 1.88 or newer:
