@@ -24,6 +24,8 @@
 //!   `brim_rt_leave`, which maintain the call stack shown in run-time errors
 //!   and enforce the same call-depth limit as the interpreter.
 
+mod lists;
+
 use std::collections::HashMap;
 
 use brim_diagnostics::{SourceFile, Span};
@@ -49,6 +51,7 @@ use inkwell::{AddressSpace, IntPredicate, OptimizationLevel};
 
 use crate::trap::{self, TrapText};
 use crate::{BuildOptions, BuildOutput, CodegenError, OptLevel};
+use lists::{ElemInfo, ListRuntime};
 
 pub(crate) fn build(
     module: &IrModule,
@@ -103,7 +106,7 @@ fn lower<'ctx>(
     let module = context.create_module(source.name());
     module.set_triple(&machine.get_triple());
     module.set_data_layout(&TargetData::get_data_layout(&machine.get_target_data()));
-    let mut lowerer = Lowerer::new(context, module, ir, source);
+    let mut lowerer = Lowerer::new(context, module, ir, source, machine.get_target_data());
     lowerer
         .lower_module()
         .map_err(|e| CodegenError::Llvm(e.to_string()))?;
@@ -136,6 +139,15 @@ struct Lowerer<'ctx, 'a> {
     struct_types: Vec<StructType<'ctx>>,
     /// Whether each struct contains strings, directly or in nested structs.
     managed_structs: Vec<bool>,
+    target_data: TargetData,
+    lists: ListRuntime<'ctx>,
+    /// Per IR list type.
+    list_elems: Vec<ElemInfo<'ctx>>,
+    /// Index-error descriptions, by their text.
+    index_traps: HashMap<String, PointerValue<'ctx>>,
+    /// Stack slots for passing elements to the runtime, per element type, in
+    /// the function being lowered.
+    elem_slots: HashMap<Type, PointerValue<'ctx>>,
 }
 
 impl<'ctx, 'a> Lowerer<'ctx, 'a> {
@@ -144,7 +156,9 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
         module: Module<'ctx>,
         ir: &'a IrModule,
         source: &'a SourceFile,
+        target_data: TargetData,
     ) -> Self {
+        let lists = ListRuntime::declare(context, &module);
         let ptr = context.ptr_type(AddressSpace::default());
         let void = context.void_type();
         let enter = module.add_function(
@@ -196,6 +210,11 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             release,
             struct_types: Vec::new(),
             managed_structs: Vec::new(),
+            target_data,
+            lists,
+            list_elems: Vec::new(),
+            index_traps: HashMap::new(),
+            elem_slots: HashMap::new(),
         }
     }
 
@@ -227,6 +246,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                 break;
             }
         }
+        self.declare_list_elements()?;
         for f in &self.ir.functions {
             let params: Vec<Type> = f.param_types().collect();
             let fn_type = self.fn_type(f.ret, &params);
@@ -278,6 +298,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
         let ir = self.ir;
         let f = ir.function(id);
         let function = self.functions[id.index()];
+        self.elem_slots.clear();
 
         let entry = self.context.append_basic_block(function, "entry");
         let blocks: Vec<BasicBlock<'ctx>> = (0..f.blocks.len())
@@ -322,11 +343,25 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             // Values holding strings that this block owns a reference to,
             // released at its end. Values never outlive their block, so that
             // is always late enough.
-            let mut owned: Vec<(BasicValueEnum<'ctx>, Type)> = Vec::new();
+            let mut owned: Vec<(brim_ir::ValueId, BasicValueEnum<'ctx>, Type)> = Vec::new();
             for inst in &block.insts {
+                // A consumed operand's reference passes to the instruction.
+                if let Some(consumed) = inst.kind.consumed() {
+                    let value = values[consumed.index()].expect("validated IR: defined");
+                    match owned.iter().position(|(id, ..)| *id == consumed) {
+                        Some(at) => {
+                            owned.swap_remove(at);
+                        }
+                        None => {
+                            let ty = f.values[consumed.index()];
+                            self.retain_value(value, ty)?;
+                        }
+                    }
+                }
                 let get = |v: brim_ir::ValueId| {
                     values[v.index()].expect("validated IR: values are defined before use")
                 };
+                let value_ty = |v: brim_ir::ValueId| f.values[v.index()];
                 let result: Option<BasicValueEnum<'ctx>> = match &inst.kind {
                     InstKind::Const(c) => Some(self.constant(c)),
                     InstKind::Load(slot) => {
@@ -382,21 +417,89 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                         let value = get(*v).into_struct_value();
                         Some(self.builder.build_extract_value(value, *index as u32, "")?)
                     }
-                    InstKind::Insert(v, index, x) => Some(self.insert(get(*v), *index, get(*x))?),
+                    InstKind::Insert(v, index, x) => {
+                        // The struct is consumed: drop its old field and
+                        // take a reference to the new one.
+                        let aggregate = get(*v);
+                        let Type::Struct(id) = value_ty(*v) else {
+                            unreachable!("validated IR: insert into a struct");
+                        };
+                        let field_ty = self.ir.struct_def(id).fields[*index].ty;
+                        if self.managed(field_ty) {
+                            let old = self.builder.build_extract_value(
+                                aggregate.into_struct_value(),
+                                *index as u32,
+                                "",
+                            )?;
+                            self.release_value(old, field_ty)?;
+                            self.retain_value(get(*x), field_ty)?;
+                        }
+                        Some(self.insert(aggregate, *index, get(*x))?)
+                    }
+                    InstKind::Take(slot) => {
+                        let ty = self.basic_type(f.slots[slot.index()].ty);
+                        let value = self.builder.build_load(ty, slots[slot.index()], "")?;
+                        self.builder
+                            .build_store(slots[slot.index()], ty.const_zero())?;
+                        Some(value)
+                    }
+                    InstKind::ListNew(id, args) => {
+                        let args: Vec<_> = args.iter().map(|a| get(*a)).collect();
+                        Some(self.list_new(*id, &args)?)
+                    }
+                    InstKind::ListLen(v) => Some(self.list_len(get(*v))?),
+                    InstKind::ListGet(v, i) => {
+                        Some(self.list_get(value_ty(*v), get(*v), get(*i), inst.span)?)
+                    }
+                    InstKind::ListSet(v, i, x) => Some(self.list_put(
+                        false,
+                        value_ty(*v),
+                        get(*v),
+                        get(*i),
+                        get(*x),
+                        inst.span,
+                    )?),
+                    InstKind::ListInsert(v, i, x) => Some(self.list_put(
+                        true,
+                        value_ty(*v),
+                        get(*v),
+                        get(*i),
+                        get(*x),
+                        inst.span,
+                    )?),
+                    InstKind::ListPush(v, x) => {
+                        Some(self.list_push(value_ty(*v), get(*v), get(*x))?)
+                    }
+                    InstKind::ListTruncate(v, n) => {
+                        Some(self.list_truncate(value_ty(*v), get(*v), get(*n))?)
+                    }
+                    InstKind::ListRemove(v, i) => {
+                        Some(self.list_remove(value_ty(*v), get(*v), get(*i), inst.span)?)
+                    }
+                    InstKind::ListContains(v, x) => {
+                        Some(self.list_contains(value_ty(*v), get(*v), get(*x))?)
+                    }
+                    InstKind::ListJoin(v, sep) => Some(self.list_join(get(*v), get(*sep))?),
                 };
                 if let (Some(dest), Some(value)) = (inst.result, result) {
                     let ty = f.values[dest.index()];
                     if self.managed(ty) {
-                        // Calls return their result at +1; everything else
-                        // takes its own reference.
-                        let call =
-                            matches!(inst.kind, InstKind::Call(..) | InstKind::CallRuntime(..));
+                        // Reads (loads, field and element reads, struct
+                        // literals) take their own reference; everything else
+                        // already produces one.
+                        let read = matches!(
+                            inst.kind,
+                            InstKind::Load(_)
+                                | InstKind::Extract(..)
+                                | InstKind::MakeStruct(..)
+                                | InstKind::ListGet(..)
+                        );
                         let constant = matches!(inst.kind, InstKind::Const(_));
-                        if !call && !constant {
+                        if read {
                             self.retain_value(value, ty)?;
                         }
                         if !constant {
-                            owned.push((value, ty));
+                            owned.push((dest, value, ty));
                         }
                     }
                     values[dest.index()] = Some(value);
@@ -413,7 +516,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                 self.retain_value(v, f.ret)?;
             }
             if !matches!(block.term, Terminator::Unreachable) {
-                for (value, ty) in owned {
+                for (_, value, ty) in owned {
                     self.release_value(value, ty)?;
                 }
             }
@@ -663,7 +766,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
     /// Whether values of `ty` contain strings, and so need reference counting.
     fn managed(&self, ty: Type) -> bool {
         match ty {
-            Type::Str => true,
+            Type::Str | Type::List(_) => true,
             Type::Struct(id) => self.managed_structs[id.index()],
             Type::I64 | Type::Bool | Type::Void => false,
         }
@@ -671,22 +774,28 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
 
     /// Takes a reference to every string in `value`.
     fn retain_value(&mut self, value: BasicValueEnum<'ctx>, ty: Type) -> Result<(), BuilderError> {
-        self.count_value(value, ty, self.retain)
+        self.count_value(value, ty, true)
     }
 
     /// Drops a reference to every string in `value`.
     fn release_value(&mut self, value: BasicValueEnum<'ctx>, ty: Type) -> Result<(), BuilderError> {
-        self.count_value(value, ty, self.release)
+        self.count_value(value, ty, false)
     }
 
     fn count_value(
         &mut self,
         value: BasicValueEnum<'ctx>,
         ty: Type,
-        function: FunctionValue<'ctx>,
+        retain: bool,
     ) -> Result<(), BuilderError> {
         match ty {
-            Type::Str => {
+            Type::Str | Type::List(_) => {
+                let function = match (ty, retain) {
+                    (Type::Str, true) => self.retain,
+                    (Type::Str, false) => self.release,
+                    (_, true) => self.lists.retain,
+                    (_, false) => self.lists.release,
+                };
                 self.builder.build_call(function, &[value.into()], "")?;
             }
             Type::Struct(id) if self.managed(ty) => {
@@ -699,7 +808,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                             index as u32,
                             "",
                         )?;
-                        self.count_value(field, field_ty, function)?;
+                        self.count_value(field, field_ty, retain)?;
                     }
                 }
             }
@@ -716,6 +825,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             Type::Bool => self.context.bool_type().into(),
             Type::Str => self.context.ptr_type(AddressSpace::default()).into(),
             Type::Struct(id) => self.struct_types[id.index()].into(),
+            Type::List(_) => self.context.ptr_type(AddressSpace::default()).into(),
             Type::Void => unreachable!("validated IR: `void` is only a return type"),
         }
     }
@@ -879,6 +989,7 @@ mod tests {
         };
         IrModule {
             structs: vec![],
+            lists: vec![],
             functions: vec![div, main],
             entry: FuncId(1),
         }
@@ -945,6 +1056,7 @@ mod tests {
         };
         let module = IrModule {
             structs: vec![],
+            lists: vec![],
             functions: vec![echo, main],
             entry: FuncId(1),
         };

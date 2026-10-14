@@ -19,6 +19,13 @@
 //!   [`InstKind::MakeStruct`] builds one, [`InstKind::Extract`] reads a field
 //!   and [`InstKind::Insert`] returns a copy with one field replaced. A struct
 //!   never contains itself, so every struct has a finite, fixed layout.
+//! - Lists are reference-counted values with **copy-on-write**: a list is
+//!   only copied when it is changed while shared. Instructions that change a
+//!   list ([`InstKind::ListPush`] and friends) and [`InstKind::Insert`]
+//!   **consume** their list or struct operand: the value may not be used
+//!   afterwards, which lets backends update it in place when nothing else
+//!   refers to it. [`InstKind::Take`] moves a value out of a slot for that
+//!   purpose.
 //! - Operations are fully typed (`iadd` vs. `call @brim_rt_str_concat`); there
 //!   is no overloading or implicit conversion left at this level.
 //! - Instructions may carry a source [`Span`] used for run-time error
@@ -81,6 +88,11 @@ id_type!(
     StructId,
     "%"
 );
+id_type!(
+    /// Index into [`Module::lists`].
+    ListId,
+    "L"
+);
 
 /// IR types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -89,6 +101,8 @@ pub enum Type {
     Bool,
     Str,
     Struct(StructId),
+    /// A list; its element type is `Module::lists[id]`.
+    List(ListId),
     /// Only valid as a function return type.
     Void,
 }
@@ -100,6 +114,7 @@ impl fmt::Display for Type {
             Type::Bool => "bool",
             Type::Str => "str",
             Type::Struct(id) => return write!(f, "{id}"),
+            Type::List(id) => return write!(f, "{id}"),
             Type::Void => "void",
         })
     }
@@ -119,6 +134,8 @@ impl From<brim_runtime::AbiType> for Type {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
     pub structs: Vec<StructDef>,
+    /// The element type of each list type.
+    pub lists: Vec<Type>,
     pub functions: Vec<Function>,
     /// The function the program starts in. Takes no parameters, returns `void`.
     pub entry: FuncId,
@@ -131,6 +148,10 @@ impl Module {
 
     pub fn struct_def(&self, id: StructId) -> &StructDef {
         &self.structs[id.index()]
+    }
+
+    pub fn list_elem(&self, id: ListId) -> Type {
+        self.lists[id.index()]
     }
 }
 
@@ -206,8 +227,72 @@ pub enum InstKind {
     MakeStruct(StructId, Vec<ValueId>),
     /// Field `index` of a struct value.
     Extract(ValueId, usize),
-    /// A copy of a struct value with field `index` replaced.
+    /// The struct value with field `index` replaced. Consumes the struct.
     Insert(ValueId, usize, ValueId),
+    /// Moves the value out of a slot, leaving it unset: the slot must be
+    /// stored before it is loaded again.
+    Take(SlotId),
+    /// A list of the given elements.
+    ListNew(ListId, Vec<ValueId>),
+    /// The number of elements (`i64`).
+    ListLen(ValueId),
+    /// Element `index`. An index outside the list is a run-time error.
+    ListGet(ValueId, ValueId),
+    /// The list with element `index` replaced. Consumes the list.
+    ListSet(ValueId, ValueId, ValueId),
+    /// The list with an element appended. Consumes the list.
+    ListPush(ValueId, ValueId),
+    /// The list's first `n` elements (`0 <= n <= len`). Consumes the list.
+    ListTruncate(ValueId, ValueId),
+    /// The list with an element inserted before `index` (`0 <= index <=
+    /// len`). Consumes the list.
+    ListInsert(ValueId, ValueId, ValueId),
+    /// The list without element `index`. Consumes the list.
+    ListRemove(ValueId, ValueId),
+    /// Whether the list has an element equal to the value. Only for lists
+    /// of `i64`, `bool` and `str`.
+    ListContains(ValueId, ValueId),
+    /// The elements of a list of `str`, joined with a separator.
+    ListJoin(ValueId, ValueId),
+}
+
+impl InstKind {
+    /// The operand this instruction consumes, if any.
+    pub fn consumed(&self) -> Option<ValueId> {
+        match self {
+            InstKind::Insert(v, ..)
+            | InstKind::ListSet(v, ..)
+            | InstKind::ListPush(v, _)
+            | InstKind::ListTruncate(v, _)
+            | InstKind::ListInsert(v, ..)
+            | InstKind::ListRemove(v, _) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// Every value this instruction reads, in order.
+    pub fn operands(&self) -> Vec<ValueId> {
+        match self {
+            InstKind::Const(_) | InstKind::Load(_) | InstKind::Take(_) => Vec::new(),
+            InstKind::Store(_, v)
+            | InstKind::Unary(_, v)
+            | InstKind::Extract(v, _)
+            | InstKind::ListLen(v) => vec![*v],
+            InstKind::Binary(_, a, b)
+            | InstKind::Insert(a, _, b)
+            | InstKind::ListGet(a, b)
+            | InstKind::ListPush(a, b)
+            | InstKind::ListTruncate(a, b)
+            | InstKind::ListRemove(a, b)
+            | InstKind::ListContains(a, b)
+            | InstKind::ListJoin(a, b) => vec![*a, *b],
+            InstKind::ListSet(a, b, c) | InstKind::ListInsert(a, b, c) => vec![*a, *b, *c],
+            InstKind::Call(_, args)
+            | InstKind::CallRuntime(_, args)
+            | InstKind::MakeStruct(_, args)
+            | InstKind::ListNew(_, args) => args.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

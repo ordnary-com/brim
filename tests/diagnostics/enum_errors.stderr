@@ -1,14 +1,18 @@
-error[E0221]: enum `List` contains itself
+error[E0219]: `List` is a built-in type
  --> tests/diagnostics/enum_errors.brim:7:6
   |
 7 | enum List {
-  |      ^^^^ infinitely large
-8 |     Cons(i64, List)
-  |     --------------- `List` contains itself through here
+  |      ^^^^ cannot be used as a type name
   |
-  = note: the cycle is: List.Cons -> List
-  = note: structs and enums are values: what they contain is stored inside them
-  = note: recursive enums need indirection, which Brim does not have yet
+  = help: choose a different name
+
+error[E0225]: `List` takes 1 type argument but 0 were supplied
+ --> tests/diagnostics/enum_errors.brim:8:15
+  |
+8 |     Cons(i64, List)
+  |               ^^^^ expected 1 type argument
+  |
+  = help: write `List[T]` with actual types
 
 error[E0228]: variant `Circle` needs 1 value
   --> tests/diagnostics/enum_errors.brim:13:26
@@ -122,4 +126,4 @@ error[E0214]: `Shape` is an enum, not a value
    |
    = help: use one of its variants, such as `Shape.Circle`
 
-error: could not compile tests/diagnostics/enum_errors.brim due to 12 errors; 2 warnings emitted
+error: could not compile tests/diagnostics/enum_errors.brim due to 13 errors; 2 warnings emitted

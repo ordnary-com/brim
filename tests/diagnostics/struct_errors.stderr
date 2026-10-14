@@ -40,14 +40,14 @@ error[E0224]: struct `User` has no field `agee`
    |
    = help: did you mean `age`?
 
-error[E0218]: cannot assign to a field of immutable variable `w`
+error[E0218]: cannot assign to a part of immutable variable `w`
   --> tests/diagnostics/struct_errors.brim:12:5
    |
 10 |     let w: User = User { name: "Cy", nmae: "C", age: 1, admin: true }
    |         - declared here
 ...
 12 |     w.age = 2
-   |     ^ its fields cannot be changed
+   |     ^ it cannot be changed
    |
    = help: make it mutable: `let mut w`
 

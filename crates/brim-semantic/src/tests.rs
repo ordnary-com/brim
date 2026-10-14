@@ -481,10 +481,18 @@ fn checks_structs() {
     };
     let order: Vec<usize> = fields.iter().map(|(i, _)| *i).collect();
     assert_eq!(order, [2, 1, 0]);
-    let CheckedStmt::Assign { path, .. } = &main.body[1] else {
+    let CheckedStmt::Assign { place, .. } = &main.body[1] else {
         panic!()
     };
-    assert_eq!(path, &[0, 0]);
+    let path: Vec<usize> = place
+        .steps
+        .iter()
+        .map(|s| match s {
+            crate::checked::PlaceStep::Field(i) => *i,
+            crate::checked::PlaceStep::Index(_) => usize::MAX,
+        })
+        .collect();
+    assert_eq!(path, [0, 0]);
 }
 
 #[test]
@@ -550,7 +558,7 @@ fn struct_expression_errors() {
         check("    let p: Point = Point { x: 1, y: 2 }\n    p.x = 3"),
         [(
             "E0218",
-            "cannot assign to a field of immutable variable `p`".to_string()
+            "cannot assign to a part of immutable variable `p`".to_string()
         )]
     );
     assert_eq!(

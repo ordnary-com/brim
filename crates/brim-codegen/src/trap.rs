@@ -46,6 +46,39 @@ pub(crate) fn render(error: &RuntimeError, span: Option<Span>, source: &SourceFi
     }
 }
 
+/// The message for an index outside a list, split around the part the
+/// runtime fills in: `prefix`, "the index is I but the length is L",
+/// `suffix`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct IndexTrapText {
+    pub prefix: String,
+    pub suffix: String,
+    pub sep: String,
+    pub note: String,
+}
+
+pub(crate) fn render_index(span: Option<Span>, source: &SourceFile) -> IndexTrapText {
+    const HOLE: char = '\u{2}';
+    // Render with placeholder numbers, then cut the sentence out.
+    let error = RuntimeError::IndexOutOfBounds { index: 0, len: 0 };
+    let sentence = "the index is 0 but the length is 0";
+    let message = error.to_string().replace(sentence, &HOLE.to_string());
+    let mut diag = Diagnostic::error(message).with_code(error.code());
+    if let Some(span) = span {
+        diag = diag.with_primary(span, "");
+    }
+    let renderer = Renderer::new(ColorChoice::Never);
+    let head = renderer.render(&diag, source);
+    let hole = head.find(HOLE).expect("the message contains the hole");
+    let TrapText { sep, note, .. } = render(&error, span, source);
+    IndexTrapText {
+        prefix: head[..hole].to_string(),
+        suffix: head[hole + HOLE.len_utf8()..].to_string(),
+        sep,
+        note,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -63,6 +96,15 @@ mod tests {
             "error[R0002]: division by zero\n --> t.brim:2:11\n  |\n2 |     print(1 / 0)\n  |           ^^^^^\n"
         );
         assert_eq!(text.sep, "  |\n");
+        assert_eq!(text.note, "  = note: ");
+    }
+
+    #[test]
+    fn index_messages_have_a_hole() {
+        let source = SourceFile::new("t.brim", "fn main() {\n    print(xs[9])\n}\n");
+        let text = render_index(Some(Span::new(22, 27)), &source);
+        assert_eq!(text.prefix, "error[R0005]: index out of bounds: ");
+        assert!(text.suffix.starts_with("\n --> t.brim:2:11\n"));
         assert_eq!(text.note, "  = note: ");
     }
 

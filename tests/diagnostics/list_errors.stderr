@@ -1,0 +1,102 @@
+error[E0206]: mismatched types
+  --> tests/diagnostics/list_errors.brim:11:32
+   |
+11 |     let xs: List[i64] = [1, 2, "three"]
+   |                                ^^^^^^^ expected `i64`, found `string`
+   |
+   = note: Brim never converts between types implicitly
+
+error[E0234]: cannot index into a value of type `i64`
+  --> tests/diagnostics/list_errors.brim:13:11
+   |
+13 |     print(n[0])
+   |           ^ this is `i64`
+   |
+   = note: only lists can be indexed with `[...]`
+
+error[E0206]: mismatched types
+  --> tests/diagnostics/list_errors.brim:14:14
+   |
+14 |     print(xs["a"])
+   |              ^^^ expected `i64`, found `string`
+   |
+   = note: Brim never converts between types implicitly
+
+error[E0218]: cannot call `push` on immutable variable `fixed`
+  --> tests/diagnostics/list_errors.brim:16:5
+   |
+15 |     let fixed: List[i64] = [1]
+   |         ----- declared here
+16 |     fixed.push(2)
+   |     ^^^^^ declared without `mut`
+   |
+   = help: make it mutable: `let mut fixed`
+
+error[E0218]: cannot assign to a part of immutable variable `fixed`
+  --> tests/diagnostics/list_errors.brim:17:5
+   |
+15 |     let fixed: List[i64] = [1]
+   |         ----- declared here
+...
+17 |     fixed[0] = 3
+   |     ^^^^^ it cannot be changed
+   |
+   = help: make it mutable: `let mut fixed`
+
+error[E0104]: cannot call `push` on this value
+  --> tests/diagnostics/list_errors.brim:18:5
+   |
+18 |     make().push(1)
+   |     ^^^^^^ not a variable
+   |
+   = help: store the value in a `let mut` variable first
+
+error[E0231]: `List[i64]` has no method `size`
+  --> tests/diagnostics/list_errors.brim:19:14
+   |
+19 |     print(xs.size())
+   |              ^^^^ unknown method
+   |
+   = note: list methods: `len`, `is_empty`, `get`, `first`, `last`, `contains`, `join`, `push`, `pop`, `insert`, `remove`, `clear`
+
+error[E0231]: `List[i64]` has no method `psuh`
+  --> tests/diagnostics/list_errors.brim:20:8
+   |
+20 |     xs.psuh(1)
+   |        ^^^^ unknown method
+   |
+   = help: did you mean `push`?
+
+error[E0209]: `contains` cannot compare `Point` values
+  --> tests/diagnostics/list_errors.brim:22:18
+   |
+22 |     print(points.contains(Point { x: 1, y: 2 }))
+   |                  ^^^^^^^^
+   |
+   = note: `contains` works on lists of `i64`, `bool` and `string`
+
+error[E0206]: `join` needs a `List[string]`, found `List[i64]`
+  --> tests/diagnostics/list_errors.brim:23:14
+   |
+23 |     print(xs.join(","))
+   |              ^^^^
+   |
+   = help: convert the elements with `to_string` first
+
+error[E0235]: cannot loop over a value of type `i64`
+  --> tests/diagnostics/list_errors.brim:24:14
+   |
+24 |     for p in 5 {
+   |              ^ this is `i64`
+   |
+   = note: `for` loops go over a list, or a range such as `0..n`
+
+error[E0226]: cannot infer the element type of an empty list
+  --> tests/diagnostics/list_errors.brim:27:11
+   |
+27 |     print([])
+   |           ^^ the type is not known here
+   |
+   = help: add a type annotation, for example `let xs: List[i64] = []`
+
+error: could not compile tests/diagnostics/list_errors.brim due to 12 errors

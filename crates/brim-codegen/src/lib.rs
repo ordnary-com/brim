@@ -162,6 +162,7 @@ mod tests {
     fn empty_main() -> Module {
         Module {
             structs: vec![],
+            lists: vec![],
             functions: vec![Function {
                 name: "main".into(),
                 param_count: 0,

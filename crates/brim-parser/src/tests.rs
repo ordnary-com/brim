@@ -209,8 +209,8 @@ fn error_missing_type_annotation() {
 #[test]
 fn error_reserved_keywords() {
     assert_eq!(
-        errors("fn main() {\n    for x {\n        print(1)\n    }\n}"),
-        vec![("E0101", "`for` is not supported yet".to_string())]
+        errors("fn main() {\n    loop {\n        print(1)\n    }\n}"),
+        vec![("E0101", "`loop` is not supported yet".to_string())]
     );
     assert_eq!(codes("trait Show {}"), vec!["E0101"]);
     assert_eq!(codes("fn impl() {}"), vec!["E0101"]);
@@ -545,7 +545,13 @@ fn parses_field_assignment() {
         panic!()
     };
     assert_eq!(target.name, "p");
-    let path: Vec<&str> = path.iter().map(|f| f.name.as_str()).collect();
+    let path: Vec<&str> = path
+        .iter()
+        .map(|f| match f {
+            PlaceElem::Field(f) => f.name.as_str(),
+            PlaceElem::Index(_) => "[]",
+        })
+        .collect();
     assert_eq!(path, ["from", "x"]);
     assert_eq!(op, Some(BinaryOp::Add));
     let StmtKind::Assign { path, .. } = stmt("p = q") else {

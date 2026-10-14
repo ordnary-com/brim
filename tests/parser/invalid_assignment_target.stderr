@@ -4,6 +4,6 @@ error[E0104]: invalid assignment target
 6 |     total() = 5
   |     ^^^^^^^ cannot assign to this expression
   |
-  = note: only variables and their fields can be assigned to
+  = note: only variables, their fields and list elements can be assigned to
 
 error: could not compile tests/parser/invalid_assignment_target.brim due to 1 error

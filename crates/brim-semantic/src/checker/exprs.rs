@@ -79,9 +79,26 @@ impl<'a> Checker<'a> {
                 )
             }
             ast::ExprKind::Try(operand) => return self.check_try(operand, span, ctx),
+            ast::ExprKind::ListLit(items) => {
+                return self.check_list_lit(items, span, expected, ctx);
+            }
+            ast::ExprKind::MapLit(_) => {
+                self.diags.push(
+                    Diagnostic::error("maps are not supported yet")
+                        .with_code("E0234")
+                        .with_primary(span, ""),
+                );
+                return error_expr(span);
+            }
+            ast::ExprKind::Index { base, index } => {
+                return self.check_index(base, index, span, ctx);
+            }
             ast::ExprKind::MethodCall { base, name, args } => {
                 if let Some(e) = self.enum_name(base, ctx) {
                     return self.check_variant_name(e, name, Some(args), span, expected, ctx);
+                }
+                if let Some(result) = self.method_on_list(base, name, args, span, ctx) {
+                    return result;
                 }
                 let base = self.check_expr(base, ctx);
                 for arg in args {
@@ -158,6 +175,24 @@ impl<'a> Checker<'a> {
         }
     }
 
+    /// A method call on a list, if `base` is one. The receiver's type is
+    /// found without reporting errors, which the full check does later.
+    fn method_on_list(
+        &mut self,
+        base: &ast::Expr,
+        name: &ast::Ident,
+        args: &[ast::Expr],
+        span: Span,
+        ctx: &mut FnCtx,
+    ) -> Option<CheckedExpr> {
+        let errors = self.diags.len();
+        let probe = self.check_expr(base, ctx);
+        // Discard what the probe reported; the real check reports it again.
+        self.diags.truncate(errors);
+        self.as_list(probe.ty)?;
+        self.check_list_method(base, name, args, span, ctx)
+    }
+
     /// If `expr` is a plain name that refers to an enum (and not to a
     /// variable), that enum.
     fn enum_name(&self, expr: &ast::Expr, ctx: &FnCtx) -> Option<EnumId> {
@@ -194,6 +229,10 @@ impl<'a> Checker<'a> {
         }
         if let Some(def) = self.type_by_name.get(name).copied() {
             let diag = match def {
+                Def::List => Diagnostic::error(format!("`{name}` is a type, not a value"))
+                    .with_code("E0214")
+                    .with_primary(ident.span, "types cannot be used as values")
+                    .with_help("create a list with `[...]`"),
                 Def::Struct(_) => Diagnostic::error(format!("`{name}` is a struct, not a value"))
                     .with_code("E0214")
                     .with_primary(ident.span, "structs cannot be used as values")
@@ -547,6 +586,15 @@ impl<'a> Checker<'a> {
     ) -> CheckedExpr {
         let id = match self.type_by_name.get(name.name.as_str()) {
             Some(Def::Struct(id)) => Some(*id),
+            Some(Def::List) => {
+                self.diags.push(
+                    Diagnostic::error(format!("`{}` is not a struct", name.name))
+                        .with_code("E0212")
+                        .with_primary(name.span, "built-in type")
+                        .with_help("create a list with `[...]`"),
+                );
+                None
+            }
             Some(Def::Enum(_)) => {
                 self.diags.push(
                     Diagnostic::error(format!("`{}` is an enum, not a struct", name.name))
@@ -1017,6 +1065,9 @@ impl<'a> Checker<'a> {
             .with_code("E0201")
             .with_primary(callee.span, "not found");
         match self.type_by_name.get(name) {
+            Some(Def::List) => {
+                diag = diag.with_help("create a list with `[...]`");
+            }
             Some(Def::Struct(_)) => {
                 diag = diag.with_help(format!(
                     "`{name}` is a struct; create one with `{name} {{ field: value, ... }}`"

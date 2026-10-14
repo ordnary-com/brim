@@ -117,12 +117,19 @@ pub enum CheckedStmt {
         init: CheckedExpr,
     },
     /// `local = value`, or with a non-empty `path` of field indices,
-    /// `local.a.b = value`. Compound assignments are already expanded, so
-    /// `x += 1` is `x = x + 1`.
+    /// `place = value`, or a compound assignment such as `place += value`
+    /// (`op` is then the resolved operator). The place's indices are
+    /// evaluated once, before `value`.
     Assign {
-        local: LocalId,
-        path: Vec<usize>,
+        place: CheckedPlace,
+        op: Option<BinaryOp>,
         value: CheckedExpr,
+    },
+    /// `for var in iter { body }`.
+    For {
+        var: LocalId,
+        iter: CheckedForIter,
+        body: Vec<CheckedStmt>,
     },
     If {
         cond: CheckedExpr,
@@ -148,6 +155,69 @@ pub enum CheckedStmt {
         span: Span,
     },
     Block(Vec<CheckedStmt>),
+}
+
+/// A variable, or a part of it: `items[i].name` is the local `items` with
+/// the steps `[Index(i), Field(name)]`.
+#[derive(Clone, Debug)]
+pub struct CheckedPlace {
+    pub local: LocalId,
+    pub steps: Vec<PlaceStep>,
+    /// The type of the part the place refers to.
+    pub ty: Type,
+}
+
+#[derive(Clone, Debug)]
+pub enum PlaceStep {
+    Field(usize),
+    Index(CheckedExpr),
+}
+
+#[derive(Clone, Debug)]
+pub enum CheckedForIter {
+    /// The elements of a list, which is evaluated once.
+    Each(CheckedExpr),
+    /// The integers from `start` up to, not including, `end`; both are
+    /// evaluated once.
+    Range(CheckedExpr, CheckedExpr),
+}
+
+/// The built-in operations on lists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListOp {
+    Len,
+    IsEmpty,
+    /// `Option[T]`: the element at an index, or `None`.
+    Get,
+    First,
+    Last,
+    Contains,
+    Join,
+    // Operations that change the list (their receiver is a place):
+    Push,
+    /// `Option[T]`: removes and returns the last element.
+    Pop,
+    Insert,
+    /// Removes and returns the element at an index.
+    Remove,
+    Clear,
+}
+
+impl ListOp {
+    pub fn changes_list(self) -> bool {
+        matches!(
+            self,
+            ListOp::Push | ListOp::Pop | ListOp::Insert | ListOp::Remove | ListOp::Clear
+        )
+    }
+}
+
+/// What a list operation works on.
+#[derive(Clone, Debug)]
+pub enum ListReceiver {
+    Value(Box<CheckedExpr>),
+    /// For operations that change the list.
+    Place(CheckedPlace),
 }
 
 #[derive(Clone, Debug)]
@@ -225,6 +295,19 @@ pub enum CheckedExprKind {
     /// `Option`/`Result` type).
     Try {
         operand: Box<CheckedExpr>,
+    },
+    /// `[a, b, c]`; the list type is the expression's type.
+    ListLit(Vec<CheckedExpr>),
+    /// `base[index]` on a list.
+    Index {
+        base: Box<CheckedExpr>,
+        index: Box<CheckedExpr>,
+    },
+    /// A built-in list method: `xs.len()`, `xs.push(x)`, ...
+    ListOp {
+        op: ListOp,
+        receiver: ListReceiver,
+        args: Vec<CheckedExpr>,
     },
     /// `base.field`, with the field's index in its struct.
     Field {

@@ -22,7 +22,8 @@
  *
  * With the environment variable BRIM_RT_CHECK=1, memory is checked instead
  * of freed: a retain or release of a freed string aborts the program, and
- * strings still allocated when `main` returns are reported as a leak. The
+ * strings and lists still allocated when `main` returns are reported as a
+ * leak. The
  * compiler's tests run every native program this way.
  */
 
@@ -74,9 +75,8 @@ static void print_call(int64_t i, int first) {
  * renders all three at compile time; only the call stack is added here, in
  * the same format the `brim` CLI uses for interpreter errors.
  */
-_Noreturn void brim_rt_trap(const char *head, const char *sep, const char *note) {
-    fflush(stdout);
-    fputs(head, stderr);
+/* Prints the call-stack notes and exits with status 101. */
+_Noreturn static void finish_trap(const char *sep, const char *note) {
     if (depth > 1) {
         fputs(sep, stderr);
         if (depth > 8) {
@@ -99,6 +99,32 @@ _Noreturn void brim_rt_trap(const char *head, const char *sep, const char *note)
     }
     fflush(stderr);
     exit(101);
+}
+
+_Noreturn void brim_rt_trap(const char *head, const char *sep, const char *note) {
+    fflush(stdout);
+    fputs(head, stderr);
+    finish_trap(sep, note);
+}
+
+/*
+ * A list index outside the list. The message has the index and length in
+ * the middle of its first line, so the rendered diagnostic comes in two
+ * parts: `prefix` before them and `suffix` after.
+ */
+typedef struct BrimTrapIndex {
+    const char *prefix;
+    const char *suffix;
+    const char *sep;
+    const char *note;
+} BrimTrapIndex;
+
+_Noreturn static void trap_index(const BrimTrapIndex *t, int64_t index, int64_t len) {
+    fflush(stdout);
+    fputs(t->prefix, stderr);
+    fprintf(stderr, "the index is %" PRId64 " but the length is %" PRId64, index, len);
+    fputs(t->suffix, stderr);
+    finish_trap(t->sep, t->note);
 }
 
 /* Called before every Brim call; traps (stack overflow) at the call site. */
@@ -211,6 +237,236 @@ BrimStr *brim_rt_bool_to_str(uint8_t value) {
     return s;
 }
 
+/* ---- lists --------------------------------------------------------------- */
+
+/*
+ * A list is a reference-counted header followed by its elements, stored
+ * inline. NULL is the empty list. Lists are values with copy-on-write: the
+ * functions that change a list take ownership of it, and change it in place
+ * when they hold the only reference (otherwise they work on a copy).
+ *
+ * Elements are copied with memcpy. For element types that contain strings
+ * or lists, the generated code passes `retain` and `release` functions that
+ * take a pointer to an element; for other types they are NULL.
+ */
+typedef void (*BrimElemFn)(void *elem);
+
+typedef struct BrimList {
+    int64_t rc;
+    int64_t len;
+    int64_t cap;
+    int64_t elem_size;
+    BrimElemFn release;
+    char data[];
+} BrimList;
+
+static BrimList *list_alloc(int64_t elem_size, BrimElemFn release, int64_t cap) {
+    if (cap < 4) {
+        cap = 4;
+    }
+    BrimList *l = malloc(sizeof(BrimList) + (size_t)(cap * elem_size));
+    if (l == NULL) {
+        fatal("out of memory");
+    }
+    l->rc = 1;
+    l->len = 0;
+    l->cap = cap;
+    l->elem_size = elem_size;
+    l->release = release;
+    if (checking) {
+        live_strings++;
+    }
+    return l;
+}
+
+static char *elem_at(BrimList *l, int64_t i) {
+    return l->data + i * l->elem_size;
+}
+
+void brim_rt_list_retain(BrimList *l) {
+    if (l != NULL) {
+        l->rc++;
+    }
+}
+
+void brim_rt_list_release(BrimList *l) {
+    if (l == NULL || --l->rc > 0) {
+        return;
+    }
+    if (l->release != NULL) {
+        for (int64_t i = 0; i < l->len; i++) {
+            l->release(elem_at(l, i));
+        }
+    }
+    if (checking) {
+        live_strings--;
+    }
+    free(l);
+}
+
+int64_t brim_rt_list_len(const BrimList *l) {
+    return l == NULL ? 0 : l->len;
+}
+
+/* Takes ownership of `l` and returns a list nothing else refers to. */
+static BrimList *unique(BrimList *l, int64_t elem_size, BrimElemFn retain, BrimElemFn release,
+                        int64_t extra) {
+    if (l == NULL) {
+        return list_alloc(elem_size, release, extra);
+    }
+    if (l->rc == 1) {
+        return l;
+    }
+    BrimList *copy = list_alloc(elem_size, release, l->len + extra);
+    memcpy(copy->data, l->data, (size_t)(l->len * elem_size));
+    copy->len = l->len;
+    if (retain != NULL) {
+        for (int64_t i = 0; i < copy->len; i++) {
+            retain(elem_at(copy, i));
+        }
+    }
+    l->rc--;
+    return copy;
+}
+
+/* Makes room for one more element. */
+static BrimList *grow(BrimList *l) {
+    if (l->len < l->cap) {
+        return l;
+    }
+    int64_t cap = l->cap * 2;
+    BrimList *bigger = realloc(l, sizeof(BrimList) + (size_t)(cap * l->elem_size));
+    if (bigger == NULL) {
+        fatal("out of memory");
+    }
+    bigger->cap = cap;
+    return bigger;
+}
+
+static void check_index(const BrimList *l, int64_t i, int64_t limit, const BrimTrapIndex *t) {
+    if (i < 0 || i >= limit) {
+        trap_index(t, i, brim_rt_list_len(l));
+    }
+}
+
+/* A pointer to element `i`, which must exist. */
+void *brim_rt_list_at(BrimList *l, int64_t i, const BrimTrapIndex *t) {
+    check_index(l, i, brim_rt_list_len(l), t);
+    return elem_at(l, i);
+}
+
+BrimList *brim_rt_list_push(BrimList *l, const void *elem, int64_t elem_size, BrimElemFn retain,
+                            BrimElemFn release) {
+    l = grow(unique(l, elem_size, retain, release, 1));
+    memcpy(elem_at(l, l->len), elem, (size_t)elem_size);
+    if (retain != NULL) {
+        retain(elem_at(l, l->len));
+    }
+    l->len++;
+    return l;
+}
+
+BrimList *brim_rt_list_set(BrimList *l, int64_t i, const void *elem, int64_t elem_size,
+                           BrimElemFn retain, BrimElemFn release, const BrimTrapIndex *t) {
+    check_index(l, i, brim_rt_list_len(l), t);
+    l = unique(l, elem_size, retain, release, 0);
+    if (retain != NULL) {
+        retain((void *)elem);
+    }
+    if (release != NULL) {
+        release(elem_at(l, i));
+    }
+    memcpy(elem_at(l, i), elem, (size_t)elem_size);
+    return l;
+}
+
+BrimList *brim_rt_list_truncate(BrimList *l, int64_t n, int64_t elem_size, BrimElemFn retain,
+                                BrimElemFn release) {
+    if (l == NULL || n >= l->len) {
+        return l;
+    }
+    l = unique(l, elem_size, retain, release, 0);
+    if (release != NULL) {
+        for (int64_t i = n; i < l->len; i++) {
+            release(elem_at(l, i));
+        }
+    }
+    l->len = n;
+    return l;
+}
+
+BrimList *brim_rt_list_insert(BrimList *l, int64_t i, const void *elem, int64_t elem_size,
+                              BrimElemFn retain, BrimElemFn release, const BrimTrapIndex *t) {
+    check_index(l, i, brim_rt_list_len(l) + 1, t);
+    l = grow(unique(l, elem_size, retain, release, 1));
+    memmove(elem_at(l, i + 1), elem_at(l, i), (size_t)((l->len - i) * elem_size));
+    memcpy(elem_at(l, i), elem, (size_t)elem_size);
+    if (retain != NULL) {
+        retain(elem_at(l, i));
+    }
+    l->len++;
+    return l;
+}
+
+BrimList *brim_rt_list_remove(BrimList *l, int64_t i, int64_t elem_size, BrimElemFn retain,
+                              BrimElemFn release, const BrimTrapIndex *t) {
+    check_index(l, i, brim_rt_list_len(l), t);
+    l = unique(l, elem_size, retain, release, 0);
+    if (release != NULL) {
+        release(elem_at(l, i));
+    }
+    memmove(elem_at(l, i), elem_at(l, i + 1), (size_t)((l->len - i - 1) * elem_size));
+    l->len--;
+    return l;
+}
+
+uint8_t brim_rt_list_contains_i64(const BrimList *l, int64_t value) {
+    for (int64_t i = 0; i < brim_rt_list_len(l); i++) {
+        if (((const int64_t *)l->data)[i] == value) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+uint8_t brim_rt_list_contains_bool(const BrimList *l, uint8_t value) {
+    for (int64_t i = 0; i < brim_rt_list_len(l); i++) {
+        if ((((const uint8_t *)l->data)[i] != 0) == (value != 0)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+uint8_t brim_rt_list_contains_str(const BrimList *l, const BrimStr *value) {
+    for (int64_t i = 0; i < brim_rt_list_len(l); i++) {
+        if (brim_rt_str_eq(((BrimStr *const *)l->data)[i], value)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+BrimStr *brim_rt_list_join(const BrimList *l, const BrimStr *sep) {
+    int64_t n = brim_rt_list_len(l);
+    BrimStr *const *items = n > 0 ? (BrimStr *const *)l->data : NULL;
+    int64_t total = 0;
+    for (int64_t i = 0; i < n; i++) {
+        total += items[i]->len + (i > 0 ? sep->len : 0);
+    }
+    BrimStr *s = str_alloc(total);
+    int64_t at = 0;
+    for (int64_t i = 0; i < n; i++) {
+        if (i > 0) {
+            memcpy(s->data + at, sep->data, (size_t)sep->len);
+            at += sep->len;
+        }
+        memcpy(s->data + at, items[i]->data, (size_t)items[i]->len);
+        at += items[i]->len;
+    }
+    return s;
+}
+
 /* ---- process entry ------------------------------------------------------- */
 
 int main(void) {
@@ -226,7 +482,8 @@ int main(void) {
         return 101;
     }
     if (checking && live_strings != 0) {
-        fprintf(stderr, "error: brim runtime check: %" PRId64 " string(s) leaked\n", live_strings);
+        fprintf(stderr, "error: brim runtime check: %" PRId64 " string(s) or list(s) leaked\n",
+                live_strings);
         return 102;
     }
     return 0;

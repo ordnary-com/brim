@@ -10,7 +10,7 @@ use crate::{Def, EnumId, StructId, Type};
 
 /// Names that cannot be used for a struct, enum or type parameter.
 fn reserved_type_name(name: &str) -> bool {
-    Type::from_name(name).is_some() || matches!(name, "Option" | "Result")
+    Type::from_name(name).is_some() || matches!(name, "Option" | "Result" | "List" | "Map")
 }
 
 impl<'a> Checker<'a> {
@@ -45,6 +45,7 @@ impl<'a> Checker<'a> {
             .insert("Option".into(), Def::Enum(EnumId(0)));
         self.type_by_name
             .insert("Result".into(), Def::Enum(EnumId(1)));
+        self.type_by_name.insert("List".into(), Def::List);
         for (name, e, v) in [("Some", 0, 0), ("None", 0, 1), ("Ok", 1, 0), ("Err", 1, 1)] {
             self.prelude_variants.insert(name, (EnumId(e), v));
         }
@@ -160,6 +161,7 @@ impl<'a> Checker<'a> {
         match def {
             Def::Struct(id) => Some(self.structs[id.0].name_span),
             Def::Enum(id) => self.enums[id.0].name_span,
+            Def::List => None,
         }
     }
 
@@ -198,6 +200,7 @@ impl<'a> Checker<'a> {
         let node = |def: Def| match def {
             Def::Struct(s) => s.0,
             Def::Enum(e) => struct_count + e.0,
+            Def::List => unreachable!("lists keep their elements on the heap"),
         };
         let total = struct_count + self.enums.len();
         let mut edges: Vec<Vec<(String, Option<Span>, usize)>> = vec![Vec::new(); total];
@@ -283,6 +286,7 @@ impl<'a> Checker<'a> {
                 let kind = match def {
                     Def::Struct(_) => "struct",
                     Def::Enum(_) => "enum",
+                    Def::List => "built-in type",
                 };
                 let mut diag =
                     Diagnostic::error(format!("`{name}` is already the name of a {kind}"))
@@ -412,6 +416,7 @@ impl<'a> Checker<'a> {
         match def {
             Def::Struct(id) => &self.structs[id.0].type_params,
             Def::Enum(id) => &self.enums[id.0].type_params,
+            Def::List => &self.list_type_params,
         }
     }
 

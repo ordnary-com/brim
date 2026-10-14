@@ -46,6 +46,8 @@ pub enum RuntimeError {
     StackOverflow { limit: usize },
     /// Writing program output failed.
     Io { message: String },
+    /// A list was indexed outside its bounds.
+    IndexOutOfBounds { index: i64, len: i64 },
 }
 
 impl RuntimeError {
@@ -56,6 +58,7 @@ impl RuntimeError {
             RuntimeError::DivisionByZero { .. } => "R0002",
             RuntimeError::StackOverflow { .. } => "R0003",
             RuntimeError::Io { .. } => "R0004",
+            RuntimeError::IndexOutOfBounds { .. } => "R0005",
         }
     }
 }
@@ -74,6 +77,10 @@ impl fmt::Display for RuntimeError {
                 write!(f, "stack overflow: more than {limit} nested calls")
             }
             RuntimeError::Io { message } => write!(f, "failed to write output: {message}"),
+            RuntimeError::IndexOutOfBounds { index, len } => write!(
+                f,
+                "index out of bounds: the index is {index} but the length is {len}"
+            ),
         }
     }
 }

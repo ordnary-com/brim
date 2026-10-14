@@ -13,6 +13,8 @@ use crate::{EnumId, StructId, Type, TypeId};
 pub enum Def {
     Struct(StructId),
     Enum(EnumId),
+    /// The built-in `List[T]`.
+    List,
 }
 
 /// A struct or enum applied to type arguments (none for non-generic ones).
@@ -114,10 +116,15 @@ impl TypeTable {
         }
     }
 
-    /// Every declaration `ty` mentions, including in its type arguments.
+    /// Every struct and enum whose value is stored inline in a value of
+    /// type `ty`, including through type arguments. Lists store their
+    /// elements elsewhere, so they and their element types do not count.
     pub fn defs_in(&self, ty: Type, out: &mut Vec<Def>) {
         if let Type::Named(id) = ty {
             let named = self.get(id);
+            if named.def == Def::List {
+                return;
+            }
             out.push(named.def);
             for arg in &named.args {
                 self.defs_in(*arg, out);

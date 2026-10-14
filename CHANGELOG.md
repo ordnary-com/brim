@@ -12,6 +12,10 @@ All notable changes to this project are documented here. The format follows [Kee
 - The `?` operator: `parse(s)?` continues with the `Ok`/`Some` value, or returns the `Err`/`None` from the function (`E0232`, `E0233`).
 - New diagnostics `E0225` to `E0231` and `W0004`; `enum` and `match` are now keywords, and `[`, `]` and `=>` are tokens.
 - `examples/shapes.brim`.
+- `List[T]`: literals (`[1, 2, 3]`), indexing (`xs[i]`, run-time error `R0005` outside the list), element assignment (`xs[i] = v`), and the methods `len`, `is_empty`, `get`, `first`, `last`, `contains`, `join`, `push`, `pop`, `insert`, `remove` and `clear`. Lists are values with copy-on-write; changing a list that is not shared happens in place, also inside structs and nested lists.
+- `for x in list { ... }` and `for i in a..b { ... }`; `for` and `in` are keywords and `..` is a token.
+- IR: list types and instructions, `take`, and consumed operands (checked by the validator).
+- New diagnostics `E0234` and `E0235`; `examples/lists.brim`.
 - Structs: `struct` declarations, struct literals (`Point { x: 1, y: 2 }`), field access (`p.x`) and field assignment (`p.x = 3`, `p.from.y += 1`), with value semantics. Supported by the interpreter and the native backend, including reference counting of strings inside structs. New diagnostics `E0219` to `E0224`; `struct` is now a keyword.
 - `E0007` for floating-point literals such as `9.99`.
 - `examples/structs.brim`.

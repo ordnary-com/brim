@@ -1,10 +1,10 @@
-error[E0101]: `for` is not supported yet
+error[E0101]: `loop` is not supported yet
  --> tests/parser/reserved_keyword.brim:2:5
   |
-2 |     for i in 0 {
-  |     ^^^ reserved keyword
+2 |     loop {
+  |     ^^^^ reserved keyword
   |
-  = note: `for` is reserved for a future version of Brim and cannot be used as a name
+  = note: `loop` is reserved for a future version of Brim and cannot be used as a name
   = help: use a `while` loop instead
 
 error: could not compile tests/parser/reserved_keyword.brim due to 1 error

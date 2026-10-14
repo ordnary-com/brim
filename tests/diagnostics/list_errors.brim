@@ -1,0 +1,28 @@
+struct Point {
+    x: i64
+    y: i64
+}
+
+fn make() -> List[i64] {
+    return [1]
+}
+
+fn main() {
+    let xs: List[i64] = [1, 2, "three"]
+    let n: i64 = 5
+    print(n[0])
+    print(xs["a"])
+    let fixed: List[i64] = [1]
+    fixed.push(2)
+    fixed[0] = 3
+    make().push(1)
+    print(xs.size())
+    xs.psuh(1)
+    let points: List[Point] = []
+    print(points.contains(Point { x: 1, y: 2 }))
+    print(xs.join(","))
+    for p in 5 {
+        print(p)
+    }
+    print([])
+}

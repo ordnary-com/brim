@@ -1,0 +1,48 @@
+// Lists hold any number of values of one type. They are values: a copy is
+// independent, and the compiler only copies a list when it has to.
+
+struct Order {
+    customer: string
+    items: List[string]
+    prices: List[i64]
+}
+
+fn total(order: Order) -> i64 {
+    let mut sum: i64 = 0
+    for price in order.prices {
+        sum += price
+    }
+    return sum
+}
+
+fn add(order: Order, item: string, price: i64) -> Order {
+    let mut updated: Order = order
+    updated.items.push(item)
+    updated.prices.push(price)
+    return updated
+}
+
+fn main() {
+    let mut order: Order = Order { customer: "Ada", items: [], prices: [] }
+    order = add(order, "coffee", 350)
+    order = add(order, "cake", 425)
+    order = add(order, "water", 150)
+    print(order.customer + " ordered " + order.items.join(", "))
+    print("total: " + to_string(total(order)))
+
+    // Remove the most expensive item.
+    let mut most: i64 = 0
+    for i in 1..order.prices.len() {
+        if order.prices[i] > order.prices[most] {
+            most = i
+        }
+    }
+    print("removed " + order.items.remove(most))
+    order.prices.remove(most)
+    print("total: " + to_string(total(order)))
+
+    match order.items.last() {
+        Some(item) => print("last item: " + item)
+        None => print("no items")
+    }
+}

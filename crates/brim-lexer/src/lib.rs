@@ -313,6 +313,7 @@ impl Lexer<'_> {
             ',' => TokenKind::Comma,
             ':' => TokenKind::Colon,
             ';' => TokenKind::Semi,
+            '.' if self.eat('.') => TokenKind::DotDot,
             '.' => TokenKind::Dot,
             '?' => TokenKind::Question,
             '+' if self.eat('=') => TokenKind::PlusEq,

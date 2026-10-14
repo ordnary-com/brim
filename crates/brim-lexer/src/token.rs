@@ -35,6 +35,8 @@ pub enum TokenKind {
     Struct,
     Enum,
     Match,
+    For,
+    In,
     /// A keyword reserved for a future language feature (`if`, `struct`, ...).
     Reserved(&'static str),
 
@@ -50,6 +52,8 @@ pub enum TokenKind {
     Semi,
     Arrow,
     Dot,
+    /// `..`, in `for i in 0..n`.
+    DotDot,
     /// `=>`, between a `match` pattern and its body.
     FatArrow,
     /// `?`, which propagates an error or a missing value.
@@ -102,13 +106,15 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("struct", TokenKind::Struct),
     ("enum", TokenKind::Enum),
     ("match", TokenKind::Match),
+    ("for", TokenKind::For),
+    ("in", TokenKind::In),
 ];
 
 /// Words reserved for planned features. They cannot be used as identifiers,
 /// which lets those features be added later without breaking programs.
 pub const RESERVED: &[&str] = &[
-    "as", "async", "await", "const", "for", "impl", "import", "in", "loop", "pub", "self", "trait",
-    "type", "use",
+    "as", "async", "await", "const", "impl", "import", "loop", "pub", "self", "trait", "type",
+    "use",
 ];
 
 impl TokenKind {
@@ -147,6 +153,8 @@ impl fmt::Display for TokenKind {
             TokenKind::Struct => "struct",
             TokenKind::Enum => "enum",
             TokenKind::Match => "match",
+            TokenKind::For => "for",
+            TokenKind::In => "in",
             TokenKind::Reserved(word) => word,
             TokenKind::LParen => "(",
             TokenKind::RParen => ")",
@@ -159,6 +167,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Semi => ";",
             TokenKind::Arrow => "->",
             TokenKind::Dot => ".",
+            TokenKind::DotDot => "..",
             TokenKind::FatArrow => "=>",
             TokenKind::Question => "?",
             TokenKind::Plus => "+",

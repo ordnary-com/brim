@@ -22,6 +22,12 @@
 //! function named `name[args]`. Non-generic functions are lowered in source
 //! order first; instances are added as calls to them are found.
 //!
+//! Lists lower to IR list types. Changing part of a variable (`xs.push(x)`,
+//! `p.items[i] = v`) takes the variable's value out of its slot, takes each
+//! part on the path out of its parent (leaving a zero value), changes the
+//! innermost part and puts everything back. Every step consumes its operand,
+//! so a list or struct that is not shared is changed in place.
+//!
 //! Every concrete struct type becomes an IR struct. An enum becomes an IR
 //! struct too: field 0 is the variant's index (the *tag*), followed by the
 //! payload fields of every variant in turn. A value only uses its own
@@ -31,13 +37,13 @@
 use std::collections::{HashMap, VecDeque};
 
 use brim_ir::{
-    Block, BlockId, Const, Field, FuncId, Function, Inst, InstKind, Module, Slot, SlotId, Span,
-    StructDef, StructId, Terminator, Type as IrType, ValueId,
+    Block, BlockId, Const, Field, FuncId, Function, Inst, InstKind, ListId, Module, Slot, SlotId,
+    Span, StructDef, StructId, Terminator, Type as IrType, ValueId,
 };
 use brim_runtime::RuntimeFn;
 use brim_semantic::checked::{
-    BinaryOp, CheckedArm, CheckedExpr, CheckedExprKind, CheckedFn, CheckedPattern, CheckedProgram,
-    CheckedStmt, UnaryOp,
+    BinaryOp, CheckedArm, CheckedExpr, CheckedExprKind, CheckedFn, CheckedForIter, CheckedPattern,
+    CheckedPlace, CheckedProgram, CheckedStmt, ListOp, ListReceiver, PlaceStep, UnaryOp,
 };
 use brim_semantic::{Def, Type, TypeTable};
 
@@ -48,6 +54,7 @@ pub fn lower(program: &CheckedProgram) -> Module {
         types: program.types.clone(),
         module: Module {
             structs: Vec::new(),
+            lists: Vec::new(),
             functions: Vec::new(),
             entry: FuncId(0),
         },
@@ -133,9 +140,10 @@ impl ModuleLowerer<'_> {
                 let name = match named.def {
                     Def::Struct(s) => &self.program.struct_def(s).name,
                     Def::Enum(e) => &self.program.enum_def(e).name,
+                    Def::List => "List",
                 };
                 if named.args.is_empty() {
-                    name.clone()
+                    name.to_string()
                 } else {
                     let args: Vec<String> = named.args.iter().map(|t| self.type_name(*t)).collect();
                     format!("{name}[{}]", args.join(", "))
@@ -157,6 +165,16 @@ impl ModuleLowerer<'_> {
                     return *ir;
                 }
                 let named = self.types.get(id).clone();
+                if named.def == Def::List {
+                    let elem = self.ir_type(named.args[0]);
+                    let id = ListId(
+                        u32::try_from(self.module.lists.len()).expect("list count fits in u32"),
+                    );
+                    self.module.lists.push(elem);
+                    let ir = IrType::List(id);
+                    self.ir_types.insert(ty, ir);
+                    return ir;
+                }
                 let mut fields = Vec::new();
                 match named.def {
                     Def::Struct(s) => {
@@ -188,6 +206,7 @@ impl ModuleLowerer<'_> {
                         }
                         self.enum_layouts.insert(ty, EnumLayout { offsets });
                     }
+                    Def::List => unreachable!("handled above"),
                 }
                 let id = StructId(
                     u32::try_from(self.module.structs.len()).expect("struct count fits in u32"),
@@ -229,6 +248,10 @@ fn branches(expr: &CheckedExpr) -> bool {
         | CheckedExprKind::Builtin { args, .. }
         | CheckedExprKind::Variant { args, .. } => args.iter().any(branches),
         CheckedExprKind::StructLit { fields } => fields.iter().any(|(_, v)| branches(v)),
+        CheckedExprKind::ListLit(items) => items.iter().any(branches),
+        CheckedExprKind::Index { base, index } => branches(base) || branches(index),
+        // Some list operations branch themselves (`get`, `pop`, ...).
+        CheckedExprKind::ListOp { .. } => true,
         CheckedExprKind::Field { base, .. } => branches(base),
     }
 }
@@ -370,6 +393,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 let values = fields.into_iter().map(|f| self.zero(f, span)).collect();
                 InstKind::MakeStruct(id, values)
             }
+            IrType::List(id) => InstKind::ListNew(id, Vec::new()),
             IrType::Void => unreachable!("fields are never void"),
         };
         self.emit_value(kind, ty, span)
@@ -402,16 +426,8 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 self.terminate(Terminator::Return(value));
             }
             CheckedStmt::Block(stmts) => self.stmts(stmts),
-            CheckedStmt::Assign { local, path, value } => {
-                let v = self.value(value);
-                let slot = SlotId(local.0 as u32);
-                let v = if path.is_empty() {
-                    v
-                } else {
-                    self.update_path(slot, path, v, value.span)
-                };
-                self.emit(InstKind::Store(slot, v), None, value.span);
-            }
+            CheckedStmt::Assign { place, op, value } => self.assign(place, *op, value),
+            CheckedStmt::For { var, iter, body } => self.for_stmt(*var, iter, body),
             CheckedStmt::If {
                 cond,
                 then_body,
@@ -433,26 +449,497 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         }
     }
 
-    /// For `slot.a.b = v`: the slot's new struct value, with field `a.b`
-    /// replaced by `v`.
-    fn update_path(&mut self, slot: SlotId, path: &[usize], v: ValueId, span: Span) -> ValueId {
-        let root_ty = self.func.slots[slot.index()].ty;
-        // levels[i] is the struct that contains field path[i].
-        let mut levels = vec![(
-            self.emit_value(InstKind::Load(slot), root_ty, span),
-            root_ty,
-        )];
-        for &index in &path[..path.len() - 1] {
-            let (value, ty) = *levels.last().expect("not empty");
-            let field_ty = self.field_type(ty, index);
-            let field = self.emit_value(InstKind::Extract(value, index), field_ty, span);
-            levels.push((field, field_ty));
+    // ---- places ----------------------------------------------------------
+
+    /// Evaluates the index expressions of a place, left to right; `None` for
+    /// field steps.
+    fn place_indices(&mut self, place: &CheckedPlace) -> Vec<Option<ValueId>> {
+        let exprs: Vec<&CheckedExpr> = place
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                PlaceStep::Index(e) => Some(e),
+                PlaceStep::Field(_) => None,
+            })
+            .collect();
+        let mut values = self.values(&exprs).into_iter();
+        place
+            .steps
+            .iter()
+            .map(|s| match s {
+                PlaceStep::Index(_) => values.next(),
+                PlaceStep::Field(_) => None,
+            })
+            .collect()
+    }
+
+    /// The current value of a place, given its evaluated indices.
+    fn read_place(
+        &mut self,
+        place: &CheckedPlace,
+        indices: &[Option<ValueId>],
+        span: Span,
+    ) -> ValueId {
+        let slot = SlotId(place.local.0 as u32);
+        let mut ty = self.func.slots[slot.index()].ty;
+        let mut value = self.emit_value(InstKind::Load(slot), ty, span);
+        for (step, index) in place.steps.iter().zip(indices) {
+            let (kind, child_ty) = match step {
+                PlaceStep::Field(i) => (InstKind::Extract(value, *i), self.field_type(ty, *i)),
+                PlaceStep::Index(_) => {
+                    let index = index.expect("index steps have an index");
+                    (InstKind::ListGet(value, index), self.list_elem(ty))
+                }
+            };
+            value = self.emit_value(kind, child_ty, span);
+            ty = child_ty;
         }
-        let mut new = v;
-        for (&index, (value, ty)) in path.iter().zip(levels).rev() {
-            new = self.emit_value(InstKind::Insert(value, index, new), ty, span);
+        value
+    }
+
+    /// Replaces the value of a place with `change(current value)`. The
+    /// current value and the parts around it are moved out first, so the
+    /// change can happen in place. `change` must not branch.
+    fn write_place(
+        &mut self,
+        place: &CheckedPlace,
+        indices: &[Option<ValueId>],
+        span: Span,
+        change: impl FnOnce(&mut Self, ValueId) -> ValueId,
+    ) {
+        let slot = SlotId(place.local.0 as u32);
+        let mut ty = self.func.slots[slot.index()].ty;
+        let mut current = self.emit_value(InstKind::Take(slot), ty, span);
+        // (parent with a hole, its type, the step into it)
+        let mut parents: Vec<(ValueId, IrType, &PlaceStep, Option<ValueId>)> = Vec::new();
+        for (step, index) in place.steps.iter().zip(indices) {
+            let (child, child_ty, parent) = match step {
+                PlaceStep::Field(i) => {
+                    let child_ty = self.field_type(ty, *i);
+                    let child = self.emit_value(InstKind::Extract(current, *i), child_ty, span);
+                    let hole = self.zero(child_ty, span);
+                    let parent = self.emit_value(InstKind::Insert(current, *i, hole), ty, span);
+                    (child, child_ty, parent)
+                }
+                PlaceStep::Index(_) => {
+                    let index = index.expect("index steps have an index");
+                    let child_ty = self.list_elem(ty);
+                    let child = self.emit_value(InstKind::ListGet(current, index), child_ty, span);
+                    let hole = self.zero(child_ty, span);
+                    let parent = self.emit_value(InstKind::ListSet(current, index, hole), ty, span);
+                    (child, child_ty, parent)
+                }
+            };
+            parents.push((parent, ty, step, *index));
+            current = child;
+            ty = child_ty;
         }
-        new
+        let mut new = change(self, current);
+        for (parent, parent_ty, step, index) in parents.into_iter().rev() {
+            let kind = match step {
+                PlaceStep::Field(i) => InstKind::Insert(parent, *i, new),
+                PlaceStep::Index(_) => {
+                    InstKind::ListSet(parent, index.expect("index steps have an index"), new)
+                }
+            };
+            new = self.emit_value(kind, parent_ty, span);
+        }
+        self.emit(InstKind::Store(slot, new), None, span);
+    }
+
+    fn assign(&mut self, place: &CheckedPlace, op: Option<BinaryOp>, value: &CheckedExpr) {
+        let span = value.span;
+        let slot = SlotId(place.local.0 as u32);
+        if place.steps.is_empty() {
+            let v = match op {
+                None => self.value(value),
+                Some(op) => {
+                    // `x op= value` on a plain variable: read, combine, store.
+                    let current = CheckedExpr {
+                        kind: CheckedExprKind::Local(place.local),
+                        ty: place.ty,
+                        span,
+                    };
+                    let [a, b] = self
+                        .values(&[&current, value])
+                        .try_into()
+                        .expect("two operands");
+                    self.binary(op, a, b, span)
+                }
+            };
+            self.emit(InstKind::Store(slot, v), None, span);
+            return;
+        }
+        let indices = self.place_indices(place);
+        let v = if indices.iter().any(Option::is_some) && branches(value) {
+            // Keep the indices usable after `value` ends the block.
+            let spilled = self.spill(&indices, span);
+            let v = self.value(value);
+            let indices = self.reload(&spilled, span);
+            return self.finish_assign(place, op, &indices, v, span);
+        } else {
+            self.value(value)
+        };
+        self.finish_assign(place, op, &indices, v, span);
+    }
+
+    fn finish_assign(
+        &mut self,
+        place: &CheckedPlace,
+        op: Option<BinaryOp>,
+        indices: &[Option<ValueId>],
+        v: ValueId,
+        span: Span,
+    ) {
+        match op {
+            None => self.write_place(place, indices, span, |_, _| v),
+            Some(op) => self.write_place(place, indices, span, |s, current| {
+                s.binary(op, current, v, span)
+            }),
+        }
+    }
+
+    /// Stores index values in slots, so they survive a block change.
+    fn spill(&mut self, indices: &[Option<ValueId>], span: Span) -> Vec<Option<SlotId>> {
+        indices
+            .iter()
+            .map(|v| {
+                v.map(|v| {
+                    let slot = self.new_slot("index", IrType::I64);
+                    self.emit(InstKind::Store(slot, v), None, span);
+                    slot
+                })
+            })
+            .collect()
+    }
+
+    fn reload(&mut self, slots: &[Option<SlotId>], span: Span) -> Vec<Option<ValueId>> {
+        slots
+            .iter()
+            .map(|s| s.map(|s| self.emit_value(InstKind::Load(s), IrType::I64, span)))
+            .collect()
+    }
+
+    fn list_elem(&self, ty: IrType) -> IrType {
+        let IrType::List(id) = ty else {
+            unreachable!("checked: only lists are indexed");
+        };
+        self.m.module.lists[id.index()]
+    }
+
+    // ---- loops -----------------------------------------------------------
+
+    fn for_stmt(
+        &mut self,
+        var: brim_semantic::checked::LocalId,
+        iter: &CheckedForIter,
+        body: &[CheckedStmt],
+    ) {
+        let var = SlotId(var.0 as u32);
+        let counter = self.new_slot("i", IrType::I64);
+        let end = self.new_slot("end", IrType::I64);
+        let span;
+        let list = match iter {
+            CheckedForIter::Range(start, stop) => {
+                span = start.span;
+                let [a, b] = self.values(&[start, stop]).try_into().expect("two bounds");
+                self.emit(InstKind::Store(counter, a), None, span);
+                self.emit(InstKind::Store(end, b), None, span);
+                None
+            }
+            CheckedForIter::Each(list) => {
+                span = list.span;
+                let ty = self.ir_type(list.ty);
+                let value = self.value(list);
+                let slot = self.new_slot("list", ty);
+                self.emit(InstKind::Store(slot, value), None, span);
+                let len = self.emit_value(InstKind::ListLen(value), IrType::I64, span);
+                let zero = self.emit_value(InstKind::Const(Const::I64(0)), IrType::I64, span);
+                self.emit(InstKind::Store(counter, zero), None, span);
+                self.emit(InstKind::Store(end, len), None, span);
+                Some((slot, ty))
+            }
+        };
+        let header = self.new_block();
+        let body_block = self.new_block();
+        let next = self.new_block();
+        let exit = self.new_block();
+        self.terminate(Terminator::Jump(header));
+
+        self.switch_to(header);
+        let i = self.emit_value(InstKind::Load(counter), IrType::I64, span);
+        let n = self.emit_value(InstKind::Load(end), IrType::I64, span);
+        let more = self.emit_value(
+            InstKind::Binary(brim_ir::BinaryOp::ILt, i, n),
+            IrType::Bool,
+            span,
+        );
+        self.terminate(Terminator::Branch {
+            cond: more,
+            then_block: body_block,
+            else_block: exit,
+        });
+
+        self.switch_to(body_block);
+        let i = self.emit_value(InstKind::Load(counter), IrType::I64, span);
+        let item = match list {
+            None => i,
+            Some((slot, ty)) => {
+                let l = self.emit_value(InstKind::Load(slot), ty, span);
+                let elem = self.list_elem(ty);
+                self.emit_value(InstKind::ListGet(l, i), elem, span)
+            }
+        };
+        self.emit(InstKind::Store(var, item), None, span);
+        self.loops.push((next, exit));
+        self.stmts_then_jump(body, next);
+        self.loops.pop();
+
+        // `i + 1` cannot overflow: `i < end <= i64::MAX`.
+        self.switch_to(next);
+        let i = self.emit_value(InstKind::Load(counter), IrType::I64, span);
+        let one = self.emit_value(InstKind::Const(Const::I64(1)), IrType::I64, span);
+        let i = self.emit_value(
+            InstKind::Binary(brim_ir::BinaryOp::IAdd, i, one),
+            IrType::I64,
+            span,
+        );
+        self.emit(InstKind::Store(counter, i), None, span);
+        self.terminate(Terminator::Jump(header));
+
+        self.switch_to(exit);
+    }
+
+    // ---- list operations ---------------------------------------------------
+
+    fn list_op(
+        &mut self,
+        op: ListOp,
+        receiver: &ListReceiver,
+        args: &[CheckedExpr],
+        ty: IrType,
+        result_ty: brim_semantic::Type,
+        span: Span,
+    ) -> Option<ValueId> {
+        match receiver {
+            ListReceiver::Value(list) => {
+                let mut operands: Vec<&CheckedExpr> = vec![list];
+                operands.extend(args);
+                let values = self.values(&operands);
+                let l = values[0];
+                let i64_ty = IrType::I64;
+                Some(match op {
+                    ListOp::Len => self.emit_value(InstKind::ListLen(l), i64_ty, span),
+                    ListOp::IsEmpty => {
+                        let len = self.emit_value(InstKind::ListLen(l), i64_ty, span);
+                        let zero = self.emit_value(InstKind::Const(Const::I64(0)), i64_ty, span);
+                        self.emit_value(
+                            InstKind::Binary(brim_ir::BinaryOp::IEq, len, zero),
+                            IrType::Bool,
+                            span,
+                        )
+                    }
+                    ListOp::Contains => {
+                        self.emit_value(InstKind::ListContains(l, values[1]), ty, span)
+                    }
+                    ListOp::Join => self.emit_value(InstKind::ListJoin(l, values[1]), ty, span),
+                    ListOp::Get | ListOp::First | ListOp::Last => {
+                        let index = match op {
+                            ListOp::Get => values[1],
+                            ListOp::First => {
+                                self.emit_value(InstKind::Const(Const::I64(0)), i64_ty, span)
+                            }
+                            _ => {
+                                let len = self.emit_value(InstKind::ListLen(l), i64_ty, span);
+                                let one =
+                                    self.emit_value(InstKind::Const(Const::I64(1)), i64_ty, span);
+                                self.emit_value(
+                                    InstKind::Binary(brim_ir::BinaryOp::ISub, len, one),
+                                    i64_ty,
+                                    span,
+                                )
+                            }
+                        };
+                        let option_ty = self.concrete(result_ty);
+                        self.optional_element(l, index, option_ty, span)
+                    }
+                    _ => unreachable!("checked: changing operations have a place receiver"),
+                })
+            }
+            ListReceiver::Place(place) => {
+                let indices = self.place_indices(place);
+                let args: Vec<ValueId> = if args.iter().any(branches) {
+                    let spilled = self.spill(&indices, span);
+                    let values = self.values(&args.iter().collect::<Vec<_>>());
+                    let indices = self.reload(&spilled, span);
+                    return self.change_list(op, place, &indices, &values, ty, result_ty, span);
+                } else {
+                    self.values(&args.iter().collect::<Vec<_>>())
+                };
+                self.change_list(op, place, &indices, &args, ty, result_ty, span)
+            }
+        }
+    }
+
+    /// `Some(list[index])` if `index` is inside the list, else `None`.
+    fn optional_element(
+        &mut self,
+        list: ValueId,
+        index: ValueId,
+        option_ty: brim_semantic::Type,
+        span: Span,
+    ) -> ValueId {
+        let list_ty = self.func.values[list.index()];
+        let list_slot = self.new_slot("list", list_ty);
+        self.emit(InstKind::Store(list_slot, list), None, span);
+        let index_slot = self.new_slot("index", IrType::I64);
+        self.emit(InstKind::Store(index_slot, index), None, span);
+        let zero = self.emit_value(InstKind::Const(Const::I64(0)), IrType::I64, span);
+        let not_negative = self.emit_value(
+            InstKind::Binary(brim_ir::BinaryOp::IGe, index, zero),
+            IrType::Bool,
+            span,
+        );
+        let result_ir = self.m.ir_type(option_ty);
+        let result = self.new_slot("element", result_ir);
+        let check_upper = self.new_block();
+        let found = self.new_block();
+        let missing = self.new_block();
+        let join = self.new_block();
+        self.terminate(Terminator::Branch {
+            cond: not_negative,
+            then_block: check_upper,
+            else_block: missing,
+        });
+        self.switch_to(check_upper);
+        let index = self.emit_value(InstKind::Load(index_slot), IrType::I64, span);
+        let list = self.emit_value(InstKind::Load(list_slot), list_ty, span);
+        let len = self.emit_value(InstKind::ListLen(list), IrType::I64, span);
+        let below_len = self.emit_value(
+            InstKind::Binary(brim_ir::BinaryOp::ILt, index, len),
+            IrType::Bool,
+            span,
+        );
+        self.terminate(Terminator::Branch {
+            cond: below_len,
+            then_block: found,
+            else_block: missing,
+        });
+
+        self.switch_to(found);
+        let index = self.emit_value(InstKind::Load(index_slot), IrType::I64, span);
+        let list = self.emit_value(InstKind::Load(list_slot), list_ty, span);
+        let elem_ty = self.list_elem(list_ty);
+        let elem = self.emit_value(InstKind::ListGet(list, index), elem_ty, span);
+        let some = self.make_variant(option_ty, 0, &[elem], span);
+        self.emit(InstKind::Store(result, some), None, span);
+        self.terminate(Terminator::Jump(join));
+
+        self.switch_to(missing);
+        let none = self.make_variant(option_ty, 1, &[], span);
+        self.emit(InstKind::Store(result, none), None, span);
+        self.terminate(Terminator::Jump(join));
+
+        self.switch_to(join);
+        self.emit_value(InstKind::Load(result), result_ir, span)
+    }
+
+    /// An operation that changes the list at `place`.
+    #[allow(clippy::too_many_arguments)]
+    fn change_list(
+        &mut self,
+        op: ListOp,
+        place: &CheckedPlace,
+        indices: &[Option<ValueId>],
+        args: &[ValueId],
+        ty: IrType,
+        result_ty: brim_semantic::Type,
+        span: Span,
+    ) -> Option<ValueId> {
+        let list_ty = self.ir_type(place.ty);
+        let elem_ty = self.list_elem(list_ty);
+        match op {
+            ListOp::Push => {
+                let x = args[0];
+                self.write_place(place, indices, span, |s, l| {
+                    s.emit_value(InstKind::ListPush(l, x), list_ty, span)
+                });
+                None
+            }
+            ListOp::Insert => {
+                let (i, x) = (args[0], args[1]);
+                self.write_place(place, indices, span, |s, l| {
+                    s.emit_value(InstKind::ListInsert(l, i, x), list_ty, span)
+                });
+                None
+            }
+            ListOp::Clear => {
+                self.write_place(place, indices, span, |s, l| {
+                    let zero = s.emit_value(InstKind::Const(Const::I64(0)), IrType::I64, span);
+                    s.emit_value(InstKind::ListTruncate(l, zero), list_ty, span)
+                });
+                None
+            }
+            ListOp::Remove => {
+                let i = args[0];
+                let mut removed = None;
+                self.write_place(place, indices, span, |s, l| {
+                    removed = Some(s.emit_value(InstKind::ListGet(l, i), elem_ty, span));
+                    s.emit_value(InstKind::ListRemove(l, i), list_ty, span)
+                });
+                debug_assert_eq!(ty, elem_ty);
+                removed
+            }
+            ListOp::Pop => {
+                let option_ty = self.concrete(result_ty);
+                let result_ir = self.m.ir_type(option_ty);
+                let result = self.new_slot("popped", result_ir);
+                let spilled = self.spill(indices, span);
+                let current = self.read_place(place, indices, span);
+                let len = self.emit_value(InstKind::ListLen(current), IrType::I64, span);
+                let zero = self.emit_value(InstKind::Const(Const::I64(0)), IrType::I64, span);
+                let empty = self.emit_value(
+                    InstKind::Binary(brim_ir::BinaryOp::IEq, len, zero),
+                    IrType::Bool,
+                    span,
+                );
+                let missing = self.new_block();
+                let found = self.new_block();
+                let join = self.new_block();
+                self.terminate(Terminator::Branch {
+                    cond: empty,
+                    then_block: missing,
+                    else_block: found,
+                });
+
+                self.switch_to(found);
+                let indices = self.reload(&spilled, span);
+                let mut popped = None;
+                self.write_place(place, &indices, span, |s, l| {
+                    let len = s.emit_value(InstKind::ListLen(l), IrType::I64, span);
+                    let one = s.emit_value(InstKind::Const(Const::I64(1)), IrType::I64, span);
+                    let last = s.emit_value(
+                        InstKind::Binary(brim_ir::BinaryOp::ISub, len, one),
+                        IrType::I64,
+                        span,
+                    );
+                    popped = Some(s.emit_value(InstKind::ListGet(l, last), elem_ty, span));
+                    s.emit_value(InstKind::ListTruncate(l, last), list_ty, span)
+                });
+                let some = self.make_variant(option_ty, 0, &[popped.expect("set")], span);
+                self.emit(InstKind::Store(result, some), None, span);
+                self.terminate(Terminator::Jump(join));
+
+                self.switch_to(missing);
+                let none = self.make_variant(option_ty, 1, &[], span);
+                self.emit(InstKind::Store(result, none), None, span);
+                self.terminate(Terminator::Jump(join));
+
+                self.switch_to(join);
+                Some(self.emit_value(InstKind::Load(result), result_ir, span))
+            }
+            _ => unreachable!("only changing operations have a place receiver"),
+        }
     }
 
     fn field_type(&self, ty: IrType, index: usize) -> IrType {
@@ -735,6 +1222,23 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             CheckedExprKind::Field { base, index } => {
                 let v = self.value(base);
                 self.emit_value(InstKind::Extract(v, *index), ty, span)
+            }
+            CheckedExprKind::ListLit(items) => {
+                let values = self.values(&items.iter().collect::<Vec<_>>());
+                let IrType::List(id) = ty else {
+                    unreachable!("a list literal has a list type");
+                };
+                self.emit_value(InstKind::ListNew(id, values), ty, span)
+            }
+            CheckedExprKind::Index { base, index } => {
+                let [l, i] = self
+                    .values(&[base, index])
+                    .try_into()
+                    .expect("two operands");
+                self.emit_value(InstKind::ListGet(l, i), ty, span)
+            }
+            CheckedExprKind::ListOp { op, receiver, args } => {
+                return self.list_op(*op, receiver, args, ty, expr.ty, span);
             }
         };
         Some(value)

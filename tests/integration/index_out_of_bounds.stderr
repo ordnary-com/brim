@@ -1,0 +1,7 @@
+error[R0005]: index out of bounds: the index is 2 but the length is 2
+ --> tests/integration/index_out_of_bounds.brim:3:12
+  |
+3 |     return xs[2]
+  |            ^^^^^
+  |
+  = note: call stack: main -> third

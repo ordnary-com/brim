@@ -7,7 +7,7 @@
 
 use std::fmt;
 
-use crate::{BlockId, Function, InstKind, Module, StructId, Terminator, Type, ValueId};
+use crate::{BlockId, Function, InstKind, ListId, Module, StructId, Terminator, Type, ValueId};
 
 /// One violation of the IR rules.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,6 +71,24 @@ fn validate_structs(module: &Module, errors: &mut Vec<ValidationError>) {
             message,
         });
     };
+    for (i, elem) in module.lists.iter().enumerate() {
+        match elem {
+            Type::Void => error(&format!("L{i}"), "list of void".into()),
+            Type::Struct(id) if id.index() >= module.structs.len() => {
+                error(
+                    &format!("L{i}"),
+                    format!("element type {id} does not exist"),
+                );
+            }
+            Type::List(id) if id.index() >= module.lists.len() => {
+                error(
+                    &format!("L{i}"),
+                    format!("element type {id} does not exist"),
+                );
+            }
+            _ => {}
+        }
+    }
     for def in &module.structs {
         for field in &def.fields {
             match field.ty {
@@ -149,10 +167,13 @@ impl FnValidator<'_> {
             .chain(f.values.iter().copied())
             .chain([f.ret]);
         for ty in types {
-            if let Type::Struct(id) = ty
-                && id.index() >= self.module.structs.len()
-            {
-                self.error(format!("nonexistent struct type {id}"));
+            let missing = match ty {
+                Type::Struct(id) => id.index() >= self.module.structs.len(),
+                Type::List(id) => id.index() >= self.module.lists.len(),
+                _ => false,
+            };
+            if missing {
+                self.error(format!("nonexistent type {ty}"));
                 return;
             }
         }
@@ -164,9 +185,20 @@ impl FnValidator<'_> {
         let mut defined_anywhere = vec![false; f.values.len()];
         for (index, block) in f.blocks.iter().enumerate() {
             self.current_block = Some(BlockId(index as u32));
-            // Values defined so far in this block.
+            // Values defined so far in this block, and those consumed since.
             let mut local = vec![false; f.values.len()];
+            let mut consumed = vec![false; f.values.len()];
             for inst in &block.insts {
+                for operand in inst.kind.operands() {
+                    if consumed.get(operand.index()).copied().unwrap_or(false) {
+                        self.error(format!("{operand} is used after being consumed"));
+                    }
+                }
+                if let Some(c) = inst.kind.consumed()
+                    && let Some(flag) = consumed.get_mut(c.index())
+                {
+                    *flag = true;
+                }
                 self.check_inst(&inst.kind, inst.result, &local);
                 if let Some(result) = inst.result {
                     match defined_anywhere.get_mut(result.index()) {
@@ -178,6 +210,16 @@ impl FnValidator<'_> {
                         }
                     }
                 }
+            }
+            let term_uses = match &block.term {
+                Terminator::Return(Some(v)) => Some(*v),
+                Terminator::Branch { cond, .. } => Some(*cond),
+                _ => None,
+            };
+            if let Some(v) = term_uses
+                && consumed.get(v.index()).copied().unwrap_or(false)
+            {
+                self.error(format!("{v} is used after being consumed"));
             }
             self.check_terminator(&block.term, &local);
         }
@@ -206,6 +248,16 @@ impl FnValidator<'_> {
         {
             self.error(format!("{value} has type {ty}, expected {expected}"));
         }
+    }
+
+    /// The list type of `v` and its element type.
+    fn list_operand(&mut self, v: ValueId, local: &[bool]) -> Option<(ListId, Type)> {
+        let ty = self.operand(v, local)?;
+        let Type::List(id) = ty else {
+            self.error(format!("{v} has type {ty}, expected a list"));
+            return None;
+        };
+        Some((id, self.module.lists[id.index()]))
     }
 
     /// For `extract`/`insert`: the struct type of `v` and the type of its
@@ -310,6 +362,76 @@ impl FnValidator<'_> {
                 };
                 self.expect_operand(*x, ty, local);
                 Some(Type::Struct(id))
+            }
+            InstKind::Take(slot) => match f.slots.get(slot.index()) {
+                Some(s) => Some(s.ty),
+                None => {
+                    self.error(format!("{slot} does not exist"));
+                    return;
+                }
+            },
+            InstKind::ListNew(id, args) => {
+                let Some(elem) = self.module.lists.get(id.index()).copied() else {
+                    self.error(format!("list of nonexistent type {id}"));
+                    return;
+                };
+                for arg in args {
+                    self.expect_operand(*arg, elem, local);
+                }
+                Some(Type::List(*id))
+            }
+            InstKind::ListLen(v) => {
+                self.list_operand(*v, local);
+                Some(Type::I64)
+            }
+            InstKind::ListGet(v, i) => {
+                let Some((_, elem)) = self.list_operand(*v, local) else {
+                    return;
+                };
+                self.expect_operand(*i, Type::I64, local);
+                Some(elem)
+            }
+            InstKind::ListSet(v, i, x) | InstKind::ListInsert(v, i, x) => {
+                let Some((id, elem)) = self.list_operand(*v, local) else {
+                    return;
+                };
+                self.expect_operand(*i, Type::I64, local);
+                self.expect_operand(*x, elem, local);
+                Some(Type::List(id))
+            }
+            InstKind::ListPush(v, x) => {
+                let Some((id, elem)) = self.list_operand(*v, local) else {
+                    return;
+                };
+                self.expect_operand(*x, elem, local);
+                Some(Type::List(id))
+            }
+            InstKind::ListTruncate(v, n) | InstKind::ListRemove(v, n) => {
+                let Some((id, _)) = self.list_operand(*v, local) else {
+                    return;
+                };
+                self.expect_operand(*n, Type::I64, local);
+                Some(Type::List(id))
+            }
+            InstKind::ListContains(v, x) => {
+                let Some((_, elem)) = self.list_operand(*v, local) else {
+                    return;
+                };
+                if !matches!(elem, Type::I64 | Type::Bool | Type::Str) {
+                    self.error(format!("list.contains on a list of {elem}"));
+                }
+                self.expect_operand(*x, elem, local);
+                Some(Type::Bool)
+            }
+            InstKind::ListJoin(v, sep) => {
+                let Some((_, elem)) = self.list_operand(*v, local) else {
+                    return;
+                };
+                if elem != Type::Str {
+                    self.error(format!("list.join on a list of {elem}"));
+                }
+                self.expect_operand(*sep, Type::Str, local);
+                Some(Type::Str)
             }
         };
         match (produced, result) {

@@ -33,6 +33,9 @@ impl Display for Module {
                 .collect();
             writeln!(f, "struct %{i} {} {{ {} }}", def.name, fields.join(", "))?;
         }
+        for (i, elem) in self.lists.iter().enumerate() {
+            writeln!(f, "list L{i} = [{elem}]")?;
+        }
         for function in &self.functions {
             writeln!(f)?;
             function.fmt_in(self, f)?;
@@ -99,6 +102,17 @@ impl Display for InstDisplay<'_> {
             InstKind::MakeStruct(id, args) => write!(f, "make {id}({})", list(args)),
             InstKind::Extract(v, index) => write!(f, "extract {v}.{index}"),
             InstKind::Insert(v, index, x) => write!(f, "insert {v}.{index}, {x}"),
+            InstKind::Take(slot) => write!(f, "take {slot}"),
+            InstKind::ListNew(id, args) => write!(f, "list {id}({})", list(args)),
+            InstKind::ListLen(v) => write!(f, "list.len {v}"),
+            InstKind::ListGet(v, i) => write!(f, "list.get {v}, {i}"),
+            InstKind::ListSet(v, i, x) => write!(f, "list.set {v}, {i}, {x}"),
+            InstKind::ListPush(v, x) => write!(f, "list.push {v}, {x}"),
+            InstKind::ListTruncate(v, n) => write!(f, "list.truncate {v}, {n}"),
+            InstKind::ListInsert(v, i, x) => write!(f, "list.insert {v}, {i}, {x}"),
+            InstKind::ListRemove(v, i) => write!(f, "list.remove {v}, {i}"),
+            InstKind::ListContains(v, x) => write!(f, "list.contains {v}, {x}"),
+            InstKind::ListJoin(v, sep) => write!(f, "list.join {v}, {sep}"),
         }
     }
 }

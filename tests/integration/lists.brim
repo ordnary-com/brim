@@ -1,0 +1,99 @@
+// Lists are values with copy-on-write: copies are cheap, and changing a
+// list that is not shared changes it in place.
+
+struct Team {
+    name: string
+    members: List[string]
+}
+
+fn total(xs: List[i64]) -> i64 {
+    let mut sum: i64 = 0
+    for x in xs {
+        sum += x
+    }
+    return sum
+}
+
+fn squares(n: i64) -> List[i64] {
+    let mut out: List[i64] = []
+    for i in 0..n {
+        out.push(i * i)
+    }
+    return out
+}
+
+fn main() {
+    let mut xs: List[i64] = [3, 1, 4, 1, 5]
+    print(xs.len())
+    print(xs[2])
+    xs[2] = 40
+    xs.push(9)
+    print(total(xs))
+    print(xs.contains(40))
+    print(xs.contains(2))
+
+    // Copies are independent.
+    let copy: List[i64] = xs
+    xs.clear()
+    print(copy.len())
+    print(xs.is_empty())
+
+    print(total(squares(5)))
+
+    // Option-returning methods.
+    match copy.get(10) {
+        Some(v) => print(v)
+        None => print("no element 10")
+    }
+    match copy.first() {
+        Some(v) => print(v)
+        None => print("empty")
+    }
+    match copy.last() {
+        Some(v) => print(v)
+        None => print("empty")
+    }
+
+    // pop, insert, remove.
+    let mut stack: List[string] = ["a", "b", "c"]
+    stack.insert(0, "start")
+    print(stack.remove(1))
+    match stack.pop() {
+        Some(top) => print(top)
+        None => print("empty")
+    }
+    print(stack.join(", "))
+    let mut empty: List[string] = []
+    match empty.pop() {
+        Some(top) => print(top)
+        None => print("nothing to pop")
+    }
+
+    // Lists inside structs, and nested lists.
+    let mut team: Team = Team { name: "core", members: ["ada"] }
+    team.members.push("grace")
+    team.members[0] = "Ada"
+    print(team.name + ": " + team.members.join(" & "))
+
+    let mut grid: List[List[i64]] = [[1, 2], [3, 4]]
+    grid[1][0] += 10
+    grid[0].push(5)
+    for row in grid {
+        let mut parts: List[string] = []
+        for cell in row {
+            parts.push(to_string(cell))
+        }
+        print(parts.join(" "))
+    }
+
+    // `break` and `continue` in `for` loops.
+    for i in 0..10 {
+        if i == 2 {
+            continue
+        }
+        if i == 5 {
+            break
+        }
+        print(i)
+    }
+}

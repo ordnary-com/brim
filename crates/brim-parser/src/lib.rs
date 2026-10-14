@@ -21,9 +21,9 @@
 //! phases.
 
 use brim_ast::{
-    BinaryOp, Block, EnumDecl, Expr, ExprKind, FieldDecl, FieldInit, FnDecl, Ident, MatchArm,
-    Param, Pattern, PatternKind, Program, Stmt, StmtKind, StructDecl, TypeExpr, UnaryOp,
-    VariantDecl,
+    BinaryOp, Block, EnumDecl, Expr, ExprKind, FieldDecl, FieldInit, FnDecl, ForIter, Ident,
+    MatchArm, Param, Pattern, PatternKind, PlaceElem, Program, Stmt, StmtKind, StructDecl,
+    TypeExpr, UnaryOp, VariantDecl,
 };
 use brim_diagnostics::{Diagnostic, Span};
 use brim_lexer::{Token, TokenKind, lex};
@@ -232,7 +232,7 @@ impl Parser {
             .with_note(format!(
                 "`{word}` is reserved for a future version of Brim and cannot be used as a name"
             ));
-        if matches!(word, "for" | "loop") {
+        if word == "loop" {
             diag = diag.with_help("use a `while` loop instead");
         }
         self.report(diag)
@@ -706,6 +706,7 @@ impl Parser {
                 Err(Reported)
             }
             TokenKind::Match => self.match_stmt(),
+            TokenKind::For => self.for_stmt(),
             _ => {
                 let expr = self.expr()?;
                 if let Some(op) = Self::assign_op(self.peek_kind()) {
@@ -735,21 +736,27 @@ impl Parser {
 
     fn assignment(&mut self, target: Expr, op: Option<BinaryOp>) -> PResult<Stmt> {
         let op_token = self.bump();
-        // `a.b.c` is the variable `a` with the path `[b, c]`.
+        // `a.b[i]` is the variable `a` with the path `[.b, [i]]`.
         let mut path = Vec::new();
         let mut place = &target;
         let target = loop {
             match &place.kind {
                 ExprKind::Name(name) => break name.clone(),
                 ExprKind::Field { base, field } => {
-                    path.push(field.clone());
+                    path.push(PlaceElem::Field(field.clone()));
+                    place = base;
+                }
+                ExprKind::Index { base, index } => {
+                    path.push(PlaceElem::Index((**index).clone()));
                     place = base;
                 }
                 _ => {
                     let diag = Diagnostic::error("invalid assignment target")
                         .with_code("E0104")
                         .with_primary(target.span, "cannot assign to this expression")
-                        .with_note("only variables and their fields can be assigned to");
+                        .with_note(
+                            "only variables, their fields and list elements can be assigned to",
+                        );
                     return Err(self.report(diag));
                 }
             }
@@ -803,6 +810,45 @@ impl Parser {
             i += 1;
         }
         &self.tokens[i].kind
+    }
+
+    fn for_stmt(&mut self) -> PResult<Stmt> {
+        let for_token = self.bump();
+        self.enter(0, for_token.span)?;
+        self.nesting += 1;
+        let result = self.for_rest(for_token.span);
+        self.nesting -= 1;
+        result
+    }
+
+    fn for_rest(&mut self, start: Span) -> PResult<Stmt> {
+        let var = self.expect_ident("a variable name after `for`")?;
+        if !self.at(&TokenKind::In) {
+            return Err(self.error_unexpected("`in` after the loop variable"));
+        }
+        self.bump();
+        let no_struct = std::mem::replace(&mut self.no_struct_literal, true);
+        let first = self.expr();
+        let iter = match first {
+            Ok(first) if self.eat(&TokenKind::DotDot).is_some() => {
+                self.expr().map(|end| ForIter::Range(first, end))
+            }
+            Ok(first) => Ok(ForIter::Each(first)),
+            Err(e) => Err(e),
+        };
+        self.no_struct_literal = no_struct;
+        let iter = iter?;
+        if *self.peek_past_newlines() == TokenKind::LBrace {
+            self.skip_newlines();
+        }
+        if !self.at(&TokenKind::LBrace) {
+            return Err(self.error_unexpected("`{` after the `for` loop header"));
+        }
+        let body = self.block()?;
+        Ok(Stmt {
+            span: start.to(body.span),
+            kind: StmtKind::For { var, iter, body },
+        })
     }
 
     fn match_stmt(&mut self) -> PResult<Stmt> {
@@ -1222,6 +1268,20 @@ impl Parser {
                         },
                     };
                 }
+                TokenKind::LBracket => {
+                    self.bump();
+                    let (index, close) = self.in_parens(|p| {
+                        let index = p.expr()?;
+                        Ok((index, p.expect(&TokenKind::RBracket)?))
+                    })?;
+                    expr = Expr {
+                        span: expr.span.to(close.span),
+                        kind: ExprKind::Index {
+                            base: Box::new(expr),
+                            index: Box::new(index),
+                        },
+                    };
+                }
                 TokenKind::Question => {
                     let question = self.bump();
                     expr = Expr {
@@ -1261,6 +1321,59 @@ impl Parser {
             }
             self.pos += 1;
         }
+    }
+
+    /// `[a, b]`, `[k: v, ...]` or `[:]`, after the `[`.
+    fn collection_literal(&mut self, open: Span) -> PResult<Expr> {
+        self.enter(0, open)?;
+        self.nesting += 1;
+        let result = self.in_parens(|p| {
+            if p.at(&TokenKind::Colon) {
+                p.bump();
+                let close = p.expect(&TokenKind::RBracket)?;
+                return Ok(Expr {
+                    span: open.to(close.span),
+                    kind: ExprKind::MapLit(Vec::new()),
+                });
+            }
+            if let Some(close) = p.eat(&TokenKind::RBracket) {
+                return Ok(Expr {
+                    span: open.to(close.span),
+                    kind: ExprKind::ListLit(Vec::new()),
+                });
+            }
+            let first = p.expr()?;
+            if p.eat(&TokenKind::Colon).is_some() {
+                let mut entries = vec![(first, p.expr()?)];
+                while p.eat(&TokenKind::Comma).is_some() && !p.at(&TokenKind::RBracket) {
+                    let key = p.expr()?;
+                    p.expect(&TokenKind::Colon)?;
+                    entries.push((key, p.expr()?));
+                }
+                if !p.at(&TokenKind::RBracket) {
+                    return Err(p.error_unexpected("`,` or `]`"));
+                }
+                let close = p.bump();
+                return Ok(Expr {
+                    span: open.to(close.span),
+                    kind: ExprKind::MapLit(entries),
+                });
+            }
+            let mut items = vec![first];
+            while p.eat(&TokenKind::Comma).is_some() && !p.at(&TokenKind::RBracket) {
+                items.push(p.expr()?);
+            }
+            if !p.at(&TokenKind::RBracket) {
+                return Err(p.error_unexpected("`,` or `]`"));
+            }
+            let close = p.bump();
+            Ok(Expr {
+                span: open.to(close.span),
+                kind: ExprKind::ListLit(items),
+            })
+        });
+        self.nesting -= 1;
+        result
     }
 
     /// The arguments of a call, after its `(`, and the closing `)`.
@@ -1331,6 +1444,10 @@ impl Parser {
                 name,
                 span: token.span,
             }),
+            TokenKind::LBracket => {
+                self.bump();
+                return self.collection_literal(token.span);
+            }
             TokenKind::LParen => {
                 self.bump();
                 let (inner, close) = self.in_parens(|p| {

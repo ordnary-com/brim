@@ -177,7 +177,7 @@ pub enum StmtKind {
     /// is assigned: `target.a.b = value` has the path `[a, b]`.
     Assign {
         target: Ident,
-        path: Vec<Ident>,
+        path: Vec<PlaceElem>,
         op: Option<BinaryOp>,
         /// The span of `=` or of the compound operator.
         op_span: Span,
@@ -198,6 +198,12 @@ pub enum StmtKind {
         scrutinee: Expr,
         arms: Vec<MatchArm>,
     },
+    /// `for var in iter { ... }`
+    For {
+        var: Ident,
+        iter: ForIter,
+        body: Block,
+    },
     /// `break`
     Break,
     /// `continue`
@@ -208,6 +214,23 @@ pub enum StmtKind {
     Expr(Expr),
     /// A nested block, which introduces a new scope.
     Block(Block),
+}
+
+/// One step of an assignment target after the variable: `.field` or
+/// `[index]`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PlaceElem {
+    Field(Ident),
+    Index(Expr),
+}
+
+/// What a `for` loop iterates over.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ForIter {
+    /// The elements of a list.
+    Each(Expr),
+    /// `start..end`: the integers from `start` up to, not including, `end`.
+    Range(Expr, Expr),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -251,6 +274,15 @@ pub enum ExprKind {
     Field {
         base: Box<Expr>,
         field: Ident,
+    },
+    /// `[a, b, c]`
+    ListLit(Vec<Expr>),
+    /// `[key: value, ...]`, or `[:]` for an empty map.
+    MapLit(Vec<(Expr, Expr)>),
+    /// `base[index]`
+    Index {
+        base: Box<Expr>,
+        index: Box<Expr>,
     },
     /// `value?`: the value inside an `Ok` or `Some`; an `Err` or `None` is
     /// returned from the function instead.
@@ -367,6 +399,30 @@ impl fmt::Display for Expr {
             }
             ExprKind::Field { base, field } => write!(f, "({base}.{})", field.name),
             ExprKind::Try(inner) => write!(f, "({inner}?)"),
+            ExprKind::ListLit(items) => {
+                f.write_str("[")?;
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{item}")?;
+                }
+                f.write_str("]")
+            }
+            ExprKind::MapLit(entries) => {
+                if entries.is_empty() {
+                    return f.write_str("[:]");
+                }
+                f.write_str("[")?;
+                for (i, (k, v)) in entries.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{k}: {v}")?;
+                }
+                f.write_str("]")
+            }
+            ExprKind::Index { base, index } => write!(f, "{base}[{index}]"),
             ExprKind::MethodCall { base, name, args } => {
                 write!(f, "{base}.{}(", name.name)?;
                 for (i, arg) in args.iter().enumerate() {

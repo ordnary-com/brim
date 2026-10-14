@@ -1,0 +1,10 @@
+// exit: 101
+fn third(xs: List[string]) -> string {
+    return xs[2]
+}
+
+fn main() {
+    let names: List[string] = ["ada", "grace", "edsger"]
+    print(third(names))
+    print(third(["only", "two"]))
+}

@@ -1,3 +1,4 @@
+mod collections;
 mod decls;
 mod exprs;
 mod matching;
@@ -77,6 +78,8 @@ pub(crate) struct Checker<'a> {
     /// Type parameter names of the declaration being checked, for resolving
     /// and showing `Type::Param`.
     type_params: Vec<String>,
+    /// `["T"]`, the type parameters of `List`.
+    list_type_params: Vec<String>,
 }
 
 /// Per-function checking state.
@@ -145,6 +148,7 @@ impl<'a> Checker<'a> {
             sigs: Vec::new(),
             by_name: HashMap::new(),
             type_params: Vec::new(),
+            list_type_params: vec!["T".into()],
         };
         checker.add_prelude();
         checker.collect_types(program);
@@ -235,6 +239,7 @@ impl<'a> Checker<'a> {
         match def {
             Def::Struct(id) => &self.structs[id.0].name,
             Def::Enum(id) => &self.enums[id.0].name,
+            Def::List => "List",
         }
     }
 
@@ -244,7 +249,7 @@ impl<'a> Checker<'a> {
         let named = self.types.get(id);
         match named.def {
             Def::Struct(s) => Some((s, named.args.clone())),
-            Def::Enum(_) => None,
+            Def::Enum(_) | Def::List => None,
         }
     }
 
@@ -254,7 +259,7 @@ impl<'a> Checker<'a> {
         let named = self.types.get(id);
         match named.def {
             Def::Enum(e) => Some((e, named.args.clone())),
-            Def::Struct(_) => None,
+            Def::Struct(_) | Def::List => None,
         }
     }
 
@@ -424,6 +429,7 @@ impl<'a> Checker<'a> {
                 (CheckedStmt::While { cond, body }, forever)
             }
             ast::StmtKind::Match { scrutinee, arms } => self.check_match(scrutinee, arms, ctx),
+            ast::StmtKind::For { var, iter, body } => self.check_for(var, iter, body, ctx),
             ast::StmtKind::Break | ast::StmtKind::Continue => {
                 let is_break = matches!(stmt.kind, ast::StmtKind::Break);
                 let keyword = if is_break { "break" } else { "continue" };
@@ -464,7 +470,9 @@ impl<'a> Checker<'a> {
                 let is_call = |e: &CheckedExpr| {
                     matches!(
                         e.kind,
-                        CheckedExprKind::Call { .. } | CheckedExprKind::Builtin { .. }
+                        CheckedExprKind::Call { .. }
+                            | CheckedExprKind::Builtin { .. }
+                            | CheckedExprKind::ListOp { .. }
                     )
                 };
                 // `do_something()?` is a call too: only its error is used.
@@ -516,46 +524,27 @@ impl<'a> Checker<'a> {
     fn check_assign(
         &mut self,
         target: &ast::Ident,
-        path: &[ast::Ident],
+        path: &[ast::PlaceElem],
         op: Option<ast::BinaryOp>,
         op_span: Span,
         value: &ast::Expr,
         ctx: &mut FnCtx,
     ) -> CheckedStmt {
-        let Some(id) = ctx.lookup(&target.name) else {
+        let steps: Vec<collections::StepRef<'_>> = path
+            .iter()
+            .map(|elem| match elem {
+                ast::PlaceElem::Field(field) => collections::StepRef::Field(field),
+                ast::PlaceElem::Index(index) => collections::StepRef::Index(index),
+            })
+            .collect();
+        let Some(place) = self.resolve_place(target, &steps, ctx) else {
             let value = self.check_expr(value, ctx);
-            // Reports the undefined name (or a function used as a value).
-            self.check_name(target, None, ctx);
             return CheckedStmt::Expr(value);
         };
-        let local = &ctx.locals[id.0];
+        let local = &ctx.locals[place.local.0];
         let (var_ty, mutable, decl_span) = (local.ty, local.mutable, local.span);
-        let is_param = id.0 < ctx.param_count;
-
-        // Resolve the field path: `current` is the place being assigned, as
-        // an expression (needed for compound assignment).
-        let mut current = CheckedExpr {
-            kind: CheckedExprKind::Local(id),
-            ty: var_ty,
-            span: target.span,
-        };
-        let mut indices = Vec::with_capacity(path.len());
-        for field in path {
-            let Some((index, ty)) = self.field(current.ty, field, current.span) else {
-                let value = self.check_expr(value, ctx);
-                return CheckedStmt::Expr(value);
-            };
-            indices.push(index);
-            current = CheckedExpr {
-                span: current.span.to(field.span),
-                kind: CheckedExprKind::Field {
-                    base: Box::new(current),
-                    index,
-                },
-                ty,
-            };
-        }
-        let ty = current.ty;
+        let is_param = place.local.0 < ctx.param_count;
+        let ty = place.ty;
         let expected = (op.is_none() && ty != Type::Error).then_some(ty);
         let value = self.check_expr_with(value, expected, ctx);
 
@@ -565,7 +554,7 @@ impl<'a> Checker<'a> {
                 format!("cannot assign to immutable variable `{}`", target.name)
             } else {
                 format!(
-                    "cannot assign to a field of immutable variable `{}`",
+                    "cannot assign to a part of immutable variable `{}`",
                     target.name
                 )
             };
@@ -576,7 +565,7 @@ impl<'a> Checker<'a> {
                     if path.is_empty() {
                         "cannot be reassigned"
                     } else {
-                        "its fields cannot be changed"
+                        "it cannot be changed"
                     },
                 )
                 .with_secondary(decl_span, "declared here");
@@ -591,27 +580,38 @@ impl<'a> Checker<'a> {
             };
             self.diags.push(diag);
         } else {
-            ctx.reassigned[id.0] = true;
+            ctx.reassigned[place.local.0] = true;
         }
 
-        let value = match op {
-            None => value,
-            Some(op) => {
-                let span = target.span.to(value.span);
-                self.resolve_binary(op, op_span, current, value, span)
-            }
-        };
         let reason = if path.is_empty() {
             "variable declared here"
         } else {
             "the variable's type is declared here"
         };
-        self.expect_type(&value, ty, Some(decl_span), reason);
-        CheckedStmt::Assign {
-            local: id,
-            path: indices,
-            value,
-        }
+        let (op, value) = match op {
+            None => {
+                self.expect_type(&value, ty, Some(decl_span), reason);
+                (None, value)
+            }
+            Some(op) => {
+                // Type-check `place op value` with a stand-in for the place.
+                let current = CheckedExpr {
+                    kind: CheckedExprKind::Bool(false),
+                    ty,
+                    span: target.span,
+                };
+                let span = target.span.to(value.span);
+                let value_span = value.span;
+                let combined = self.resolve_binary(op, op_span, current, value, span);
+                self.expect_type(&combined, ty, Some(decl_span), reason);
+                match combined.kind {
+                    CheckedExprKind::Binary { op, rhs, .. } => (Some(op), *rhs),
+                    // An error was reported.
+                    _ => (None, error_expr(value_span)),
+                }
+            }
+        };
+        CheckedStmt::Assign { place, op, value }
     }
 
     fn declare(&mut self, name: &ast::Ident, ty: Type, mutable: bool, ctx: &mut FnCtx) -> LocalId {

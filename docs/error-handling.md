@@ -57,7 +57,7 @@ Guidelines for writing diagnostics:
 | E0101 | Reserved keyword used (`for`, `trait`, `impl`, ...): the feature is not supported yet |
 | E0102 | Missing type annotation on a `let`, a parameter or a struct field |
 | E0103 | Something other than a function, struct or enum declaration at the top level, or a struct or enum declared inside a function |
-| E0104 | Invalid assignment target (only variables and their fields can be assigned to) |
+| E0104 | Invalid assignment target, or a list method that changes the list called on something other than a variable (only variables, their fields and list elements can be changed) |
 | E0105 | Blocks or expressions nested too deeply (implementation limit: 128) |
 | E0106 | Chained comparison such as `a < b < c` |
 | E0107 | Call of something that is not a function name (including method-style calls `p.f()`) |
@@ -100,6 +100,8 @@ Guidelines for writing diagnostics:
 | E0231 | Method call (`value.name(...)`); methods are not supported yet |
 | E0232 | `?` applied to a value that is not an `Option` or `Result` |
 | E0233 | `?` in a function whose return type cannot carry the `Err` or `None` (a different error type, or not a `Result`/`Option`) |
+| E0234 | Indexing a value that is not a list |
+| E0235 | `for` loop over a value that is not a list or range |
 
 ### Warnings
 
@@ -129,6 +131,7 @@ Guidelines for writing diagnostics:
 | R0002 | Division or remainder by zero |
 | R0003 | Call depth limit exceeded (stack overflow) |
 | R0004 | Writing program output failed |
+| R0005 | List index out of bounds |
 
 Run-time errors are reported like compile-time diagnostics, with the source location of the failing operation and the call stack:
 
