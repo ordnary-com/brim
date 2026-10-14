@@ -286,6 +286,21 @@ pub const BUILTINS: &[Builtin] = &[
         }],
     },
     Builtin {
+        name: "__http_request",
+        summary: "std.http: an HTTPS request through libcurl.",
+        overloads: &[Overload {
+            params: &[
+                Prim::String,
+                Prim::String,
+                Prim::String,
+                Prim::String,
+                Prim::I64,
+            ],
+            ret: Prim::String,
+            runtime: RuntimeFn::HttpRequest,
+        }],
+    },
+    Builtin {
         name: "__net_set_timeout",
         summary: "std.net: set a read and write timeout.",
         overloads: &[Overload {

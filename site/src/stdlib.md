@@ -385,7 +385,8 @@ fn route(request: http.Request) -> http.Response {
 | `response.ok()` | whether the status is 2xx |
 | `response.header(name)` | `Option[string]` |
 
-The client supports `http://` URLs; `https://` is planned. `http.encode`
+The client supports `http://` and `https://` URLs. HTTPS goes through
+libcurl and checks certificates; redirects are not followed. `http.encode`
 and `http.decode` percent-encode and decode parts of URLs.
 
 ## JSON: std.json

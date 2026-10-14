@@ -17,6 +17,9 @@ use crate::{BuildOptions, BuildOutput, CodegenError, OptLevel};
 /// The C source of the Brim runtime.
 pub(crate) const RUNTIME_SOURCE: &str = include_str!("../runtime/brim_rt.c");
 
+/// HTTPS through libcurl; linked only into programs that use it.
+const HTTPS_SOURCE: &str = include_str!("../runtime/brim_rt_https.c");
+
 pub(crate) fn link(
     machine: &TargetMachine,
     module: &Module<'_>,
@@ -41,9 +44,17 @@ pub(crate) fn link(
             OptLevel::Release => "-O2",
         })
         .arg(&object)
-        .arg(&runtime)
-        .arg("-o")
-        .arg(&options.output);
+        .arg(&runtime);
+    if module
+        .get_function(brim_runtime::RuntimeFn::HttpRequest.symbol())
+        .is_some()
+    {
+        let https = dir.path.join("brim_rt_https.c");
+        fs::write(&https, HTTPS_SOURCE)
+            .map_err(|e| CodegenError::Llvm(format!("cannot write the runtime source: {e}")))?;
+        command.arg(&https).arg("-lcurl");
+    }
+    command.arg("-o").arg(&options.output);
     let shown = format!("{command:?}").replace('"', "");
     let output = command.output().map_err(|e| CodegenError::LinkerNotFound {
         linker: linker.clone(),

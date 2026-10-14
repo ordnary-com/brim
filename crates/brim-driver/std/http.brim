@@ -20,7 +20,8 @@
 //   print(response.body)
 //
 // Header names are kept in lower case. Every connection is closed after
-// one request and its response.
+// one request and its response. `https://` requests go through libcurl,
+// which native programs then link with.
 import std.net
 
 // A request a server received.
@@ -252,17 +253,36 @@ pub fn post(url: string, content_type: string, body: string) -> Result[Response,
     return request("POST", url, ["content-type": content_type], body)
 }
 
-// Sends a request and reads the response. Only `http://` URLs for now.
+// Sends a request and reads the response, for `http://` and `https://`
+// URLs. Redirects are not followed.
 pub fn request(
     method: string,
     url: string,
     headers: Map[string, string],
     body: string,
 ) -> Result[Response, string] {
+    if url.starts_with("https://") {
+        return request_tls(method, url, headers, body)
+    }
     let target: Url = parse_url(url)?
     let conn: net.Conn = net.connect(target.host, target.port)?
     conn.set_timeout(30000)?
     let mut out: string = method + " " + target.path + " HTTP/1.1\r\nhost: " + target.host_header + "\r\n"
+    out = out + header_lines(headers)
+    if !body.is_empty() || method == "POST" || method == "PUT" || method == "PATCH" {
+        out = out + "content-length: " + to_string(body.len()) + "\r\n"
+    }
+    out = out + "connection: close\r\n\r\n" + body
+    conn.write(out)?
+    let result: Result[Response, string] = read_response(conn, method == "HEAD")
+    conn.close()
+    return result
+}
+
+// The request's header lines, with a user agent if it has none. Host,
+// content length and connection are set by the client.
+fn header_lines(headers: Map[string, string]) -> string {
+    let mut out: string = ""
     let mut has_agent: bool = false
     for name in headers.keys() {
         let lower: string = name.to_lower()
@@ -276,14 +296,34 @@ pub fn request(
     if !has_agent {
         out = out + "user-agent: brim\r\n"
     }
-    if !body.is_empty() || method == "POST" || method == "PUT" || method == "PATCH" {
-        out = out + "content-length: " + to_string(body.len()) + "\r\n"
+    return out
+}
+
+// An https:// request, through libcurl in the runtime.
+fn request_tls(
+    method: string,
+    url: string,
+    headers: Map[string, string],
+    body: string,
+) -> Result[Response, string] {
+    let raw: string = __http_request(method, url, header_lines(headers), body, 30000)
+    let error: string = __last_error()
+    if !error.is_empty() {
+        return Err("cannot request " + url + ": " + error)
     }
-    out = out + "connection: close\r\n\r\n" + body
-    conn.write(out)?
-    let result: Result[Response, string] = read_response(conn, method == "HEAD")
-    conn.close()
-    return result
+    // `status\r\nheader lines\r\n\r\nbody`
+    let mut head: string = raw
+    let mut content: string = ""
+    match raw.find("\r\n\r\n") {
+        Some(at) => {
+            head = raw.slice(0, at)
+            content = raw.slice(at + 4, raw.len())
+        }
+        None => {}
+    }
+    let lines: List[string] = head.split("\r\n")
+    let status: i64 = match_int(lines[0])?
+    return Ok(Response { status: status, headers: parse_headers(lines)?, body: content })
 }
 
 fn read_response(conn: net.Conn, head_only: bool) -> Result[Response, string] {
@@ -312,9 +352,6 @@ struct Url {
 }
 
 fn parse_url(url: string) -> Result[Url, string] {
-    if url.starts_with("https://") {
-        return Err("https is not supported yet: " + url)
-    }
     if !url.starts_with("http://") {
         return Err("not an http URL: " + url)
     }

@@ -32,7 +32,11 @@ The release workflow (`.github/workflows/release.yml`) builds:
 Each archive holds `brim`, the README, the license and the changelog. The
 Linux builds need glibc 2.34 or newer (Ubuntu 22.04, Debian 12, Fedora 35
 and later); the native Linux build also uses the system's zlib, zstd and
-libstdc++. The macOS builds need nothing beyond macOS itself. The
+libstdc++. The macOS builds need nothing beyond macOS itself. `brim` uses the
+system's libcurl for HTTPS (`libcurl4` on Debian and Ubuntu, installed
+almost everywhere); a native program that makes HTTPS requests is linked
+with it too, which on Linux needs its development files
+(`libcurl4-openssl-dev`). The
 release has a `SHA256SUMS` file. Running the workflow by hand
 (`workflow_dispatch`) builds the archives as workflow artifacts without
 publishing anything: a dry run.

@@ -1,0 +1,3 @@
+cannot request https://127.0.0.1:1/: connection refused
+cannot request https://: invalid URL
+not an http URL: ftp://example.com/

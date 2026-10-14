@@ -1824,6 +1824,24 @@ int64_t brim_rt_char_code(const BrimStr *s) {
            ((int64_t)(p[2] & 0x3F) << 6) | (p[3] & 0x3F);
 }
 
+/* ---- helpers for brim_rt_https.c --------------------------------------------- */
+
+void brim_rt_internal_set_error(const char *reason) {
+    set_error(reason == NULL ? NULL : str_from_c(reason));
+}
+
+BrimStr *brim_rt_internal_str(const char *data, int64_t len) {
+    return str_from(data, len);
+}
+
+int brim_rt_internal_valid_utf8(const char *data, int64_t len) {
+    return valid_utf8(data, len);
+}
+
+char *brim_rt_internal_c_string(const BrimStr *s) {
+    return c_string(s);
+}
+
 /* ---- process entry ------------------------------------------------------- */
 
 int main(int argc, char **argv) {

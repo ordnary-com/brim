@@ -12,6 +12,8 @@
 //! the configurable [`Limits::max_call_depth`] and report a clean run-time
 //! error instead of crashing the host process.
 
+mod https;
+
 use std::io::{BufRead, Write};
 use std::rc::Rc;
 
@@ -822,6 +824,17 @@ fn call_runtime(
         RuntimeFn::CharCode => Some(Value::I64(
             s(0).chars().next().map_or(-1, |c| i64::from(u32::from(c))),
         )),
+        RuntimeFn::HttpRequest => {
+            state.last_error.clear();
+            let _ = state.host.out.flush();
+            match https::request(s(0), s(1), s(2), s(3), args[4].i64()) {
+                Ok(text) => str_value(BrimStr::from(text)),
+                Err(e) => {
+                    state.last_error = e;
+                    str_value(BrimStr::from(""))
+                }
+            }
+        }
         RuntimeFn::UrlEncode => str_value(BrimStr::from(brim_runtime::net::url_encode(s(0)))),
         RuntimeFn::Exit => unreachable!("handled by the interpreter loop"),
         RuntimeFn::Assert => {

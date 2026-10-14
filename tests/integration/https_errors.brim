@@ -1,0 +1,16 @@
+// https:// requests go through libcurl; these fail without needing the
+// internet, and must fail the same way in the interpreter and natively.
+import std.http
+
+fn show(url: string) {
+    match http.get(url) {
+        Ok(r) => print("unexpected status " + to_string(r.status))
+        Err(e) => print(e)
+    }
+}
+
+fn main() {
+    show("https://127.0.0.1:1/")
+    show("https://")
+    show("ftp://example.com/")
+}
