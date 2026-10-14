@@ -36,15 +36,18 @@ Status legend: **done**, **in progress**, **planned**. Only items marked done ex
 - Divergence-based "returns on all paths" analysis and unreachable-code warnings; `while true` without `break` counts as never ending.
 - The `to_string` builtin for `i64` and `bool`.
 
-**Next milestone: native code generation (Phase 4).** With control flow in place, the language can express real algorithms, so the next step is to stop relying on the interpreter.
+## Phase 4: Native code generation (done, first version)
 
-## Phase 4: Native code generation (planned)
+- `LlvmBackend` behind the opt-in `llvm` Cargo feature, using `inkwell` 0.10 with LLVM 22 (see `architecture.md`, "Code generation").
+- A small C runtime, embedded in the compiler and linked into every executable with the system C compiler.
+- `brim build` produces an executable (`-o`, `--release` for LLVM's O2 pipeline). Projects build to `target/<package name>`.
+- Run-time errors in native executables are byte-identical to the interpreter's, including the call stack and the call-depth limit.
+- Differential testing: every integration program and example, debug and release, must match the interpreter exactly.
+- A CI job with LLVM 22 on Linux and macOS; the frontend-only jobs stay LLVM-free.
 
-- `LlvmBackend` behind an opt-in Cargo feature, using `inkwell` 0.10 with LLVM 22 (see `architecture.md`).
-- `extern "C"` runtime library and linking into native executables.
-- `brim build` produces an executable. Optimization levels.
-- Differential testing: interpreter versus native output on all integration programs.
-- A CI job with LLVM installed; frontend-only CI stays LLVM-free.
+Still open from this phase: debug information, Windows, cross-compilation, and linking without a C compiler.
+
+**Next milestone: runtime and standard library (Phase 5).** Native executables exist, so memory management (strings are not freed yet) and the first real language data types come next.
 
 ## Phase 5: Runtime and standard library (planned)
 

@@ -312,7 +312,7 @@ These stop the program immediately, after the output produced so far has been fl
 |---------|-----------|
 | `R0001` | integer overflow in `+`, `-`, `*`, `/`, `%` or unary `-` |
 | `R0002` | division or remainder by zero |
-| `R0003` | call depth limit exceeded (10,000 nested calls in the reference interpreter) |
+| `R0003` | call depth limit exceeded (10,000 nested calls, in the interpreter and in native executables) |
 | `R0004` | writing program output failed |
 
 Integers never wrap silently.

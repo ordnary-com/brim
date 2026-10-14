@@ -8,8 +8,16 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+default = []
+# The LLVM backend. Needs LLVM 22 installed (see docs/development.md).
+llvm = ["dep:inkwell"]
+
 [dependencies]
+brim-diagnostics.workspace = true
 brim-ir.workspace = true
+brim-runtime.workspace = true
+inkwell = { workspace = true, optional = true }
 
 [lints]
 workspace = true

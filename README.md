@@ -39,7 +39,7 @@ fn main() {
 }
 ```
 
-> **Brim is early (0.1).** The language is small and programs run on a reference interpreter; native compilation is the next milestone. Go is still Ordnary's production backend. See [Status](#status) for exactly what works.
+> **Brim is early (0.1).** The language is small. Programs run on a reference interpreter or compile to native executables with LLVM. Go is still Ordnary's production backend. See [Status](#status) for exactly what works.
 
 ## Why Brim
 
@@ -105,7 +105,7 @@ error[E0218]: cannot assign to immutable variable `count`
 | Enums | `iota` constants | sum types with exhaustive `match` | planned |
 | Error handling | `if err != nil`, easy to ignore | errors as values the compiler enforces | planned (design open) |
 | API types shared with Angular | written twice, by hand | declared once, TypeScript generated | planned |
-| Native single-binary deploys | yes | yes | planned (next milestone) |
+| Native single-binary deploys | yes | yes | **available** (LLVM, Linux and macOS) |
 
 ### What we keep from Go
 
@@ -123,11 +123,11 @@ Brim is at **version 0.1**. It is a working foundation, **not ready for producti
 - `i64`, `bool`, `string`; arithmetic, comparison and logical operators; string concatenation and equality
 - Builtins `print` and `to_string`
 - Full static type checking, return checking on all paths, and detailed diagnostics
-- `brim run` (reference interpreter), `brim check`, `brim.toml` projects
+- `brim build` (native executables via LLVM 22, opt-in at compile time), `brim run` (reference interpreter), `brim check`, `brim.toml` projects
 
 **Not yet**
 
-- Native compilation (`brim build` reports that the LLVM backend is not available)
+- Memory management in native executables (strings are not freed yet), debug information, Windows builds
 - Structs, enums and `match`, lists and maps, generics, modules and imports, error handling, closures, concurrency
 - Standard library beyond `print` and `to_string`; dependencies and a package registry; formatter and language server
 
@@ -135,7 +135,7 @@ The [roadmap](docs/roadmap.md) lists the milestones in order.
 
 ## Getting started
 
-You need Rust 1.88 or newer, installed with [rustup](https://rustup.rs). No LLVM installation is required.
+You need Rust 1.88 or newer, installed with [rustup](https://rustup.rs). LLVM is only needed for native builds (see below).
 
 ```sh
 git clone https://github.com/ordnary-com/brim.git
@@ -152,6 +152,15 @@ brim check examples/variables.brim    # report errors without running
 brim check --emit ir examples/functions.brim   # show the intermediate representation
 brim run examples/project             # run a project described by brim.toml
 brim --help
+```
+
+To compile native executables, build `brim` with the `llvm` feature. It needs LLVM 22 and a C compiler; the [development guide](docs/development.md#native-builds-llvm) has the setup.
+
+```sh
+export LLVM_SYS_221_PREFIX="$(brew --prefix llvm@22)"   # macOS; see the guide for Linux
+cargo build --release --features brim-cli/llvm
+brim build examples/control_flow.brim && ./examples/control_flow
+brim build --release examples/project   # writes examples/project/target/hello
 ```
 
 A project is a directory with a `brim.toml`:
@@ -189,7 +198,7 @@ crates/
   brim-ir           intermediate representation and validator
   brim-lower        checked program to IR
   brim-interp       reference interpreter (temporary execution path)
-  brim-codegen      native backend interface (LLVM planned)
+  brim-codegen      LLVM backend and native runtime (`llvm` feature)
   brim-runtime      runtime ABI and runtime functions
   brim-stdlib       builtin function catalogue
   brim-manifest     brim.toml parsing and validation

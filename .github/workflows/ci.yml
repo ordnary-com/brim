@@ -50,6 +50,42 @@ jobs:
           done
           cargo run -q -p brim-cli -- run examples/project
 
+  native:
+    name: Native backend (LLVM 22, ${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Install LLVM 22 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 22
+          sudo apt-get install -y libpolly-22-dev libzstd-dev
+          echo "LLVM_SYS_221_PREFIX=/usr/lib/llvm-22" >> "$GITHUB_ENV"
+      - name: Install LLVM 22 (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm@22
+          echo "LLVM_SYS_221_PREFIX=$(brew --prefix llvm@22)" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: llvm22
+      - run: cargo clippy --workspace --all-targets --locked --features brim-cli/llvm -- -D warnings
+      - run: cargo test --workspace --locked --features brim-cli/llvm
+      - name: Build and run the examples natively
+        shell: bash
+        run: |
+          for f in examples/*.brim; do
+            cargo run -q -p brim-cli --features llvm -- build --release -o "target/native/$(basename "$f" .brim)" "$f"
+            "target/native/$(basename "$f" .brim)"
+          done
+
   msrv:
     name: Minimum supported Rust version
     runs-on: ubuntu-latest

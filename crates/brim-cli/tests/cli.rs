@@ -121,6 +121,7 @@ fn runtime_errors_exit_101() {
     assert!(stderr(&out).starts_with("error[R0001]: integer overflow in `*`"));
 }
 
+#[cfg(not(feature = "llvm"))]
 #[test]
 fn build_reports_unavailable_backend() {
     let out = brim(&["build", "examples/hello.brim"]);
@@ -130,6 +131,69 @@ fn build_reports_unavailable_backend() {
     // Programs with errors still fail with compile errors first.
     let out = brim(&["build", "tests/diagnostics/missing_main.brim"]);
     assert_eq!(out.status.code(), Some(1));
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn build_writes_an_executable() {
+    let dir = scratch("build_single_file");
+    fs::copy(root().join("examples/hello.brim"), dir.join("hello.brim")).unwrap();
+    let out = brim_in(&dir, &["build", "hello.brim"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let exe = format!("hello{}", std::env::consts::EXE_SUFFIX);
+    assert_eq!(stderr(&out), format!("built {exe}\n"));
+    let run = Command::new(dir.join(&exe)).output().unwrap();
+    assert_eq!(run.status.code(), Some(0));
+    assert!(stdout(&run).starts_with("Hello from Ordnary\n"));
+
+    // `-o` creates missing directories.
+    let out = brim_in(&dir, &["build", "--release", "-o", "out/app", "hello.brim"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(dir.join("out").is_dir());
+
+    // Programs with errors still fail with compile errors first.
+    let out = brim(&["build", "tests/diagnostics/missing_main.brim"]);
+    assert_eq!(out.status.code(), Some(1));
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn build_project_into_target() {
+    let dir = scratch("build_project");
+    fs::create_dir_all(dir.join("src")).unwrap();
+    fs::write(
+        dir.join("brim.toml"),
+        "[package]\nname = \"greeter\"\nversion = \"0.1.0\"\nedition = \"2026\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("src/main.brim"),
+        "fn main() {\n    print(\"hi\")\n}\n",
+    )
+    .unwrap();
+    let out = brim_in(&dir, &["build"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let exe = dir
+        .join("target")
+        .join(format!("greeter{}", std::env::consts::EXE_SUFFIX));
+    let run = Command::new(exe).output().unwrap();
+    assert_eq!(stdout(&run), "hi\n");
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn build_reports_a_missing_linker() {
+    let dir = scratch("build_missing_linker");
+    fs::copy(root().join("examples/hello.brim"), dir.join("hello.brim")).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_brim"))
+        .args(["build", "hello.brim"])
+        .current_dir(&dir)
+        .env("BRIM_CC", "brim-no-such-compiler")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(4));
+    assert!(stderr(&out).contains("cannot run the linker `brim-no-such-compiler`"));
+    assert!(stderr(&out).contains("set `BRIM_CC`"));
 }
 
 #[test]

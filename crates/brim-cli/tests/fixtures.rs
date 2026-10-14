@@ -6,6 +6,9 @@
 //! - `tests/integration`: run `brim run`, compare stdout with `.stdout` and
 //!   stderr with `.stderr` (an absent file means "must be empty").
 //! - `examples`: every example must run successfully.
+//! - With the `llvm` feature, every integration program and example is also
+//!   built as a native executable, which must produce exactly the same
+//!   stdout, stderr and exit code as the interpreter (differential testing).
 //!
 //! Expected exit codes default to 1 for `check` suites and 0 for
 //! `integration`; a first line `// exit: N` overrides that.
@@ -152,4 +155,87 @@ fn examples_run() {
     let out = brim(&["run", "examples/project"]);
     assert_eq!(out.code, 0, "{}", out.stderr);
     assert_eq!(out.stdout, "Hello from a Brim project\n");
+}
+
+/// Builds `program` natively with `brim build` and runs the executable.
+#[cfg(feature = "llvm")]
+fn run_native(program: &str, release: bool) -> Result<Outcome, String> {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("native");
+    fs::create_dir_all(&dir).unwrap();
+    let mode = if release { "release" } else { "debug" };
+    let name = program.replace(['/', '.'], "_");
+    let exe = dir.join(format!("{name}-{mode}{}", std::env::consts::EXE_SUFFIX));
+    let exe_arg = exe.to_string_lossy().into_owned();
+    let mut args = vec!["build", program, "-o", &exe_arg];
+    if release {
+        args.push("--release");
+    }
+    let built = brim(&args);
+    if built.code != 0 {
+        return Err(format!(
+            "{program}: `brim build` failed with exit code {}\n{}",
+            built.code, built.stderr
+        ));
+    }
+    let out = std::process::Command::new(&exe)
+        .current_dir(workspace_root())
+        .output()
+        .map_err(|e| format!("{program}: cannot run {}: {e}", exe.display()))?;
+    Ok(Outcome {
+        code: out.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+    })
+}
+
+#[cfg(feature = "llvm")]
+fn native_suite(release: bool) {
+    let mut failures = Vec::new();
+    let programs = programs("tests/integration")
+        .into_iter()
+        .chain(programs("examples"));
+    for program in programs {
+        let interpreted = brim(&["run", &program]);
+        let native = match run_native(&program, release) {
+            Ok(native) => native,
+            Err(failure) => {
+                failures.push(failure);
+                continue;
+            }
+        };
+        if native.code != interpreted.code {
+            failures.push(format!(
+                "{program}: native exit code {} (interpreter: {})\nstderr:\n{}",
+                native.code, interpreted.code, native.stderr
+            ));
+        }
+        for (stream, native, interpreted) in [
+            ("stdout", &native.stdout, &interpreted.stdout),
+            ("stderr", &native.stderr, &interpreted.stderr),
+        ] {
+            if native != interpreted {
+                failures.push(format!(
+                    "{program}: {stream} differs\n--- interpreter\n{interpreted}\n--- native\n{native}"
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} failure(s):\n\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn native_matches_interpreter() {
+    native_suite(false);
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn native_release_matches_interpreter() {
+    native_suite(true);
 }

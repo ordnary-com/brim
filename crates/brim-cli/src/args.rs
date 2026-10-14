@@ -29,6 +29,10 @@ pub enum Command {
     },
     Build {
         input: Option<PathBuf>,
+        /// `-o`/`--output`: where to write the executable.
+        output: Option<PathBuf>,
+        /// `--release`: optimise.
+        release: bool,
     },
 }
 
@@ -71,22 +75,24 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
             [_, extra, ..] => Err(unexpected(extra, None)),
         },
         "check" => {
-            let parsed = CommandArgs::parse("check", rest, true)?;
+            let parsed = CommandArgs::parse("check", rest)?;
             Ok(parsed.help.unwrap_or(Command::Check {
                 input: parsed.input,
                 emit: parsed.emit,
             }))
         }
         "run" => {
-            let parsed = CommandArgs::parse("run", rest, false)?;
+            let parsed = CommandArgs::parse("run", rest)?;
             Ok(parsed.help.unwrap_or(Command::Run {
                 input: parsed.input,
             }))
         }
         "build" => {
-            let parsed = CommandArgs::parse("build", rest, false)?;
+            let parsed = CommandArgs::parse("build", rest)?;
             Ok(parsed.help.unwrap_or(Command::Build {
                 input: parsed.input,
+                output: parsed.output,
+                release: parsed.release,
             }))
         }
         other if other.starts_with('-') => Err(UsageError {
@@ -114,18 +120,26 @@ fn unexpected(arg: &str, command: Option<&'static str>) -> UsageError {
     }
 }
 
-/// Arguments shared by `check`, `run` and `build`.
+/// Arguments shared by `check`, `run` and `build`. Options are only accepted
+/// by the commands they belong to: `--emit` by `check`, `--output` and
+/// `--release` by `build`.
 struct CommandArgs {
     input: Option<PathBuf>,
     emit: Option<Emit>,
+    output: Option<PathBuf>,
+    release: bool,
     help: Option<Command>,
 }
 
 impl CommandArgs {
-    fn parse(command: &'static str, args: &[String], allow_emit: bool) -> Result<Self, UsageError> {
+    fn parse(command: &'static str, args: &[String]) -> Result<Self, UsageError> {
+        let allow_emit = command == "check";
+        let is_build = command == "build";
         let mut parsed = CommandArgs {
             input: None,
             emit: None,
+            output: None,
+            release: false,
             help: None,
         };
         let mut only_positional = false;
@@ -145,6 +159,17 @@ impl CommandArgs {
                     a if allow_emit && a.starts_with("--emit=") => {
                         parsed.emit = Some(parse_emit(&a["--emit=".len()..], command)?);
                     }
+                    "-o" | "--output" if is_build => {
+                        let value = iter.next().ok_or_else(|| UsageError {
+                            message: format!("`{arg}` needs a value: the executable's path"),
+                            command: Some(command),
+                        })?;
+                        parsed.output = Some(PathBuf::from(value));
+                    }
+                    a if is_build && a.starts_with("--output=") => {
+                        parsed.output = Some(PathBuf::from(&a["--output=".len()..]));
+                    }
+                    "--release" if is_build => parsed.release = true,
                     other => {
                         return Err(UsageError {
                             message: format!("unknown option `{other}` for `brim {command}`"),
@@ -182,7 +207,7 @@ Usage: brim <COMMAND> [OPTIONS]
 Commands:
   check [PATH]   Check a program for errors without running it
   run [PATH]     Check a program and run it with the reference interpreter
-  build [PATH]   Compile a native executable (not available yet)
+  build [PATH]   Compile a native executable
   help [COMMAND] Show help for a command
   version        Show the compiler version
 
@@ -225,14 +250,19 @@ Options:
             "\
 Compile a native executable
 
-Not available yet: the LLVM backend has not been implemented. The program is
-still checked and lowered to IR, and the command reports the missing backend.
-Use `brim run` to execute programs in the meantime.
+The program is compiled with LLVM and linked with the system C compiler
+(`$BRIM_CC`, `$CC` or `cc`). The executable is written next to a `.brim`
+file, without its extension, or to `target/<package name>` for a project.
 
-Usage: brim build [PATH]
+Native builds need a `brim` compiled with the `llvm` feature. Without it,
+the program is still checked and the command reports the missing backend.
+
+Usage: brim build [OPTIONS] [PATH]
 
 Options:
-  -h, --help  Show help
+  -o, --output <PATH>  Where to write the executable
+  --release            Optimise the executable
+  -h, --help           Show help
 "
         }
         "help" => "Show help for a command\n\nUsage: brim help [COMMAND]\n",
@@ -289,6 +319,22 @@ mod tests {
             })
         );
         assert_eq!(p(&["run", "-h"]), Ok(Command::Help(Some("run".into()))));
+        assert_eq!(
+            p(&["build", "--release", "-o", "out/app", "a.brim"]),
+            Ok(Command::Build {
+                input: Some("a.brim".into()),
+                output: Some("out/app".into()),
+                release: true,
+            })
+        );
+        assert_eq!(
+            p(&["build", "--output=app"]),
+            Ok(Command::Build {
+                input: None,
+                output: Some("app".into()),
+                release: false,
+            })
+        );
     }
 
     #[test]
@@ -315,5 +361,13 @@ mod tests {
             "`--emit` needs a value: tokens, ast or ir"
         );
         assert_eq!(msg(&["--frob"]), "unknown option `--frob`");
+        assert_eq!(
+            msg(&["run", "--release"]),
+            "unknown option `--release` for `brim run`"
+        );
+        assert_eq!(
+            msg(&["build", "-o"]),
+            "`-o` needs a value: the executable's path"
+        );
     }
 }

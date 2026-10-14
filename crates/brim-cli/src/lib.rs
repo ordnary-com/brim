@@ -72,7 +72,11 @@ pub fn run(args: &[String], ctx: &mut Context<'_>) -> i32 {
         Command::Version => write_out(ctx.stdout, &format!("brim {}\n", env!("CARGO_PKG_VERSION"))),
         Command::Check { input, emit } => check(input.as_deref(), emit, ctx),
         Command::Run { input } => run_program(input.as_deref(), ctx),
-        Command::Build { input } => build(input.as_deref(), ctx),
+        Command::Build {
+            input,
+            output,
+            release,
+        } => build(input.as_deref(), output.as_deref(), release, ctx),
     };
     match result {
         Ok(()) => exit::SUCCESS,
@@ -91,14 +95,14 @@ fn write_out(out: &mut dyn Write, text: &str) -> CmdResult {
 // ---- commands ---------------------------------------------------------
 
 fn check(input: Option<&Path>, emit: Option<Emit>, ctx: &mut Context<'_>) -> CmdResult {
-    let file = load_input(input, ctx)?;
+    let file = load_input(input, ctx)?.file;
     compile(&file, emit, ctx)?;
     let _ = writeln!(ctx.stderr, "ok: no errors found in {}", file.name());
     Ok(())
 }
 
 fn run_program(input: Option<&Path>, ctx: &mut Context<'_>) -> CmdResult {
-    let file = load_input(input, ctx)?;
+    let file = load_input(input, ctx)?.file;
     let module = compile(&file, None, ctx)?;
     match brim_interp::run(&module, ctx.stdout, brim_interp::Limits::default()) {
         Ok(()) => Ok(()),
@@ -125,19 +129,41 @@ fn run_program(input: Option<&Path>, ctx: &mut Context<'_>) -> CmdResult {
     }
 }
 
-fn build(input: Option<&Path>, ctx: &mut Context<'_>) -> CmdResult {
-    let file = load_input(input, ctx)?;
+fn build(
+    input: Option<&Path>,
+    output: Option<&Path>,
+    release: bool,
+    ctx: &mut Context<'_>,
+) -> CmdResult {
+    let Input {
+        file,
+        default_output,
+    } = load_input(input, ctx)?;
     let module = compile(&file, None, ctx)?;
-    let output = Path::new(file.name()).with_extension("");
+    let shown = output.map_or(default_output, Path::to_path_buf);
+    let output = ctx.cwd.join(&shown);
+    if let Some(dir) = output.parent()
+        && let Err(e) = std::fs::create_dir_all(dir)
+    {
+        let _ = writeln!(
+            ctx.stderr,
+            "error: cannot create the output directory {}: {e}",
+            dir.display()
+        );
+        return Err(exit::INPUT);
+    }
     let options = brim_codegen::BuildOptions {
         output,
-        opt_level: brim_codegen::OptLevel::Debug,
+        opt_level: if release {
+            brim_codegen::OptLevel::Release
+        } else {
+            brim_codegen::OptLevel::Debug
+        },
+        source: file.clone(),
     };
     match brim_codegen::native_backend().build(&module, &options) {
-        Ok(built) => {
-            for artifact in built.artifacts {
-                let _ = writeln!(ctx.stderr, "built {}", artifact.display());
-            }
+        Ok(_) => {
+            let _ = writeln!(ctx.stderr, "built {}", shown.display());
             Ok(())
         }
         Err(brim_codegen::CodegenError::BackendUnavailable { backend, reason }) => {
@@ -145,15 +171,32 @@ fn build(input: Option<&Path>, ctx: &mut Context<'_>) -> CmdResult {
                 ctx.stderr,
                 "error: cannot build a native executable: the {backend} backend is not available\n  \
                  = note: {reason}\n  \
-                 = note: {} has no errors; native compilation is planned (docs/roadmap.md, phase 4)\n  \
+                 = note: {} has no errors; rebuild `brim` with `--features llvm` for native builds \
+                 (docs/development.md)\n  \
                  = help: run the program with the reference interpreter: `brim run {}`",
                 file.name(),
                 file.name()
             );
             Err(exit::UNAVAILABLE)
         }
-        Err(err @ brim_codegen::CodegenError::InvalidModule(_)) => {
-            let _ = write!(ctx.stderr, "error: {err}");
+        Err(err @ brim_codegen::CodegenError::LinkerNotFound { .. }) => {
+            let _ = writeln!(
+                ctx.stderr,
+                "error: {err}\n  \
+                 = help: install a C compiler (clang or gcc), or set `BRIM_CC` to one"
+            );
+            Err(exit::UNAVAILABLE)
+        }
+        Err(err @ brim_codegen::CodegenError::LinkFailed { .. }) => {
+            let _ = writeln!(ctx.stderr, "error: {err}");
+            Err(exit::INTERNAL)
+        }
+        Err(err) => {
+            let _ = writeln!(ctx.stderr, "error: {}", err.to_string().trim_end());
+            let _ = writeln!(
+                ctx.stderr,
+                "  = note: this is a bug in the Brim compiler; please report it"
+            );
             Err(exit::INTERNAL)
         }
     }
@@ -257,6 +300,14 @@ fn report(diags: &[Diagnostic], file: &SourceFile, ctx: &mut Context<'_>) {
 
 // ---- input files ------------------------------------------------------
 
+/// The program a command works on.
+struct Input {
+    file: SourceFile,
+    /// Where `brim build` writes the executable unless told otherwise: next
+    /// to a single source file, or in the project's `target` directory.
+    default_output: PathBuf,
+}
+
 /// Reports a problem with an input file (no source location available).
 fn input_error(ctx: &mut Context<'_>, path: &str, diag: Diagnostic) -> i32 {
     let file = SourceFile::new(path, "");
@@ -269,7 +320,7 @@ fn input_error(ctx: &mut Context<'_>, path: &str, diag: Diagnostic) -> i32 {
 }
 
 /// Turns the command's PATH argument into the source file to compile.
-fn load_input(input: Option<&Path>, ctx: &mut Context<'_>) -> Result<SourceFile, i32> {
+fn load_input(input: Option<&Path>, ctx: &mut Context<'_>) -> Result<Input, i32> {
     let manifest = match input {
         None => match brim_manifest::find(&ctx.cwd) {
             Some(found) => {
@@ -299,7 +350,10 @@ fn load_input(input: Option<&Path>, ctx: &mut Context<'_>) -> Result<SourceFile,
             {
                 Some(path.to_path_buf())
             } else if path.extension().is_some_and(|e| e == "brim") {
-                return read_source(path, ctx, None);
+                return Ok(Input {
+                    file: read_source(path, ctx, None)?,
+                    default_output: path.with_extension(std::env::consts::EXE_EXTENSION),
+                });
             } else if !full.exists() {
                 let shown = path.display().to_string();
                 return Err(input_error(
@@ -340,7 +394,14 @@ fn load_input(input: Option<&Path>, ctx: &mut Context<'_>) -> Result<SourceFile,
         manifest_path.display(),
         brim_manifest::DEFAULT_ENTRY
     );
-    read_source(&entry, ctx, Some(note))
+    let project_dir = manifest_path.parent().unwrap_or(Path::new(""));
+    Ok(Input {
+        file: read_source(&entry, ctx, Some(note))?,
+        default_output: project_dir
+            .join("target")
+            .join(&manifest.package.name)
+            .with_extension(std::env::consts::EXE_EXTENSION),
+    })
 }
 
 fn read_source(

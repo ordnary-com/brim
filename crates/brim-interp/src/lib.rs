@@ -30,7 +30,7 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Limits {
-            max_call_depth: 10_000,
+            max_call_depth: brim_runtime::MAX_CALL_DEPTH,
         }
     }
 }

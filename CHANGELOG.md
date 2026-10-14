@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Native code generation: `brim build` compiles a program with LLVM 22 and links it with a small C runtime into a native executable. Opt-in at compile time with the `llvm` Cargo feature (`cargo build --features brim-cli/llvm`); without it, `brim build` still reports the backend as unavailable.
+- `brim build -o <path>` and `brim build --release`. Projects build to `target/<package name>`.
+- Native executables report run-time errors exactly like `brim run`, including the call stack and the 10,000-call depth limit.
+- Differential tests that build every integration program and example natively (debug and release) and compare stdout, stderr and exit code with the interpreter; a CI job with LLVM 22 on Linux and macOS.
+- Integration programs for `i64::MIN / -1` and negation overflow.
 - Control flow: `if` / `else` / `else if`, `while` loops, `break` and `continue`.
 - Mutable variables with `let mut`, assignment and compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`).
 - `to_string` builtin for `i64` and `bool`.
@@ -28,6 +33,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
+- `brim-codegen` now depends on `brim-diagnostics` and `brim-runtime`; `BuildOptions` carries the program's source.
+- `brim_runtime::MAX_CALL_DEPTH` is the shared call-depth limit of the interpreter and native executables.
 - `if`, `else`, `while`, `break`, `continue` and `mut` are now keywords instead of reserved words.
 - `E0104` now means "invalid assignment target"; assignment to variables is part of the language.
 - The nesting limit (`E0105`) now also applies to blocks and `else if` chains.
