@@ -63,7 +63,7 @@ Recursive descent for items and statements, and precedence climbing for binary e
 
 - **Newline handling.** Inside parentheses a depth counter makes the parser skip newline tokens. After a binary operator, `=` or `->`, newlines are skipped explicitly.
 - **Error recovery.** On an error the parser records a diagnostic and skips to the next statement boundary (newline, `;` or the enclosing `}`), or to the next `fn` at the top level. An unclosed block is detected when a `fn` keyword or end of file is reached.
-- **Nesting limit.** Expressions are limited to 128 levels of nesting (`E0105`). Long left-associative chains count too, because later phases recurse over the tree. In debug builds the parser uses about 7 KB of stack per nesting level, so this limit keeps every phase within the 2 MB default thread stack used by tests. The `brim` binary also runs the compiler on a thread with a 64 MB stack.
+- **Nesting limit.** Blocks and expressions together are limited to 128 levels of nesting (`E0105`). Long left-associative chains and `else if` chains count too, because later phases recurse over the tree. In debug builds the parser uses about 7 KB of stack per nesting level, so this limit keeps every phase within the 2 MB default thread stack used by tests. The `brim` binary also runs the compiler on a thread with a 64 MB stack.
 
 ## Semantic analysis
 
@@ -76,7 +76,9 @@ Types are a small enum (`i64`, `bool`, `string`, `void`) plus an internal `Error
 
 The output is a **checked program**: a typed tree where every name is resolved to a `LocalId` or `FnId`, every builtin call is resolved to a specific runtime function, and every operator is resolved to a type-specific operation (`IntAdd`, `StrConcat`, ...). Later phases never redo lookup or type inference.
 
-"Returns on all paths" is computed structurally. In 0.1 there is no branching, so a statement list returns if any statement in it returns, recursing into nested blocks. When `if` arrives, this becomes the usual "both branches return" rule.
+"Returns on all paths" is computed structurally, without building a control-flow graph: each statement reports whether it *diverges* (control never reaches the next statement). `return`, `break` and `continue` diverge; `if`/`else` diverges when both branches do; `while true` diverges when its body has no `break`. A non-`void` function body must diverge. The same flag drives the unreachable-code warning. The checker keeps a stack of enclosing loops to validate `break`/`continue` and to record whether a loop contains a `break`.
+
+Mutability is tracked per local: assignments to non-`mut` locals are rejected, and `mut` locals that are never reassigned produce a warning. Compound assignments are expanded in the checked tree (`x += 1` becomes `x = x + 1`) so lowering has a single assignment form.
 
 ## Intermediate representation
 
@@ -90,6 +92,8 @@ Brim IR is a typed control-flow graph, designed to be easy to validate, to inter
 - Instructions carry an optional source span, used for run-time error locations today and for debug information later.
 
 `&&` and `||` lower to a branch: the left value is stored in a temporary `bool` slot, the right side is evaluated in its own block only when needed, and a join block loads the result.
+
+`if` lowers to a `branch` into a then block and an else block (empty when there is no `else`), both jumping to a join block. If neither branch falls through, the join block keeps no predecessors and an `unreachable` terminator. `while` lowers to a header block that evaluates the condition and branches to the body or the exit block; the body jumps back to the header. `break` jumps to the exit block and `continue` to the header. Mutable variables are ordinary slots, so loops need no phi nodes.
 
 Text form (`brim check --emit ir`):
 
@@ -132,6 +136,8 @@ Generated code reaches the outside world only through runtime functions listed i
 | `brim_rt_print_str`  | `(str) -> void`      | `print(string)` |
 | `brim_rt_str_concat` | `(str, str) -> str`  | string `+` |
 | `brim_rt_str_eq`     | `(str, str) -> bool` | string `==` / `!=` |
+| `brim_rt_i64_to_str` | `(i64) -> str`       | `to_string(i64)` |
+| `brim_rt_bool_to_str`| `(bool) -> str`      | `to_string(bool)` |
 
 Planned native representation: `i64` as a 64-bit integer, `bool` as an 8-bit `0`/`1`, `str` as a pointer to a runtime-owned string object. The C-ABI (`extern "C"`) entry points will be added to `brim-runtime` together with the LLVM backend. They are deliberately not present yet: they would need `unsafe` code that nothing could call or test.
 

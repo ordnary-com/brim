@@ -28,14 +28,15 @@ Status legend: **done**, **in progress**, **planned**. Only items marked done ex
 - Reference interpreter over IR, with checked arithmetic, call-depth limits and located run-time errors.
 - `brim check`, `brim run`, `brim check --emit tokens|ast|ir`.
 
-**Next milestone: control flow (Phase 3b, planned).** It is the most valuable language addition and exercises the IR's branching support:
+## Phase 3b: Control flow (done)
 
-- `if` / `else` (as statements; whether `if` is also an expression is to be decided);
-- `while` loops, `break` and `continue`;
-- mutable local variables (`let mut` or similar) and assignment, needed for loops to be useful;
-- updating "returns on all paths" to the branching rule;
-- a conversion from integers to strings (e.g. a builtin) so output can be composed;
-- fixtures for every new diagnostic, and interpreter tests.
+- `if` / `else` / `else if` (as statements; `if` as an expression is an open question).
+- `while` loops with `break` and `continue`.
+- Mutable variables (`let mut`), assignment and compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`).
+- Divergence-based "returns on all paths" analysis and unreachable-code warnings; `while true` without `break` counts as never ending.
+- The `to_string` builtin for `i64` and `bool`.
+
+**Next milestone: native code generation (Phase 4).** With control flow in place, the language can express real algorithms, so the next step is to stop relying on the interpreter.
 
 ## Phase 4: Native code generation (planned)
 

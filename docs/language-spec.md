@@ -7,16 +7,26 @@ This document is normative for the language. The implementation lives in `crates
 
 ## 1. Overview
 
-Brim is a statically typed, compiled, general-purpose language from Ordnary, aimed at backend services, APIs, CLI tools and developer tooling. Version 0.1 is a deliberately small core: functions, immutable typed variables, integers, booleans, strings, and a builtin `print`.
+Brim is a statically typed, compiled, general-purpose language from Ordnary, aimed at backend services, APIs, CLI tools and developer tooling. Version 0.1 is a deliberately small core: functions, typed variables (immutable unless declared `mut`), integers, booleans, strings, `if`/`else`, `while` loops, and the builtins `print` and `to_string`.
 
 ```brim
-fn add(a: i64, b: i64) -> i64 {
-    return a + b
+fn fizzbuzz(n: i64) -> string {
+    if n % 15 == 0 {
+        return "FizzBuzz"
+    } else if n % 3 == 0 {
+        return "Fizz"
+    } else if n % 5 == 0 {
+        return "Buzz"
+    }
+    return to_string(n)
 }
 
 fn main() {
-    let result: i64 = add(10, 32)
-    print(result)
+    let mut i: i64 = 1
+    while i <= 15 {
+        print(fizzbuzz(i))
+        i += 1
+    }
 }
 ```
 
@@ -49,14 +59,14 @@ Identifiers are ASCII-only in 0.1. Identifiers are case-sensitive. A word that i
 Keywords with meaning in 0.1:
 
 ```
-fn  let  return  true  false
+fn  let  mut  return  if  else  while  break  continue  true  false
 ```
 
 Reserved words for planned features. They cannot be used as identifiers, and using one produces error `E0101`:
 
 ```
-as  async  await  break  const  continue  else  enum  for  if  impl  import
-in  loop  match  mut  pub  self  struct  trait  type  use  while
+as  async  await  const  enum  for  impl  import  in  loop  match  pub  self
+struct  trait  type  use
 ```
 
 The type names `i64`, `bool`, `string` and `void` are **not** keywords. They are predeclared type names, resolved during semantic analysis.
@@ -88,7 +98,8 @@ escape         = '\' ( 'n' | 'r' | 't' | '0' | '\' | '"' )
 ### 3.6 Operators and punctuation
 
 ```
-+  -  *  /  %  ==  !=  <  <=  >  >=  &&  ||  !  =
++  -  *  /  %  ==  !=  <  <=  >  >=  &&  ||  !
+=  +=  -=  *=  /=  %=
 (  )  {  }  ,  :  ;  ->
 ```
 
@@ -110,8 +121,13 @@ type        = identifier ;
 block       = "{" { separator } [ statement { terminator statement } ] { separator } "}" ;
 terminator  = separator { separator } ;     (* see 6.1; "}" also ends a statement *)
 
-statement   = let_stmt | return_stmt | block | expr_stmt ;
-let_stmt    = "let" identifier ":" type "=" expression ;
+statement   = let_stmt | assign_stmt | if_stmt | while_stmt
+            | "break" | "continue" | return_stmt | block | expr_stmt ;
+let_stmt    = "let" [ "mut" ] identifier ":" type "=" expression ;
+assign_stmt = identifier assign_op expression ;
+assign_op   = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
+if_stmt     = "if" expression block [ "else" ( if_stmt | block ) ] ;
+while_stmt  = "while" expression block ;
 return_stmt = "return" [ expression ] ;
 expr_stmt   = expression ;
 
@@ -150,9 +166,10 @@ Comparison operators at the same level cannot be chained: `a < b < c` and `a == 
 
 - Only function declarations may appear at the top level (`E0103`).
 - `let` requires a type annotation (`E0102`) and an initializer.
-- Assignment to an existing variable (`x = 1`) is not part of the language (`E0104`).
+- Only a variable name can be assigned to: `f() = 1` is error `E0104`.
+- The body of `if`, `else` and `while` must be a block in braces. `else` must be followed by `{` or `if`.
 - Only names can be called: `f(1)` is valid, `f()(1)` and `1(2)` are not (`E0107`). A parenthesized name, as in `(f)(1)`, counts as a name.
-- Expressions may nest at most 128 levels deep, including long operator chains (`E0105`). This is an implementation limit that protects the compiler's stack.
+- Blocks and expressions may nest at most 128 levels deep, counting long operator chains and `else if` chains (`E0105`). This is an implementation limit that protects the compiler's stack.
 
 ## 5. Types
 
@@ -181,7 +198,9 @@ A statement ends at a newline, a `;`, or the `}` that closes its block. Two stat
 Newlines do **not** end a statement:
 
 - inside parentheses, so argument and parameter lists may span lines;
-- directly after a binary operator, `=`, `->` or `,`.
+- directly after a binary operator, an assignment operator (`=`, `+=`, ...), `->` or `,`;
+- before the `{` that opens a function body or the block of an `if`, `else` or `while`;
+- between the `}` of an `if` block and a following `else`.
 
 To continue a long expression, end the line with the operator:
 
@@ -195,19 +214,56 @@ A line that starts with a binary operator is a new statement, which is normally 
 
 ### 6.2 `let`
 
-`let name: T = expr` evaluates `expr`, which must have type exactly `T`, and binds it to `name` in the current scope. Bindings are immutable.
+`let name: T = expr` evaluates `expr`, which must have type exactly `T`, and binds it to `name` in the current scope. The binding is immutable.
 
-### 6.3 `return`
+`let mut name: T = expr` declares a **mutable** variable that may be reassigned. A `mut` variable that is never reassigned produces warning `W0003`.
+
+### 6.3 Assignment
+
+`name = expr` evaluates `expr` and stores it in the variable `name`, which must be declared with `let mut` (`E0218`). Function parameters are never mutable. The value must have the variable's type exactly (`E0206`).
+
+The compound forms `name op= expr` (with `op` one of `+ - * / %`) mean `name = name op expr`, with the same operand rules as the binary operators (section 8.1). For example, `s += "x"` appends to a mutable `string`.
+
+Assignment is a statement, not an expression: it produces no value.
+
+### 6.4 `if` / `else`
+
+`if cond { ... }` runs the block when `cond` is `true`. `cond` must be a `bool` (`E0206`); there is no implicit truthiness, so write `n != 0` instead of `n`. An optional `else { ... }` runs otherwise, and `else if` chains are allowed. Each block opens a new scope.
+
+`if` is a statement, not an expression (see section 11).
+
+### 6.5 `while`
+
+`while cond { ... }` evaluates `cond` (which must be a `bool`) and runs the block as long as it is `true`. The condition is evaluated before every iteration.
+
+- `break` leaves the innermost enclosing loop.
+- `continue` jumps to the next evaluation of the innermost loop's condition.
+- `break` or `continue` outside a loop is error `E0217`.
+
+There is no separate infinite-loop keyword: write `while true { ... }`.
+
+### 6.6 `return`
 
 `return expr` returns from the enclosing function. `expr` must have the function's return type. A plain `return` is allowed only in `void` functions (`E0208`).
 
-### 6.4 Expression statements
+### 6.7 Expression statements
 
 Evaluates an expression for its effects. A non-call expression used as a statement (`1 + 2`) produces warning `W0002`. Discarding the result of a call is allowed.
 
-### 6.5 Blocks
+### 6.8 Blocks
 
 `{ ... }` groups statements and opens a new scope.
+
+### 6.9 Reachability and returns
+
+A statement **diverges** when control can never continue to the statement after it:
+
+- `return`, `break` and `continue` diverge;
+- a block diverges if any statement in it diverges;
+- `if`/`else` diverges if both branches diverge; an `if` without `else` never diverges;
+- `while true { ... }` diverges if its body contains no `break` for that loop. Any other `while` does not diverge, because its body may run zero times.
+
+A function with a return type other than `void` must not be able to reach the end of its body: the body must diverge (`E0207`). Statements after a diverging statement are unreachable and produce warning `W0001`.
 
 ## 7. Names and scopes
 
@@ -215,6 +271,7 @@ Evaluates an expression for its effects. A non-call expression used as a stateme
 - **Variables** live in lexical scopes. A function's parameters and its body's top-level statements share one scope. Each nested block opens a new scope.
 - Declaring a variable twice in the same scope is `E0203`, and duplicate parameter names are `E0204`. A nested block may **shadow** an outer variable.
 - A `let` binding is visible from the statement after it until the end of its block. In `let x: i64 = x`, the `x` on the right refers to an outer `x`.
+- Variables are immutable unless declared with `let mut` (section 6.2).
 - Variables and functions are separate namespaces. Using a function name as a value is `E0214`, and so is calling a variable.
 
 ## 8. Expressions
@@ -267,15 +324,16 @@ Builtins are always in scope and cannot be redefined.
 | Builtin | Forms                                             | Effect |
 |---------|---------------------------------------------------|--------|
 | `print` | `print(string)`, `print(i64)`, `print(bool)`      | writes the value and a newline to standard output |
+| `to_string` | `to_string(i64) -> string`, `to_string(bool) -> string` | the decimal representation of an integer, or `"true"`/`"false"` |
 
-`print` selects its form by the argument's type. User functions cannot be overloaded.
+A builtin selects its form by the argument's type. User functions cannot be overloaded.
 
 ## 11. Open design questions
 
 These questions are not settled. The current behavior is a reversible default.
 
 1. **Type inference for `let`.** Annotations are mandatory now. Local inference (`let x = 1`) is likely, but it should wait until the type system has more types.
-2. **Mutability.** All bindings are immutable. `let mut` (with `mut` already reserved) or a separate `var` keyword are both candidates.
+2. **`if` as an expression.** `if` is a statement. Making it an expression (`let x: i64 = if c { 1 } else { 2 }`) is attractive but needs rules for blocks with values.
 3. **Integer types.** Only `i64` exists. Sized (`i32`, `u8`, ...) and pointer-sized types are needed for systems work. Literal typing rules depend on this.
 4. **Overflow semantics.** Checked arithmetic that traps is the current rule. Whether release builds keep the checks, and whether explicit wrapping operations are added, is open.
 5. **String model.** Strings are immutable UTF-8. Indexing, slicing, byte access and the cost model (reference counting vs. copying) are undecided. See `docs/architecture.md`, Memory management.
@@ -284,12 +342,13 @@ These questions are not settled. The current behavior is a reversible default.
 8. **`main` signature.** Whether `main` may return an exit code or receive arguments is undecided.
 9. **Unicode identifiers.** Identifiers are ASCII-only. Allowing Unicode (UAX #31) is possible later.
 10. **Entry point and modules.** The module system, visibility (`pub` is reserved) and how `brim.toml` maps packages to modules are undesigned.
+11. **Loop forms.** Only `while` exists. A `for` loop over ranges and collections (with `for` and `in` reserved), a dedicated `loop` keyword, and labeled `break` for nested loops are candidates.
 
 ## 12. Possible future features
 
-These are explicitly **not** part of 0.1. Their keywords are reserved where applicable, and none of them should be assumed to work: control flow (`if`/`else`, `while`, `for`, `loop`, `break`, `continue`, `match`), mutable variables, structs and enums, methods, traits, generics, modules and imports, closures and first-class functions, collections, error handling, async/await, macros, reflection, an ownership or borrowing system, and FFI.
+These are explicitly **not** part of 0.1. Their keywords are reserved where applicable, and none of them should be assumed to work: `for` loops, `loop`, `match`, structs and enums, methods, traits, generics, modules and imports, closures and first-class functions, collections, error handling, async/await, macros, reflection, an ownership or borrowing system, and FFI.
 
-Control flow is the next planned milestone (see `docs/roadmap.md`).
+See `docs/roadmap.md` for the order in which these are planned.
 
 ## Appendix A. The `brim.toml` manifest
 

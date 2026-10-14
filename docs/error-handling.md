@@ -53,11 +53,11 @@ Guidelines for writing diagnostics:
 | Code  | Meaning |
 |-------|---------|
 | E0100 | Unexpected token ("expected X, found Y"), including unclosed blocks and parentheses |
-| E0101 | Reserved keyword used (`if`, `struct`, `mut`, ...): the feature is not supported yet |
+| E0101 | Reserved keyword used (`for`, `struct`, `match`, ...): the feature is not supported yet |
 | E0102 | Missing type annotation on a `let` or a parameter |
 | E0103 | Something other than a function declaration at the top level |
-| E0104 | Assignment to a variable (variables are immutable) |
-| E0105 | Expression nested too deeply (implementation limit: 128) |
+| E0104 | Invalid assignment target (only variables can be assigned to) |
+| E0105 | Blocks or expressions nested too deeply (implementation limit: 128) |
 | E0106 | Chained comparison such as `a < b < c` |
 | E0107 | Call of something that is not a function name |
 
@@ -71,7 +71,7 @@ Guidelines for writing diagnostics:
 | E0203 | Variable declared twice in the same scope |
 | E0204 | Duplicate parameter name |
 | E0205 | Wrong number of arguments |
-| E0206 | Mismatched types, including a builtin called with an unsupported argument type |
+| E0206 | Mismatched types, including a non-`bool` condition and a builtin called with an unsupported argument type |
 | E0207 | Non-`void` function can reach its end without returning |
 | E0208 | `return` without a value in a non-`void` function, or with a value in a `void` function |
 | E0209 | Operator applied to unsupported operand types |
@@ -82,13 +82,16 @@ Guidelines for writing diagnostics:
 | E0214 | Function used as a value, or a variable called as a function |
 | E0215 | Integer literal out of range for `i64` |
 | E0216 | Function redefines a builtin |
+| E0217 | `break` or `continue` outside of a loop |
+| E0218 | Assignment to an immutable variable or a parameter |
 
 ### Warnings
 
 | Code  | Meaning |
 |-------|---------|
-| W0001 | Unreachable code after `return` |
+| W0001 | Unreachable code after `return`, `break`, `continue` or a diverging `if`/`while` |
 | W0002 | Value of a non-call expression statement is unused |
+| W0003 | Variable declared `mut` but never reassigned |
 
 ### Manifest errors (`brim-manifest`)
 

@@ -9,14 +9,28 @@
 Brim is a statically typed, compiled, general-purpose programming language developed by **Ordnary**. It is aimed at backend services, APIs, server software, CLI tools and developer tooling, and eventually broader systems programming. Its intended compilation target is native executables via LLVM.
 
 ```brim
-fn add(a: i64, b: i64) -> i64 {
-    return a + b
+fn is_prime(n: i64) -> bool {
+    if n < 2 {
+        return false
+    }
+    let mut divisor: i64 = 2
+    while divisor * divisor <= n {
+        if n % divisor == 0 {
+            return false
+        }
+        divisor += 1
+    }
+    return true
 }
 
 fn main() {
-    let name: string = "Ordnary"
-    print("Hello from " + name)
-    print(add(10, 32))
+    let mut n: i64 = 1
+    while n <= 20 {
+        if is_prime(n) {
+            print(to_string(n) + " is prime")
+        }
+        n += 1
+    }
 }
 ```
 
@@ -27,7 +41,7 @@ Brim is at **version 0.1, an early foundation**. It is not ready for real use.
 What works today:
 
 - The complete frontend for the 0.1 language: lexer, parser, semantic analysis and type checking, with detailed diagnostics (error codes, source excerpts, suggestions).
-- Language features: functions with typed parameters and return types, `main` as entry point, immutable `let` bindings with type annotations, `i64`/`bool`/`string`, arithmetic, comparison and logical operators, string concatenation and equality, nested blocks with shadowing, `//` comments, newline-terminated statements, and the builtin `print`.
+- Language features: functions with typed parameters and return types, `main` as entry point, `let` bindings with type annotations (immutable unless `let mut`), assignment and compound assignment, `if`/`else`, `while` with `break`/`continue`, `i64`/`bool`/`string`, arithmetic, comparison and logical operators, string concatenation and equality, nested blocks with shadowing, `//` comments, newline-terminated statements, and the builtins `print` and `to_string`.
 - A typed intermediate representation (Brim IR) with a validator.
 - **Execution through a reference interpreter** (`brim run`). This is a temporary execution path, not the final backend.
 - The `brim.toml` project manifest (package name, version, edition, entry file).
@@ -35,10 +49,10 @@ What works today:
 What is **not** implemented yet:
 
 - **Native code generation.** There is no LLVM backend yet; `brim build` reports this and exits with code 4.
-- Control flow (`if`, `while`, loops), mutable variables, structs, enums, collections, generics, traits, modules and imports, closures, error handling in the language, async, macros.
+- `for` loops and `match`, structs, enums, collections, generics, traits, modules and imports, closures, error handling in the language, async, macros.
 - Dependencies, a package registry, a formatter, a language server.
 
-See [`docs/roadmap.md`](docs/roadmap.md) for the plan. The next milestone is control flow.
+See [`docs/roadmap.md`](docs/roadmap.md) for the plan. The next milestone is native code generation.
 
 ## Prerequisites
 
@@ -59,6 +73,7 @@ The compiler binary is `target/release/brim`. Or install it with `cargo install 
 
 ```sh
 brim run examples/hello.brim         # check and run with the reference interpreter
+brim run examples/control_flow.brim  # FizzBuzz and primes
 brim check examples/variables.brim   # report errors without running
 brim check --emit ir examples/functions.brim   # show the generated Brim IR
 brim run examples/project            # run a project described by brim.toml
