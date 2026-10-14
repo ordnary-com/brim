@@ -32,7 +32,12 @@ as the secret `HOMEBREW_TAP_TOKEN`.
 
 ## Zed
 
-Zed lists extensions from <https://github.com/zed-industries/extensions>:
+Zed lists extensions from <https://github.com/zed-industries/extensions>.
+Their AI policy requires a person to open the pull request, write its
+description and answer review questions in their own words, and to have
+tested the extension in Zed at the submitted commit (**zed: install dev
+extension**, choose `editors/zed`). `editors/zed` has the license file
+their CI requires.
 
 1. Fork it and add this repository as a submodule:
    `git submodule add https://github.com/ordnary-com/brim extensions/brim`.
@@ -50,6 +55,12 @@ the grammar.
 
 ## Neovim (nvim-treesitter)
 
+Not yet: nvim-treesitter only takes parsers for filetypes Neovim already
+detects (which goes through Vim first: `runtime/autoload/dist/ft.vim` in
+vim/vim), that are "feature complete, tested by users", and whose grammar
+CI uses the upstream `tree-sitter/workflows` and a `ts_query_ls` check.
+Revisit once Brim has users.
+
 Until `brim` is in nvim-treesitter, `editors/neovim` registers the parser
 itself. To add it upstream, open a pull request to
 <https://github.com/nvim-treesitter/nvim-treesitter> that adds `brim` to
@@ -58,7 +69,8 @@ location `editors/tree-sitter-brim`) and the queries to `queries/brim/`.
 
 ## Helix
 
-To ship Brim with Helix, open a pull request to
+Submitted: <https://github.com/helix-editor/helix/pull/16384>. To update
+it, or for a later language change, open a pull request to
 <https://github.com/helix-editor/helix> that adds the `[[language]]` and
 `[[grammar]]` entries from `helix/languages.toml` to its `languages.toml`
 and the queries in `helix/runtime/queries/brim` to `runtime/queries/brim`.
