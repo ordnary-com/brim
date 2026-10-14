@@ -10,7 +10,9 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use args::{Command, Emit};
-use brim_diagnostics::{ColorChoice, Diagnostic, Renderer, Severity, SourceFile, Span};
+use brim_diagnostics::{
+    ColorChoice, Diagnostic, Renderer, Severity, SourceFile, SourceMap, Sources, Span,
+};
 use brim_ir::Module;
 
 /// Process exit codes. Documented in `docs/error-handling.md`.
@@ -105,7 +107,7 @@ fn check(input: Option<&Path>, emit: Option<Emit>, ctx: &mut Context<'_>) -> Cmd
 
 fn run_program(input: Option<&Path>, args: Vec<String>, ctx: &mut Context<'_>) -> CmdResult {
     let file = load_input(input, ctx)?.file;
-    let module = compile(&file, None, ctx)?;
+    let (module, map) = compile(&file, None, ctx)?;
     let mut host = brim_interp::Host {
         out: ctx.stdout,
         err: ctx.stderr,
@@ -134,7 +136,7 @@ fn run_program(input: Option<&Path>, args: Vec<String>, ctx: &mut Context<'_>) -
                 }
                 diag = diag.with_note(format!("call stack: {}", calls.join(" -> ")));
             }
-            report(&[diag], &file, ctx);
+            report(&[diag], &map, ctx);
             Err(exit::RUNTIME_ERROR)
         }
     }
@@ -150,7 +152,7 @@ fn build(
         file,
         default_output,
     } = load_input(input, ctx)?;
-    let module = compile(&file, None, ctx)?;
+    let (module, map) = compile(&file, None, ctx)?;
     let shown = output.map_or(default_output, Path::to_path_buf);
     let output = ctx.cwd.join(&shown);
     if let Some(dir) = output.parent()
@@ -170,7 +172,7 @@ fn build(
         } else {
             brim_codegen::OptLevel::Debug
         },
-        source: file.clone(),
+        source: map,
     };
     match brim_codegen::native_backend().build(&module, &options) {
         Ok(_) => {
@@ -216,28 +218,34 @@ fn build(
 // ---- pipeline ---------------------------------------------------------
 
 /// Runs the frontend and lowering. Prints diagnostics (and `--emit` output).
-fn compile(file: &SourceFile, emit: Option<Emit>, ctx: &mut Context<'_>) -> Result<Module, i32> {
-    let (tokens, mut diags) = brim_lexer::lex(file.text());
+fn compile(
+    file: &SourceFile,
+    emit: Option<Emit>,
+    ctx: &mut Context<'_>,
+) -> Result<(Module, SourceMap), i32> {
     if emit == Some(Emit::Tokens) {
+        let (tokens, _) = brim_lexer::lex(file.text());
         for token in &tokens {
             let loc = file.location(token.span.start);
             let _ = writeln!(ctx.stdout, "{loc}\t{:?}", token.kind);
         }
     }
-    let (ast, parse_diags) = brim_parser::parse_tokens(tokens);
-    diags.extend(parse_diags);
+    let mut map = SourceMap::new();
+    map.add(file.clone());
+    let (root, mut diags) = brim_parser::parse_at(file.text(), 0);
+    if emit == Some(Emit::Ast) && !brim_diagnostics::has_errors(&diags) {
+        let _ = writeln!(ctx.stdout, "{root:#?}");
+    }
+    let modules = load_modules(root, file, &mut map, &mut diags, ctx);
     diags.sort_by_key(|d| d.span().map_or(usize::MAX, |s| s.start));
     if brim_diagnostics::has_errors(&diags) {
-        report(&diags, file, ctx);
+        report(&diags, &map, ctx);
         return Err(exit::COMPILE_ERROR);
     }
-    if emit == Some(Emit::Ast) {
-        let _ = writeln!(ctx.stdout, "{ast:#?}");
-    }
 
-    let (checked, semantic_diags) = brim_semantic::check(&ast);
+    let (checked, semantic_diags) = brim_semantic::check_modules(&modules);
     diags.extend(semantic_diags);
-    report(&diags, file, ctx);
+    report(&diags, &map, ctx);
     let Some(checked) = checked else {
         return Err(exit::COMPILE_ERROR);
     };
@@ -261,16 +269,88 @@ fn compile(file: &SourceFile, emit: Option<Emit>, ctx: &mut Context<'_>) -> Resu
         let _ = write!(ctx.stdout, "{module}");
     }
     let _ = ctx.stdout.flush();
-    Ok(module)
+    Ok((module, map))
+}
+
+/// Finds and parses the modules a program imports, directly or through
+/// other modules. `import a.b` refers to `a/b.brim` in the directory of the
+/// root file.
+fn load_modules(
+    root: brim_ast::Program,
+    file: &SourceFile,
+    map: &mut SourceMap,
+    diags: &mut Vec<Diagnostic>,
+    ctx: &mut Context<'_>,
+) -> Vec<brim_semantic::ModuleAst> {
+    // Paths are shown with `/` on every platform, like the root file's.
+    let shown_dir = match file.name().rfind(['/', '\\']) {
+        Some(i) => file.name()[..=i].to_string(),
+        None => String::new(),
+    };
+    let mut pending: std::collections::VecDeque<(String, Span)> = root
+        .imports
+        .iter()
+        .map(|i| (module_name(i), i.span))
+        .collect();
+    let mut modules = vec![brim_semantic::ModuleAst {
+        name: String::new(),
+        program: root,
+    }];
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    while let Some((name, span)) = pending.pop_front() {
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        let shown = format!("{shown_dir}{}.brim", name.replace('.', "/"));
+        let text = match std::fs::read(ctx.cwd.join(&shown)).map(String::from_utf8) {
+            Ok(Ok(text)) => text,
+            Ok(Err(_)) => {
+                diags.push(
+                    Diagnostic::error(format!("module `{name}` is not valid UTF-8"))
+                        .with_code("E0242")
+                        .with_primary(span, "")
+                        .with_note(format!("in `{shown}`")),
+                );
+                continue;
+            }
+            Err(_) => {
+                diags.push(
+                    Diagnostic::error(format!("cannot find module `{name}`"))
+                        .with_code("E0242")
+                        .with_primary(span, "")
+                        .with_note(format!("looked for `{shown}`")),
+                );
+                continue;
+            }
+        };
+        let source = SourceFile::new(shown, text);
+        let base = map.add(source);
+        let file = &map.files()[map.files().len() - 1];
+        let (program, module_diags) = brim_parser::parse_at(file.text(), base);
+        diags.extend(module_diags);
+        pending.extend(program.imports.iter().map(|i| (module_name(i), i.span)));
+        modules.push(brim_semantic::ModuleAst { name, program });
+    }
+    modules
+}
+
+fn module_name(import: &brim_ast::ImportDecl) -> String {
+    import
+        .path
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 /// Renders diagnostics followed by a one-line summary.
-fn report(diags: &[Diagnostic], file: &SourceFile, ctx: &mut Context<'_>) {
+fn report(diags: &[Diagnostic], sources: &SourceMap, ctx: &mut Context<'_>) {
+    let file = sources.main_file();
     if diags.is_empty() {
         return;
     }
     let renderer = Renderer::new(ctx.color);
-    let rendered = renderer.render_all(diags, file);
+    let rendered = renderer.render_all(diags, sources);
     let _ = write!(ctx.stderr, "{rendered}");
     let errors = diags
         .iter()

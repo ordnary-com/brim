@@ -1,0 +1,42 @@
+// Shapes and their areas. Items marked `pub` can be used by other modules.
+
+pub struct Size {
+    width: i64
+    height: i64
+}
+
+pub enum Shape {
+    Circle(i64)
+    Rect(Size)
+}
+
+pub fn square(side: i64) -> Shape {
+    return Shape.Rect(Size { width: side, height: side })
+}
+
+pub fn area(shape: Shape) -> i64 {
+    match shape {
+        Circle(r) => return approx_pi() * r * r
+        Rect(size) => return size.width * size.height
+    }
+}
+
+pub fn describe(shape: Shape) -> string {
+    match shape {
+        Circle(r) => return "circle " + to_string(r)
+        Rect(size) => return "rect " + to_string(size.width) + "x" + to_string(size.height)
+    }
+}
+
+pub fn total_area(shapes: List[Shape]) -> i64 {
+    let mut total: i64 = 0
+    for shape in shapes {
+        total += area(shape)
+    }
+    return total
+}
+
+// Private: only this module can call it.
+fn approx_pi() -> i64 {
+    return 3
+}

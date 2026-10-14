@@ -9,7 +9,7 @@
 // Without the `llvm` feature nothing calls this module outside its tests.
 #![cfg_attr(not(feature = "llvm"), allow(dead_code))]
 
-use brim_diagnostics::{ColorChoice, Diagnostic, Renderer, SourceFile, Span};
+use brim_diagnostics::{ColorChoice, Diagnostic, Renderer, Sources, Span};
 use brim_runtime::RuntimeError;
 
 /// The compile-time parts of a run-time error message.
@@ -24,7 +24,11 @@ pub(crate) struct TrapText {
 }
 
 /// Renders the message for `error`, raised by the operation at `span`.
-pub(crate) fn render(error: &RuntimeError, span: Option<Span>, source: &SourceFile) -> TrapText {
+pub(crate) fn render<S: Sources + ?Sized>(
+    error: &RuntimeError,
+    span: Option<Span>,
+    source: &S,
+) -> TrapText {
     const MARK: char = '\u{1}';
     let mut diag = Diagnostic::error(error.to_string()).with_code(error.code());
     if let Some(span) = span {
@@ -57,7 +61,7 @@ pub(crate) struct IndexTrapText {
     pub note: String,
 }
 
-pub(crate) fn render_index(span: Option<Span>, source: &SourceFile) -> IndexTrapText {
+pub(crate) fn render_index<S: Sources + ?Sized>(span: Option<Span>, source: &S) -> IndexTrapText {
     const HOLE: char = '\u{2}';
     // Render with placeholder numbers, then cut the sentence out.
     let error = RuntimeError::IndexOutOfBounds { index: 0, len: 0 };
@@ -82,6 +86,7 @@ pub(crate) fn render_index(span: Option<Span>, source: &SourceFile) -> IndexTrap
 #[cfg(test)]
 mod tests {
     use super::*;
+    use brim_diagnostics::SourceFile;
 
     #[test]
     fn splits_the_rendered_diagnostic() {

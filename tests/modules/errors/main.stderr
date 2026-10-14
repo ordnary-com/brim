@@ -1,0 +1,63 @@
+error[E0241]: `secret` is private to module `lib`
+ --> tests/modules/errors/main.brim:3:13
+  |
+3 | import lib.{secret, Hidden, nothing}
+  |             ^^^^^^ not visible here
+  |
+  = help: declare it with `pub` in `lib` to use it elsewhere
+
+error[E0241]: `Hidden` is private to module `lib`
+ --> tests/modules/errors/main.brim:3:21
+  |
+3 | import lib.{secret, Hidden, nothing}
+  |                     ^^^^^^ not visible here
+  |
+  = help: declare it with `pub` in `lib` to use it elsewhere
+
+error[E0242]: module `lib` has no item `nothing`
+ --> tests/modules/errors/main.brim:3:29
+  |
+3 | import lib.{secret, Hidden, nothing}
+  |                             ^^^^^^^
+
+error[E0241]: `secret` is private to module `lib`
+ --> tests/modules/errors/main.brim:6:15
+  |
+6 |     print(lib.secret())
+  |               ^^^^^^ not visible here
+  |
+  = help: declare it with `pub` in `lib` to use it elsewhere
+
+error[E0201]: module `lib` has no function `unknown`
+ --> tests/modules/errors/main.brim:7:15
+  |
+7 |     print(lib.unknown())
+  |               ^^^^^^^ not found
+
+error[E0241]: `Hidden` is private to module `lib`
+ --> tests/modules/errors/main.brim:8:12
+  |
+8 |     let h: lib.Hidden = lib.make()
+  |            ^^^^^^^^^^ not visible here
+  |
+  = help: declare it with `pub` in `lib` to use it elsewhere
+
+error[E0214]: `lib` is a module, not a value
+ --> tests/modules/errors/main.brim:9:11
+  |
+9 |     print(lib)
+  |           ^^^ modules cannot be used as values
+  |
+  = help: use one of its items: `lib.item`
+
+error[E0205]: function `lib.public_value` takes 1 argument but 2 were supplied
+  --> tests/modules/errors/main.brim:10:11
+   |
+10 |     print(lib.public_value(1, 2))
+   |           ^^^^^^^^^^^^^^^^^^^^^^ expected 1 argument
+  ::: tests/modules/errors/lib.brim:13:8
+   |
+13 | pub fn public_value(x: i64) -> i64 {
+   |        ------------ `lib.public_value` is defined here
+
+error: could not compile tests/modules/errors/main.brim due to 8 errors

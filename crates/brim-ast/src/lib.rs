@@ -14,6 +14,7 @@ pub use brim_diagnostics::Span;
 /// A whole source file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Program {
+    pub imports: Vec<ImportDecl>,
     pub structs: Vec<StructDecl>,
     pub enums: Vec<EnumDecl>,
     pub impls: Vec<ImplDecl>,
@@ -23,10 +24,23 @@ pub struct Program {
 /// `struct Name { field: type, ... }`
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StructDecl {
+    pub public: bool,
     pub name: Ident,
     pub type_params: Vec<Ident>,
     pub fields: Vec<FieldDecl>,
     /// From `struct` to the closing `}`.
+    pub span: Span,
+}
+
+/// `import a.b`, `import a.b as c` or `import a.b.{X, y}`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImportDecl {
+    /// The module path, e.g. `[a, b]`.
+    pub path: Vec<Ident>,
+    /// `as name`: the name the module is used under.
+    pub alias: Option<Ident>,
+    /// `.{X, y}`: items brought into scope by their own names.
+    pub items: Option<Vec<Ident>>,
     pub span: Span,
 }
 
@@ -50,6 +64,7 @@ pub struct ImplDecl {
 /// `enum Name { Variant, Variant(type, ...), ... }`
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EnumDecl {
+    pub public: bool,
     pub name: Ident,
     pub type_params: Vec<Ident>,
     pub variants: Vec<VariantDecl>,
@@ -121,6 +136,8 @@ pub struct Ident {
 /// `fn name(params) -> ret { body }`
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FnDecl {
+    /// Declared with `pub`: usable from other modules.
+    pub public: bool,
     pub name: Ident,
     /// `[T, U]` after the name; empty for non-generic functions.
     pub type_params: Vec<Ident>,

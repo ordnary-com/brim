@@ -24,7 +24,7 @@ mod trap;
 use std::fmt;
 use std::path::PathBuf;
 
-use brim_diagnostics::SourceFile;
+use brim_diagnostics::SourceMap;
 use brim_ir::{Module, ValidationError};
 
 /// How much the backend should optimise.
@@ -41,9 +41,9 @@ pub struct BuildOptions {
     /// Path of the executable to produce.
     pub output: PathBuf,
     pub opt_level: OptLevel,
-    /// The program's source. Run-time error messages in the executable quote
-    /// it, exactly like `brim run` does.
-    pub source: SourceFile,
+    /// The program's source files. Run-time error messages in the executable
+    /// quote them, exactly like `brim run` does.
+    pub source: SourceMap,
 }
 
 /// What a successful build produced.
@@ -144,7 +144,7 @@ impl Backend for LlvmBackend {
 
 /// Compiles `module` to textual LLVM IR, for inspection and tests.
 #[cfg(feature = "llvm")]
-pub fn emit_llvm_ir(module: &Module, source: &SourceFile) -> Result<String, CodegenError> {
+pub fn emit_llvm_ir(module: &Module, source: &SourceMap) -> Result<String, CodegenError> {
     brim_ir::validate(module).map_err(CodegenError::InvalidModule)?;
     llvm::emit_ir(module, source)
 }
@@ -157,6 +157,7 @@ pub fn native_backend() -> Box<dyn Backend> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use brim_diagnostics::SourceFile;
     use brim_ir::{Block, FuncId, Function, Terminator, Type};
 
     fn empty_main() -> Module {
@@ -184,7 +185,11 @@ mod tests {
         BuildOptions {
             output: PathBuf::from("out"),
             opt_level: OptLevel::Debug,
-            source: SourceFile::new("main.brim", "fn main() {}\n"),
+            source: {
+                let mut map = SourceMap::new();
+                map.add(SourceFile::new("main.brim", "fn main() {}\n"));
+                map
+            },
         }
     }
 

@@ -66,7 +66,7 @@ Still open from this phase: debug information, Windows, cross-compilation, and l
 
 ## Phase 6: Package manager and project tooling (planned)
 
-- Multi-file programs: modules, imports, visibility.
+- **Done:** multi-file programs: every file is a module, `import` with aliases and item lists, `pub` visibility, diagnostics across files.
 - `brim new`, `brim test`, `brim fmt`.
 - `[dependencies]` in `brim.toml`, a lock file, dependency resolution, and later a package registry.
 - API contracts for web frontends: declare API types once in Brim and generate the matching TypeScript types (and later a client) for Angular, so frontend and backend cannot drift apart.

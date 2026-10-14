@@ -60,13 +60,13 @@ Keywords with meaning in 0.1:
 
 ```
 fn  let  mut  return  if  else  while  break  continue  true  false  struct
-enum  match  for  in  impl  self
+enum  match  for  in  impl  self  import  pub  as
 ```
 
 Reserved words for planned features. They cannot be used as identifiers, and using one produces error `E0101`:
 
 ```
-as  async  await  const  import  loop  pub  trait  type  use
+async  await  const  loop  trait  type  use
 ```
 
 The type names `i64`, `bool`, `string` and `void` are **not** keywords. They are predeclared type names, resolved during semantic analysis.
@@ -111,9 +111,10 @@ Any other character outside a string or comment is error `E0001`. Single `&` and
 The grammar below uses EBNF. `NEWLINE` is a newline token; `EOF` is the end of input.
 
 ```ebnf
-program     = { separator } { item { separator } } EOF ;
-item        = function | struct | enum | impl ;
-impl        = "impl" identifier [ type_params ] "{" { separator } { function { separator } } "}" ;
+program     = { separator } { ( import | item ) { separator } } EOF ;
+import      = "import" identifier { "." identifier } [ "." "{" identifier { "," identifier } [ "," ] "}" | "as" identifier ] ;
+item        = [ "pub" ] ( function | struct | enum ) | impl ;
+impl        = "impl" identifier [ type_params ] "{" { separator } { [ "pub" ] function { separator } } "}" ;
 separator   = NEWLINE | ";" ;
 
 struct      = "struct" identifier [ type_params ] "{" { field_sep } [ field { field_sep { field_sep } field } ] { field_sep } "}" ;
@@ -129,7 +130,7 @@ function    = "fn" identifier [ type_params ] "(" [ params ] ")" [ "->" type ] b
 params      = ( receiver [ "," param { "," param } ] | param { "," param } ) [ "," ] ;
 receiver    = [ "mut" ] "self" ;
 param       = identifier ":" type ;
-type        = identifier [ "[" type { "," type } [ "," ] "]" ] ;
+type        = identifier { "." identifier } [ "[" type { "," type } [ "," ] "]" ] ;
 
 block       = "{" { separator } [ statement { terminator statement } ] { separator } "}" ;
 terminator  = separator { separator } ;     (* see 6.1; "}" also ends a statement *)
@@ -512,7 +513,7 @@ Any other combination is error `E0209`.
 
 ## 9. Program structure and execution
 
-- A program is a single source file. Modules and imports are not supported yet.
+- A program is one source file, its **root module**, plus the modules it imports (section 9.2).
 - The program must define `fn main()` with no parameters and no return type, or `-> void` (`E0210`, `E0211`).
 - Execution evaluates `main`'s body. The program ends when `main` returns or a run-time error occurs.
 
@@ -531,6 +532,32 @@ These stop the program immediately, after the output produced so far has been fl
 | `R0007` | a string slice outside the string or not on a character boundary |
 
 Integers never wrap silently.
+
+### 9.2 Modules
+
+```brim
+// main.brim
+import geometry
+import text.format.{pad, Report}
+
+fn main() {
+    print(geometry.area(geometry.square(3)))
+}
+
+// geometry.brim
+pub fn square(side: i64) -> Shape { ... }
+fn helper() { ... }          // private to geometry
+```
+
+Every `.brim` file is a module. `import a.b` loads the module in `a/b.brim`, relative to the directory of the root file (`src/` in a project).
+
+- `import a.b` makes the module usable as `b`: `b.function(...)`, `b.Type`, `b.Type { ... }`, `b.Enum.Variant(...)`, `b.Type.method(...)`. `import a.b as c` uses the name `c` instead.
+- `import a.b.{X, y}` brings the named items into the module's scope under their own names.
+- A module's functions, structs and enums are **private** unless declared `pub`; using a private item of another module is `E0241`. Methods are private unless declared `pub fn` inside the `impl` block. A `pub` struct's fields are all visible.
+- Methods can only be added in the module that declares the type (`E0237`).
+- A missing module or item is `E0242`; importing two modules under the same name, or an item whose name is already taken, is `E0243`.
+- Modules may import each other in cycles. Every module is loaded once.
+- `main` must be in the root module. Function names of other modules appear qualified (`geometry.area`) in messages and run-time call stacks.
 
 ## 10. Builtins
 
@@ -587,7 +614,7 @@ These questions are not settled. The current behavior is a reversible default.
 7. **Statement termination.** Newline termination with continuation after operators is the current rule. Behavior around method chains (`.` at line start) must be decided when methods exist.
 8. **`main` signature.** `main` takes no parameters and returns nothing; arguments come from `args()` and the exit code from `exit`. Returning a `Result` from `main` is undecided.
 9. **Unicode identifiers.** Identifiers are ASCII-only. Allowing Unicode (UAX #31) is possible later.
-10. **Entry point and modules.** The module system, visibility (`pub` is reserved) and how `brim.toml` maps packages to modules are undesigned.
+10. **Modules.** Modules are files and `pub` controls visibility. Re-exports, visibility of single struct fields, and modules from dependencies (packages) are undecided.
 11. **Loop forms.** `while` and `for` exist. A dedicated `loop` keyword, labeled `break` for nested loops, and `for` over other collections are candidates.
 12. **Struct and enum equality and printing.** Comparing structs and enums field by field with `==` and printing them are natural next steps. Field-shorthand literals (`Point { x, y }`) and default values are also undecided.
 13. **`match` as an expression, or-patterns and nested patterns.** `match` is a statement; arms with several patterns (`A | B`) and patterns inside variant patterns (`Some(Circle(r))`) are not supported yet.

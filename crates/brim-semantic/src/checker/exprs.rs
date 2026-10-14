@@ -82,6 +82,28 @@ impl<'a> Checker<'a> {
                 if let Some(e) = self.enum_name(base, ctx) {
                     return self.check_variant_name(e, field, None, span, expected, ctx);
                 }
+                if let Some(target) = self.module_alias(base, ctx) {
+                    let module = self.module_names[target].clone();
+                    let scope = &self.scopes[target];
+                    let what = if scope.own_fns.contains_key(field.name.as_str()) {
+                        "a function"
+                    } else if scope.own_types.contains_key(&field.name) {
+                        "a type"
+                    } else {
+                        ""
+                    };
+                    let diag = if what.is_empty() {
+                        Diagnostic::error(format!("module `{module}` has no `{}`", field.name))
+                            .with_code("E0200")
+                            .with_primary(field.span, "not found")
+                    } else {
+                        Diagnostic::error(format!("`{}` is {what}, not a value", field.name))
+                            .with_code("E0214")
+                            .with_primary(span, "")
+                    };
+                    self.diags.push(diag);
+                    return error_expr(span);
+                }
                 let base = self.check_expr(base, ctx);
                 let Some((index, ty)) = self.field(base.ty, field, base.span) else {
                     return error_expr(span);
@@ -105,6 +127,9 @@ impl<'a> Checker<'a> {
                 return self.check_index(base, index, span, ctx);
             }
             ast::ExprKind::MethodCall { base, name, args } => {
+                if let Some(target) = self.module_alias(base, ctx) {
+                    return self.check_module_call(target, name, args, span, expected, ctx);
+                }
                 if let Some(def) = self.type_name_of(base, ctx) {
                     return self.check_static_call(def, name, args, span, expected, ctx);
                 }
@@ -215,17 +240,74 @@ impl<'a> Checker<'a> {
 
     /// If `expr` is a plain name that refers to a declared struct or enum
     /// (and not to a variable), that type.
-    fn type_name_of(&self, expr: &ast::Expr, ctx: &FnCtx) -> Option<Def> {
+    fn type_name_of(&mut self, expr: &ast::Expr, ctx: &FnCtx) -> Option<Def> {
+        match &expr.kind {
+            ast::ExprKind::Name(ident) => {
+                if ctx.lookup(&ident.name).is_some() {
+                    return None;
+                }
+                match self.type_by_name.get(&ident.name) {
+                    Some(def @ (Def::Struct(_) | Def::Enum(_))) => Some(*def),
+                    _ => None,
+                }
+            }
+            // `module.Type`
+            ast::ExprKind::Field { base, field } => {
+                let target = self.module_alias(base, ctx)?;
+                let def = self.scopes[target].own_types.get(&field.name).copied()?;
+                if !self.def_public(def) {
+                    let module = self.module_names[target].clone();
+                    self.private_item(&field.name, &module, field.span);
+                }
+                Some(def)
+            }
+            _ => None,
+        }
+    }
+
+    /// The module `expr` names, if it is an imported module's name (and not
+    /// a variable).
+    fn module_alias(&self, expr: &ast::Expr, ctx: &FnCtx) -> Option<usize> {
         let ast::ExprKind::Name(ident) = &expr.kind else {
             return None;
         };
         if ctx.lookup(&ident.name).is_some() {
             return None;
         }
-        match self.type_by_name.get(&ident.name) {
-            Some(def @ (Def::Struct(_) | Def::Enum(_))) => Some(*def),
-            _ => None,
+        self.aliases.get(&ident.name).copied()
+    }
+
+    /// `module.function(args)`.
+    fn check_module_call(
+        &mut self,
+        target: usize,
+        name: &ast::Ident,
+        args: &[ast::Expr],
+        span: Span,
+        expected: Option<Type>,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        let module = self.module_names[target].clone();
+        let Some(id) = self.scopes[target].own_fns.get(name.name.as_str()).copied() else {
+            for arg in args {
+                self.check_expr(arg, ctx);
+            }
+            let names: Vec<&str> = self.scopes[target].own_fns.keys().copied().collect();
+            let mut diag =
+                Diagnostic::error(format!("module `{module}` has no function `{}`", name.name))
+                    .with_code("E0201")
+                    .with_primary(name.span, "not found");
+            if let Some(similar) = suggest::similar(&name.name, names) {
+                diag = diag.with_help(format!("did you mean `{similar}`?"));
+            }
+            self.diags.push(diag);
+            return error_expr(span);
+        };
+        if !self.sigs[id.0].public {
+            self.private_item(&name.name, &module, name.span);
         }
+        let arg_refs: Vec<&ast::Expr> = args.iter().collect();
+        self.finish_call(id, None, &arg_refs, span, expected, ctx)
     }
 
     /// `Type.name(args)`: an enum variant, or a method without `self`.
@@ -254,6 +336,7 @@ impl<'a> Checker<'a> {
             self.unknown_method(def, name);
             return error_expr(span);
         };
+        self.check_method_visible(id, name);
         if self.sigs[id.0].receiver.is_some() {
             for arg in args {
                 self.check_expr(arg, ctx);
@@ -274,6 +357,15 @@ impl<'a> Checker<'a> {
         }
         let arg_refs: Vec<&ast::Expr> = args.iter().collect();
         self.finish_call(id, None, &arg_refs, span, expected, ctx)
+    }
+
+    /// Reports a call of another module's method that is not `pub`.
+    fn check_method_visible(&mut self, id: FnId, name: &ast::Ident) {
+        let sig = &self.sigs[id.0];
+        if sig.module != self.module && !sig.public {
+            let module = self.module_names[sig.module].clone();
+            self.private_item(&name.name, &module, name.span);
+        }
     }
 
     fn unknown_method(&mut self, def: Def, name: &ast::Ident) {
@@ -331,6 +423,7 @@ impl<'a> Checker<'a> {
             }
             return Some(error_expr(span));
         };
+        self.check_method_visible(id, name);
         let arg_refs: Vec<&ast::Expr> = args.iter().collect();
         let receiver = match self.sigs[id.0].receiver {
             None => {
@@ -381,6 +474,7 @@ impl<'a> Checker<'a> {
         let sig = &self.sigs[id.0];
         let params: Vec<(Type, Span)> = sig.params.iter().map(|p| (p.ty, p.span)).collect();
         let (ret, name_span, name) = (sig.ret, sig.name_span, sig.name.clone());
+        let is_method = sig.method;
         let type_params = sig.type_params.clone();
         let mut bindings: Vec<Option<Type>> = vec![None; type_params.len()];
         // `self` comes first and determines the `impl`'s type arguments.
@@ -397,11 +491,7 @@ impl<'a> Checker<'a> {
             self.diags.push(
                 Diagnostic::error(format!(
                     "{} `{name}` takes {} but {} supplied",
-                    if name.contains('.') {
-                        "method"
-                    } else {
-                        "function"
-                    },
+                    if is_method { "method" } else { "function" },
                     plural(params.len() - skip, "argument"),
                     supplied(checked.len())
                 ))
@@ -415,14 +505,7 @@ impl<'a> Checker<'a> {
             return error_expr(span);
         }
         let generic = Generic {
-            what: format!(
-                "{} `{name}`",
-                if name.contains('.') {
-                    "method"
-                } else {
-                    "function"
-                }
-            ),
+            what: format!("{} `{name}`", if is_method { "method" } else { "function" }),
             params: &type_params,
         };
         let Some(type_args) = self.require_inferred(bindings, generic, &checked, span) else {
@@ -465,15 +548,9 @@ impl<'a> Checker<'a> {
 
     /// If `expr` is a plain name that refers to an enum (and not to a
     /// variable), that enum.
-    fn enum_name(&self, expr: &ast::Expr, ctx: &FnCtx) -> Option<EnumId> {
-        let ast::ExprKind::Name(ident) = &expr.kind else {
-            return None;
-        };
-        if ctx.lookup(&ident.name).is_some() {
-            return None;
-        }
-        match self.type_by_name.get(&ident.name) {
-            Some(Def::Enum(e)) => Some(*e),
+    fn enum_name(&mut self, expr: &ast::Expr, ctx: &FnCtx) -> Option<EnumId> {
+        match self.type_name_of(expr, ctx) {
+            Some(Def::Enum(e)) => Some(e),
             _ => None,
         }
     }
@@ -494,6 +571,15 @@ impl<'a> Checker<'a> {
             };
         }
         let name = ident.name.as_str();
+        if self.aliases.contains_key(name) {
+            self.diags.push(
+                Diagnostic::error(format!("`{name}` is a module, not a value"))
+                    .with_code("E0214")
+                    .with_primary(ident.span, "modules cannot be used as values")
+                    .with_help(format!("use one of its items: `{name}.item`")),
+            );
+            return error_expr(ident.span);
+        }
         if let Some(&(e, v)) = self.prelude_variants.get(name) {
             return self.check_variant(e, v, ident.span, None, ident.span, expected, ctx);
         }
@@ -875,7 +961,17 @@ impl<'a> Checker<'a> {
         expected: Option<Type>,
         ctx: &mut FnCtx,
     ) -> CheckedExpr {
-        let id = match self.type_by_name.get(name.name.as_str()) {
+        let qualified = match self.qualified_type(&name.name, name.span) {
+            Ok(def) => def,
+            Err(()) => {
+                for f in fields {
+                    self.check_expr(&f.value, ctx);
+                }
+                return error_expr(span);
+            }
+        };
+        let found = qualified.or_else(|| self.type_by_name.get(name.name.as_str()).copied());
+        let id = match found.as_ref() {
             Some(Def::Struct(id)) => Some(*id),
             Some(Def::List | Def::Map) => {
                 self.diags.push(

@@ -32,6 +32,7 @@ use brim_diagnostics::Diagnostic;
 use brim_stdlib::Prim;
 
 pub use checked::CheckedProgram;
+pub use checker::ModuleAst;
 pub use types::{Def, NamedType, TypeTable};
 
 /// Index into [`CheckedProgram::structs`].
@@ -116,7 +117,17 @@ impl fmt::Display for Type {
 /// Returns the checked program if there were no errors, together with all
 /// diagnostics (warnings are returned in both cases).
 pub fn check(program: &Program) -> (Option<CheckedProgram>, Vec<Diagnostic>) {
-    checker::Checker::check(program)
+    let modules = [ModuleAst {
+        name: String::new(),
+        program: program.clone(),
+    }];
+    checker::Checker::check(&modules)
+}
+
+/// Checks a program of several modules. The first module is the root, which
+/// contains `main`; the others are named by their dotted paths (`net.http`).
+pub fn check_modules(modules: &[ModuleAst]) -> (Option<CheckedProgram>, Vec<Diagnostic>) {
+    checker::Checker::check(modules)
 }
 
 #[cfg(test)]

@@ -22,6 +22,8 @@ This document describes how the Brim compiler is structured, and why. The langua
       └──► brim-codegen    LLVM backend + C runtime   (`brim build`, opt-in `llvm` feature)
 ```
 
+A program can consist of several files. The driver (`brim-cli`) parses the root file, follows its `import`s to the other modules, and puts all files in one `SourceMap`: each file's spans are shifted by a base offset, so a `Span` alone identifies the file. Diagnostics render against the map, with labels in other files shown in their own snippet (`::: file:line:col`). Semantic analysis receives all modules at once.
+
 Every stage reports problems as `brim_diagnostics::Diagnostic`s. A stage only runs if the previous stage produced no errors. Warnings never block compilation.
 
 ## Crates
@@ -120,6 +122,8 @@ bb0:
   ret
 }
 ```
+
+**Modules** only matter to semantic analysis. The checker keeps a scope per module (its own items, the items it imports by name, and the modules it imports) and switches to a module's scope while checking it; declarations happen in passes over all modules, so modules can use each other in any order. After checking, the program is one set of functions and types; functions of non-root modules carry their module's name.
 
 Generics do not reach the IR: `brim-lower` **monomorphizes** the checked program. Non-generic functions are lowered in source order, and every generic function is lowered once per combination of concrete type arguments that is called, as an IR function named like `swap[i64, string]`. The checked program's `TypeTable` interns every `Name[args]` type, so equal types are equal values and substitution is cheap.
 

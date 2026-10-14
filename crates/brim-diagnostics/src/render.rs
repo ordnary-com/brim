@@ -1,6 +1,6 @@
 use std::fmt::Write as _;
 
-use crate::{Diagnostic, Label, Severity, SourceFile};
+use crate::{Diagnostic, Label, Severity, SourceFile, Sources};
 
 /// Number of columns a tab character occupies in rendered source lines.
 const TAB_WIDTH: usize = 4;
@@ -51,8 +51,10 @@ impl Renderer {
         Renderer { color }
     }
 
-    /// Renders one diagnostic, including a trailing newline.
-    pub fn render(&self, diag: &Diagnostic, file: &SourceFile) -> String {
+    /// Renders one diagnostic, including a trailing newline. `sources` is
+    /// a single [`SourceFile`] or a [`SourceMap`](crate::SourceMap) of
+    /// several files.
+    pub fn render<S: Sources + ?Sized>(&self, diag: &Diagnostic, sources: &S) -> String {
         let style = Style {
             on: self.color == ColorChoice::Always,
         };
@@ -73,45 +75,64 @@ impl Renderer {
             style.paint(BOLD, &format!(": {}", diag.message))
         );
 
-        // Collect labels in source order; the primary one is marked with '^'.
-        let mut labels: Vec<(&Label, bool)> = Vec::new();
-        if let Some(primary) = &diag.primary {
-            labels.push((primary, true));
+        // Labels with their file and file-local span; the primary one is
+        // marked with '^'.
+        let mut labels: Vec<Located<'_>> = Vec::new();
+        let all = diag
+            .primary
+            .iter()
+            .map(|l| (l, true))
+            .chain(diag.secondary.iter().map(|l| (l, false)));
+        for (label, primary) in all {
+            let (file, base, index) = sources.locate(label.span.start);
+            labels.push(Located {
+                label,
+                primary,
+                file,
+                index,
+                start: label.span.start - base,
+                end: label.span.end.saturating_sub(base),
+            });
         }
-        labels.extend(diag.secondary.iter().map(|l| (l, false)));
 
         let max_line = labels
             .iter()
-            .map(|(l, _)| file.location(l.span.start).line)
+            .map(|l| l.file.location(l.start).line)
             .max()
             .unwrap_or(1);
         let width = max_line.to_string().len();
         let pad = " ".repeat(width);
         let bar = style.paint(BLUE, "|");
 
-        let anchor = diag.primary.as_ref().or(diag.secondary.first());
-        match anchor {
-            Some(label) => {
-                let loc = file.location(label.span.start);
-                let _ = writeln!(
-                    out,
-                    "{pad}{} {}:{}",
-                    style.paint(BLUE, "-->"),
-                    file.name(),
-                    loc
-                );
-            }
-            None => {
-                let _ = writeln!(out, "{pad}{} {}", style.paint(BLUE, "-->"), file.name());
+        if labels.is_empty() {
+            let file = sources.main_file();
+            let _ = writeln!(out, "{pad}{} {}", style.paint(BLUE, "-->"), file.name());
+        }
+        // The primary label's file first, then the others in order.
+        let mut groups: Vec<usize> = Vec::new();
+        for label in &labels {
+            if !groups.contains(&label.index) {
+                groups.push(label.index);
             }
         }
-
-        if !labels.is_empty() {
+        for (g, &index) in groups.iter().enumerate() {
+            let mut group: Vec<&Located<'_>> = labels.iter().filter(|l| l.index == index).collect();
+            let anchor = group[0];
+            let loc = anchor.file.location(anchor.start);
+            let arrow = if g == 0 { "-->" } else { ":::" };
+            let _ = writeln!(
+                out,
+                "{pad}{} {}:{}",
+                style.paint(BLUE, arrow),
+                anchor.file.name(),
+                loc
+            );
             let _ = writeln!(out, "{pad} {bar}");
-            labels.sort_by_key(|(l, primary)| (l.span.start, !primary));
+            group.sort_by_key(|l| (l.start, !l.primary));
             let mut last_line = None;
-            for (label, primary) in &labels {
-                let line = file.location(label.span.start).line;
+            for located in group {
+                let file = located.file;
+                let line = file.location(located.start).line;
                 let text = file.line_text(line);
                 if last_line != Some(line) {
                     if let Some(prev) = last_line
@@ -128,20 +149,20 @@ impl Renderer {
                     last_line = Some(line);
                 }
                 let line_start = file.line_start(line);
-                let before = &text[..(label.span.start - line_start).min(text.len())];
-                let end_in_line = (label.span.end - line_start).min(text.len());
+                let before = &text[..(located.start - line_start).min(text.len())];
+                let end_in_line = (located.end.saturating_sub(line_start)).min(text.len());
                 let covered = &text[before.len()..end_in_line.max(before.len())];
                 let indent = display_width(before);
                 let len = display_width(covered).max(1);
-                let (mark, color) = if *primary {
+                let (mark, color) = if located.primary {
                     ('^', severity_color)
                 } else {
                     ('-', BLUE)
                 };
                 let marks: String = std::iter::repeat_n(mark, len).collect();
                 let mut underline = format!("{}{}", " ".repeat(indent), style.paint(color, &marks));
-                if !label.message.is_empty() {
-                    let _ = write!(underline, " {}", style.paint(color, &label.message));
+                if !located.label.message.is_empty() {
+                    let _ = write!(underline, " {}", style.paint(color, &located.label.message));
                 }
                 let _ = writeln!(out, "{pad} {bar} {underline}");
             }
@@ -163,13 +184,25 @@ impl Renderer {
     }
 
     /// Renders several diagnostics separated by blank lines.
-    pub fn render_all(&self, diags: &[Diagnostic], file: &SourceFile) -> String {
+    pub fn render_all<S: Sources + ?Sized>(&self, diags: &[Diagnostic], sources: &S) -> String {
         diags
             .iter()
-            .map(|d| self.render(d, file))
+            .map(|d| self.render(d, sources))
             .collect::<Vec<_>>()
             .join("\n")
     }
+}
+
+/// A label resolved to its file.
+struct Located<'a> {
+    label: &'a Label,
+    primary: bool,
+    file: &'a SourceFile,
+    /// Which file, to group labels.
+    index: usize,
+    /// File-local byte offsets.
+    start: usize,
+    end: usize,
 }
 
 fn display_width(s: &str) -> usize {

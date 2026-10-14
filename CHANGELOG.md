@@ -18,6 +18,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - New diagnostics `E0234` and `E0235`; `examples/lists.brim`.
 - `Map[K, V]` with `i64`, `bool` or `string` keys: literals (`["a": 1]`, `[:]`), indexing (`m[k]`, run-time error `R0006` for a missing key), assignment through keys, and the methods `len`, `is_empty`, `get`, `contains_key`, `keys`, `values`, `insert`, `remove` and `clear`. Entries keep insertion order. Maps are values with copy-on-write.
 - `E0236` for map keys of other types; `examples/maps.brim`.
+- Modules: every file is a module; `import a.b`, `import a.b as c` and `import a.b.{X, y}`, with `pub` for items and methods. Diagnostics show labels in other files with `:::`. New diagnostics `E0241` to `E0243`; `import`, `pub` and `as` are keywords. `tests/modules` holds multi-module test programs.
 - Standard library: string methods (`len`, `is_empty`, `contains`, `starts_with`, `ends_with`, `find`, `slice`, `trim`, `trim_start`, `trim_end`, `to_upper`, `to_lower`, `replace`, `repeat`, `split`, `lines`, `chars`, `parse_int`), string comparison with `<` and friends, and the builtins `eprint`, `read_line`, `read_file`, `write_file`, `args`, `env` and `exit`. Run-time error `R0007` for invalid string slices.
 - `brim run PROGRAM ARGS...` passes arguments to the program, and the program's exit code becomes `brim run`'s.
 - `examples/wc.brim`, a small `wc`.

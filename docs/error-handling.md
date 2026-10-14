@@ -107,6 +107,9 @@ Guidelines for writing diagnostics:
 | E0238 | Method defined twice for a type, or named like one of the enum's variants |
 | E0239 | `self` parameter outside an `impl` block |
 | E0240 | Method with `self` called on the type, or method without `self` called on a value |
+| E0241 | Use of another module's item that is not `pub` |
+| E0242 | Module not found, or imported item not found in its module |
+| E0243 | Two imports with the same name, or an import whose name is already defined |
 
 ### Warnings
 

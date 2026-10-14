@@ -23,7 +23,7 @@ mod source;
 
 pub use diagnostic::{Code, Diagnostic, Label, Severity};
 pub use render::{ColorChoice, Renderer};
-pub use source::{Location, SourceFile, Span};
+pub use source::{Location, SourceFile, SourceMap, Sources, Span};
 
 /// Returns `true` if any diagnostic in `diags` is an error.
 pub fn has_errors(diags: &[Diagnostic]) -> bool {

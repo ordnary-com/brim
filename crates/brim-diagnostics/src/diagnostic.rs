@@ -59,6 +59,15 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
+    /// Moves every span by `base`, for a file in a
+    /// [`SourceMap`](crate::SourceMap).
+    pub fn shift(mut self, base: usize) -> Self {
+        for label in self.primary.iter_mut().chain(self.secondary.iter_mut()) {
+            label.span = Span::new(label.span.start + base, label.span.end + base);
+        }
+        self
+    }
+
     pub fn new(severity: Severity, message: impl Into<String>) -> Self {
         Diagnostic {
             severity,

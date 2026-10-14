@@ -1,0 +1,11 @@
+// exit: 1
+import lib
+import lib.{secret, Hidden, nothing}
+
+fn main() {
+    print(lib.secret())
+    print(lib.unknown())
+    let h: lib.Hidden = lib.make()
+    print(lib)
+    print(lib.public_value(1, 2))
+}

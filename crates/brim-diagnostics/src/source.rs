@@ -142,6 +142,77 @@ impl SourceFile {
     }
 }
 
+/// Where diagnostics find the source text their spans point into.
+pub trait Sources {
+    /// The file containing global byte `offset`, the offset at which that
+    /// file starts, and the file's index.
+    fn locate(&self, offset: usize) -> (&SourceFile, usize, usize);
+
+    /// The file named by diagnostics without a location.
+    fn main_file(&self) -> &SourceFile;
+}
+
+impl Sources for SourceFile {
+    fn locate(&self, _offset: usize) -> (&SourceFile, usize, usize) {
+        (self, 0, 0)
+    }
+
+    fn main_file(&self) -> &SourceFile {
+        self
+    }
+}
+
+/// Several source files in one span space: each file's offsets are moved by
+/// a *base*, so a [`Span`] identifies both a file and a position in it. The
+/// first file has base 0, so programs of one file have the same spans as
+/// before.
+#[derive(Clone, Debug, Default)]
+pub struct SourceMap {
+    files: Vec<SourceFile>,
+    bases: Vec<usize>,
+}
+
+impl SourceMap {
+    pub fn new() -> SourceMap {
+        SourceMap::default()
+    }
+
+    /// Adds a file; returns the base its spans must be shifted by.
+    pub fn add(&mut self, file: SourceFile) -> usize {
+        // One unused offset between files keeps end-of-file positions apart.
+        let base = match (self.files.last(), self.bases.last()) {
+            (Some(last), Some(&b)) => b + last.text().len() + 1,
+            _ => 0,
+        };
+        self.files.push(file);
+        self.bases.push(base);
+        base
+    }
+
+    pub fn files(&self) -> &[SourceFile] {
+        &self.files
+    }
+
+    /// The base of file `index`.
+    pub fn base(&self, index: usize) -> usize {
+        self.bases[index]
+    }
+}
+
+impl Sources for SourceMap {
+    fn locate(&self, offset: usize) -> (&SourceFile, usize, usize) {
+        let index = match self.bases.binary_search(&offset) {
+            Ok(i) => i,
+            Err(i) => i.saturating_sub(1),
+        };
+        (&self.files[index], self.bases[index], index)
+    }
+
+    fn main_file(&self) -> &SourceFile {
+        &self.files[0]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

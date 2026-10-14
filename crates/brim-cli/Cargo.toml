@@ -18,6 +18,7 @@ default = []
 llvm = ["brim-codegen/llvm"]
 
 [dependencies]
+brim-ast.workspace = true
 brim-codegen.workspace = true
 brim-diagnostics.workspace = true
 brim-interp.workspace = true

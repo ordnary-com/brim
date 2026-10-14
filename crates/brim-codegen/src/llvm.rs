@@ -29,7 +29,7 @@ mod maps;
 
 use std::collections::HashMap;
 
-use brim_diagnostics::{SourceFile, Span};
+use brim_diagnostics::{SourceMap, Sources, Span};
 use brim_ir::{
     BinaryOp, Const, FuncId, InstKind, Module as IrModule, RuntimeFn, Terminator, Type, UnaryOp,
 };
@@ -70,7 +70,7 @@ pub(crate) fn build(
     crate::link::link(&machine, &llvm_module, options)
 }
 
-pub(crate) fn emit_ir(module: &IrModule, source: &SourceFile) -> Result<String, CodegenError> {
+pub(crate) fn emit_ir(module: &IrModule, source: &SourceMap) -> Result<String, CodegenError> {
     let machine = target_machine(OptLevel::Debug)?;
     let context = Context::create();
     let llvm_module = lower(&context, module, source, &machine)?;
@@ -102,10 +102,10 @@ fn target_machine(opt_level: OptLevel) -> Result<TargetMachine, CodegenError> {
 fn lower<'ctx>(
     context: &'ctx Context,
     ir: &IrModule,
-    source: &SourceFile,
+    source: &SourceMap,
     machine: &TargetMachine,
 ) -> Result<Module<'ctx>, CodegenError> {
-    let module = context.create_module(source.name());
+    let module = context.create_module(source.main_file().name());
     module.set_triple(&machine.get_triple());
     module.set_data_layout(&TargetData::get_data_layout(&machine.get_target_data()));
     let mut lowerer = Lowerer::new(context, module, ir, source, machine.get_target_data());
@@ -124,7 +124,7 @@ struct Lowerer<'ctx, 'a> {
     module: Module<'ctx>,
     builder: Builder<'ctx>,
     ir: &'a IrModule,
-    source: &'a SourceFile,
+    source: &'a SourceMap,
     /// `brim.<name>` for every IR function, indexed by `FuncId`.
     functions: Vec<FunctionValue<'ctx>>,
     runtime: HashMap<RuntimeFn, FunctionValue<'ctx>>,
@@ -160,7 +160,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
         context: &'ctx Context,
         module: Module<'ctx>,
         ir: &'a IrModule,
-        source: &'a SourceFile,
+        source: &'a SourceMap,
         target_data: TargetData,
     ) -> Self {
         let lists = ListRuntime::declare(context, &module);
@@ -982,7 +982,14 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use brim_diagnostics::SourceFile;
     use brim_ir::{Block, Function, Inst, Slot, SlotId, ValueId};
+
+    fn test_source() -> SourceMap {
+        let mut map = SourceMap::new();
+        map.add(SourceFile::new("t.brim", "x\n"));
+        map
+    }
 
     fn inst(result: Option<u32>, kind: InstKind) -> Inst {
         Inst {
@@ -1062,7 +1069,7 @@ mod tests {
 
     #[test]
     fn lowers_to_valid_llvm_ir() {
-        let source = SourceFile::new("t.brim", "x\n");
+        let source = test_source();
         let ir = emit_ir(&sample(), &source).unwrap();
         for expected in [
             "define internal i64 @brim.div(i64 %0, i64 %1)",
@@ -1128,7 +1135,7 @@ mod tests {
             functions: vec![echo, main],
             entry: FuncId(1),
         };
-        let ir = emit_ir(&module, &SourceFile::new("t.brim", "x\n")).unwrap();
+        let ir = emit_ir(&module, &test_source()).unwrap();
         let body = &ir[ir.find("@brim.echo(").unwrap()..];
         let body = &body[..body.find("\n}").unwrap()];
         // Parameter slot (1), two loads (2), the store (1) and the return (1).
@@ -1158,7 +1165,7 @@ mod tests {
                 InstKind::CallRuntime(RuntimeFn::PrintStr, vec![ValueId(4)]),
             ),
         ]);
-        let ir = emit_ir(&module, &SourceFile::new("t.brim", "x\n")).unwrap();
+        let ir = emit_ir(&module, &test_source()).unwrap();
         assert_eq!(ir.matches("c\"done\"").count(), 1, "{ir}");
     }
 }

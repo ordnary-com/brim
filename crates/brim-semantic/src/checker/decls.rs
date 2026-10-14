@@ -31,6 +31,8 @@ impl<'a> Checker<'a> {
                 variant("Some", vec![Type::Param(0)]),
                 variant("None", vec![]),
             ],
+            module: usize::MAX,
+            public: true,
         });
         self.enums.push(EnumInfo {
             name: "Result".into(),
@@ -40,23 +42,22 @@ impl<'a> Checker<'a> {
                 variant("Ok", vec![Type::Param(0)]),
                 variant("Err", vec![Type::Param(1)]),
             ],
+            module: usize::MAX,
+            public: true,
         });
-        self.type_by_name
-            .insert("Option".into(), Def::Enum(EnumId(0)));
-        self.type_by_name
-            .insert("Result".into(), Def::Enum(EnumId(1)));
-        self.type_by_name.insert("List".into(), Def::List);
-        self.type_by_name.insert("Map".into(), Def::Map);
         for (name, e, v) in [("Some", 0, 0), ("None", 0, 1), ("Ok", 1, 0), ("Err", 1, 1)] {
             self.prelude_variants.insert(name, (EnumId(e), v));
         }
     }
 
-    pub(super) fn collect_types(&mut self, program: &'a ast::Program) {
+    /// Declares a module's struct and enum names, so every module's fields
+    /// and signatures can refer to them. Returns where the module's structs
+    /// and enums start in the global tables.
+    pub(super) fn declare_types(&mut self, program: &'a ast::Program) -> (usize, usize) {
+        let struct_base = self.structs.len();
         let enum_base = self.enums.len();
-        // Names first, so fields can refer to types declared later.
         for (i, decl) in program.structs.iter().enumerate() {
-            self.declare_type_name(&decl.name, Def::Struct(StructId(i)));
+            self.declare_type_name(&decl.name, Def::Struct(StructId(struct_base + i)));
             let type_params = self.type_param_names(&decl.type_params);
             self.structs.push(StructInfo {
                 name: decl.name.name.clone(),
@@ -64,6 +65,8 @@ impl<'a> Checker<'a> {
                 span: decl.span,
                 type_params,
                 fields: Vec::new(),
+                module: self.module,
+                public: decl.public,
             });
         }
         for (i, decl) in program.enums.iter().enumerate() {
@@ -74,10 +77,22 @@ impl<'a> Checker<'a> {
                 name_span: Some(decl.name.span),
                 type_params,
                 variants: Vec::new(),
+                module: self.module,
+                public: decl.public,
             });
         }
+        (struct_base, enum_base)
+    }
 
+    /// Resolves the fields and variants of a module's types.
+    pub(super) fn define_types(
+        &mut self,
+        program: &'a ast::Program,
+        struct_base: usize,
+        enum_base: usize,
+    ) {
         for (i, decl) in program.structs.iter().enumerate() {
+            let i = struct_base + i;
             self.type_params = self.structs[i].type_params.clone();
             let mut fields: Vec<FieldInfo> = Vec::new();
             for field in &decl.fields {
@@ -132,7 +147,6 @@ impl<'a> Checker<'a> {
             self.enums[id].variants = variants;
         }
         self.type_params.clear();
-        self.check_recursive_types();
     }
 
     fn declare_type_name(&mut self, name: &ast::Ident, def: Def) {
@@ -195,7 +209,7 @@ impl<'a> Checker<'a> {
 
     /// A struct or enum that contains itself, directly or through other
     /// types, would be infinitely large.
-    fn check_recursive_types(&mut self) {
+    pub(super) fn check_recursive_types(&mut self) {
         // Nodes: structs, then enums. Edges: (member label, span, target).
         let struct_count = self.structs.len();
         let node = |def: Def| match def {
@@ -273,8 +287,10 @@ impl<'a> Checker<'a> {
         }
     }
 
-    pub(super) fn collect_functions(&mut self, program: &'a ast::Program) {
-        for (i, f) in program.functions.iter().enumerate() {
+    /// Declares a module's function names.
+    pub(super) fn declare_functions(&mut self, program: &'a ast::Program) {
+        for f in &program.functions {
+            let id = FnId(self.fn_decls.len());
             let name = f.name.name.as_str();
             if brim_stdlib::lookup(name).is_some()
                 || self.prelude_variants.contains_key(name)
@@ -302,7 +318,7 @@ impl<'a> Checker<'a> {
                 }
                 self.diags.push(diag);
             } else if let Some(first) = self.by_name.get(name) {
-                let first_span = self.sigs[first.0].name_span;
+                let first_span = self.fn_decls[first.0].name.span;
                 self.diags.push(
                     Diagnostic::error(format!("function `{name}` is defined more than once"))
                         .with_code("E0202")
@@ -310,8 +326,15 @@ impl<'a> Checker<'a> {
                         .with_secondary(first_span, "first defined here"),
                 );
             } else {
-                self.by_name.insert(name, FnId(i));
+                self.by_name.insert(name, id);
             }
+            self.fn_decls.push(f);
+        }
+    }
+
+    /// Resolves the signatures of a module's functions (declared before).
+    pub(super) fn collect_functions(&mut self, program: &'a ast::Program) {
+        for f in &program.functions {
             if let Some(receiver) = &f.receiver {
                 self.diags.push(
                     Diagnostic::error("`self` is only allowed in methods")
@@ -322,7 +345,6 @@ impl<'a> Checker<'a> {
             }
             let sig = self.signature(f, Vec::new(), None);
             self.sigs.push(sig);
-            self.fn_decls.push(f);
         }
     }
 
@@ -349,6 +371,16 @@ impl<'a> Checker<'a> {
                     continue;
                 }
             };
+            if self.def_module(def) != self.module {
+                self.diags.push(
+                    Diagnostic::error(format!(
+                        "methods of `{name}` must be declared in the module that declares it"
+                    ))
+                    .with_code("E0237")
+                    .with_primary(decl.type_name.span, ""),
+                );
+                continue;
+            }
             let impl_params = self.type_param_names(&decl.type_params);
             let expected = self.def_type_params(def).len();
             if impl_params.len() != expected {
@@ -459,10 +491,14 @@ impl<'a> Checker<'a> {
             Some(ty) => self.resolve_type(ty, "return"),
             None => Type::Void,
         };
-        let name = match owner {
+        let mut name = match owner {
             Some(def) => format!("{}.{}", self.def_name(def), f.name.name),
             None => f.name.name.clone(),
         };
+        // Functions of other modules than the root get the module's name.
+        if self.module != 0 {
+            name = format!("{}.{name}", self.module_names[self.module]);
+        }
         Signature {
             name,
             name_span: f.name.span,
@@ -471,6 +507,9 @@ impl<'a> Checker<'a> {
             ret,
             ret_span: f.ret.as_ref().map(ast::TypeExpr::span),
             receiver,
+            method: owner.is_some(),
+            module: self.module,
+            public: f.public,
         }
     }
 
@@ -505,9 +544,16 @@ impl<'a> Checker<'a> {
             }
             Some(t) => t,
             None => {
-                let Some(def) = self.type_by_name.get(name).copied() else {
-                    self.unknown_type(name, ty.name.span);
-                    return Type::Error;
+                let def = match self.qualified_type(name, ty.name.span) {
+                    Ok(Some(def)) => def,
+                    Err(()) => return Type::Error,
+                    Ok(None) => match self.type_by_name.get(name).copied() {
+                        Some(def) => def,
+                        None => {
+                            self.unknown_type(name, ty.name.span);
+                            return Type::Error;
+                        }
+                    },
                 };
                 let expected = self.def_type_params(def).len();
                 let args: Vec<Type> = ty

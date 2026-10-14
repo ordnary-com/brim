@@ -1,0 +1,27 @@
+// Text helpers, imported as `text.format`.
+
+pub fn pad(text: string, width: i64) -> string {
+    if text.len() >= width {
+        return text
+    }
+    return text + " ".repeat(width - text.len())
+}
+
+pub struct Report {
+    title: string
+    lines: List[string]
+}
+
+impl Report {
+    pub fn new(title: string) -> Report {
+        return Report { title: title, lines: [] }
+    }
+
+    pub fn add(mut self, line: string) {
+        self.lines.push(line)
+    }
+
+    pub fn render(self) -> string {
+        return "== " + self.title + " ==\n" + self.lines.join("\n")
+    }
+}

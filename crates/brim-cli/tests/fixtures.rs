@@ -148,6 +148,47 @@ fn integration_programs() {
     run_suite("tests/integration", "run", 0);
 }
 
+/// The `main.brim` of every program in `tests/modules`, each a directory of
+/// modules.
+fn module_programs() -> Vec<String> {
+    let mut dirs: Vec<String> = fs::read_dir(workspace_root().join("tests/modules"))
+        .expect("tests/modules exists")
+        .map(|entry| entry.unwrap().path())
+        .filter(|p| p.join("main.brim").is_file())
+        .map(|p| {
+            format!(
+                "tests/modules/{}/main.brim",
+                p.file_name().unwrap().to_string_lossy()
+            )
+        })
+        .collect();
+    dirs.sort();
+    dirs
+}
+
+#[test]
+fn programs_with_modules() {
+    let mut failures = Vec::new();
+    for program in module_programs() {
+        let out = brim(&["run", &program]);
+        let expected = expected_exit(&program, 0);
+        if out.code != expected {
+            failures.push(format!(
+                "{program}: exit code {} (expected {expected})\nstderr:\n{}",
+                out.code, out.stderr
+            ));
+        }
+        let base = workspace_root().join(&program);
+        if let Some(diff) = compare(&base.with_extension("stderr"), &out.stderr) {
+            failures.push(format!("{program}: stderr differs\n{diff}"));
+        }
+        if let Some(diff) = compare(&base.with_extension("stdout"), &out.stdout) {
+            failures.push(format!("{program}: stdout differs\n{diff}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
 #[test]
 fn examples_run() {
     for program in programs("examples") {
@@ -198,9 +239,14 @@ fn run_native(program: &str, release: bool) -> Result<Outcome, String> {
 #[cfg(feature = "llvm")]
 fn native_suite(release: bool) {
     let mut failures = Vec::new();
+    // Programs with compile errors cannot be built.
+    let modules = module_programs()
+        .into_iter()
+        .filter(|p| expected_exit(p, 0) != 1);
     let programs = programs("tests/integration")
         .into_iter()
-        .chain(programs("examples"));
+        .chain(programs("examples"))
+        .chain(modules);
     for program in programs {
         let interpreted = brim(&["run", &program]);
         let native = match run_native(&program, release) {

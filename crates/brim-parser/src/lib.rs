@@ -22,8 +22,8 @@
 
 use brim_ast::{
     BinaryOp, Block, EnumDecl, Expr, ExprKind, FieldDecl, FieldInit, FnDecl, ForIter, Ident,
-    ImplDecl, MatchArm, Param, Pattern, PatternKind, PlaceElem, Program, Receiver, Stmt, StmtKind,
-    StructDecl, TypeExpr, UnaryOp, VariantDecl,
+    ImplDecl, ImportDecl, MatchArm, Param, Pattern, PatternKind, PlaceElem, Program, Receiver,
+    Stmt, StmtKind, StructDecl, TypeExpr, UnaryOp, VariantDecl,
 };
 use brim_diagnostics::{Diagnostic, Span};
 use brim_lexer::{Token, TokenKind, lex};
@@ -36,6 +36,20 @@ pub const MAX_NESTING: usize = 128;
 /// in source order.
 pub fn parse(src: &str) -> (Program, Vec<Diagnostic>) {
     let (tokens, mut diags) = lex(src);
+    let (program, parse_diags) = parse_tokens(tokens);
+    diags.extend(parse_diags);
+    diags.sort_by_key(|d| d.span().map_or(usize::MAX, |s| s.start));
+    (program, diags)
+}
+
+/// Lexes and parses `src` as a file whose spans start at `base` in a
+/// [`SourceMap`](brim_diagnostics::SourceMap).
+pub fn parse_at(src: &str, base: usize) -> (Program, Vec<Diagnostic>) {
+    let (mut tokens, lex_diags) = lex(src);
+    for token in &mut tokens {
+        token.span = Span::new(token.span.start + base, token.span.end + base);
+    }
+    let mut diags: Vec<Diagnostic> = lex_diags.into_iter().map(|d| d.shift(base)).collect();
     let (program, parse_diags) = parse_tokens(tokens);
     diags.extend(parse_diags);
     diags.sort_by_key(|d| d.span().map_or(usize::MAX, |s| s.start));
@@ -62,6 +76,21 @@ pub fn parse_tokens(mut tokens: Vec<Token>) -> (Program, Vec<Diagnostic>) {
     };
     let program = parser.program();
     (program, parser.diags)
+}
+
+/// `a` or `a.b.c` as one dotted name, if `expr` is only names and fields.
+fn dotted_name(expr: &Expr) -> Option<Ident> {
+    match &expr.kind {
+        ExprKind::Name(name) => Some(name.clone()),
+        ExprKind::Field { base, field } => {
+            let base = dotted_name(base)?;
+            Some(Ident {
+                name: format!("{}.{}", base.name, field.name),
+                span: base.span.to(field.span),
+            })
+        }
+        _ => None,
+    }
 }
 
 /// Marker for "an error was already reported". Callers recover and continue.
@@ -246,7 +275,13 @@ impl Parser {
         self.no_struct_literal = false;
         while !matches!(
             self.peek_kind(),
-            TokenKind::Fn | TokenKind::Struct | TokenKind::Enum | TokenKind::Impl | TokenKind::Eof
+            TokenKind::Fn
+                | TokenKind::Struct
+                | TokenKind::Enum
+                | TokenKind::Impl
+                | TokenKind::Pub
+                | TokenKind::Import
+                | TokenKind::Eof
         ) {
             self.bump();
         }
@@ -281,6 +316,7 @@ impl Parser {
         let mut structs = Vec::new();
         let mut enums = Vec::new();
         let mut impls = Vec::new();
+        let mut imports = Vec::new();
         loop {
             while matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Semi) {
                 self.bump();
@@ -288,6 +324,40 @@ impl Parser {
             let token = self.peek().clone();
             match &token.kind {
                 TokenKind::Eof => break,
+                TokenKind::Import => match self.import_decl() {
+                    Ok(i) => imports.push(i),
+                    Err(Reported) => self.recover_item(),
+                },
+                TokenKind::Pub => {
+                    self.bump();
+                    match self.peek_kind() {
+                        TokenKind::Fn => match self.function() {
+                            Ok(mut f) => {
+                                f.public = true;
+                                functions.push(f);
+                            }
+                            Err(Reported) => self.recover_item(),
+                        },
+                        TokenKind::Struct => match self.struct_decl() {
+                            Ok(mut s) => {
+                                s.public = true;
+                                structs.push(s);
+                            }
+                            Err(Reported) => self.recover_item(),
+                        },
+                        TokenKind::Enum => match self.enum_decl() {
+                            Ok(mut e) => {
+                                e.public = true;
+                                enums.push(e);
+                            }
+                            Err(Reported) => self.recover_item(),
+                        },
+                        _ => {
+                            self.error_unexpected("`fn`, `struct` or `enum` after `pub`");
+                            self.recover_item();
+                        }
+                    }
+                }
                 TokenKind::Fn => match self.function() {
                     Ok(f) => functions.push(f),
                     Err(Reported) => self.recover_item(),
@@ -340,11 +410,57 @@ impl Parser {
             }
         }
         Program {
+            imports,
             structs,
             enums,
             impls,
             functions,
         }
+    }
+
+    /// `import a.b`, `import a.b as c` or `import a.b.{X, y}`.
+    fn import_decl(&mut self) -> PResult<ImportDecl> {
+        let import_token = self.bump();
+        let mut path = vec![self.expect_ident("a module name")?];
+        let mut items = None;
+        let mut end = path[0].span;
+        while self.eat(&TokenKind::Dot).is_some() {
+            if self.at(&TokenKind::LBrace) {
+                self.bump();
+                let (names, close) = self.in_parens(|p| {
+                    let mut names = Vec::new();
+                    while !p.at(&TokenKind::RBrace) {
+                        names.push(p.expect_ident("a name to import")?);
+                        if p.eat(&TokenKind::Comma).is_none() {
+                            break;
+                        }
+                    }
+                    if !p.at(&TokenKind::RBrace) {
+                        return Err(p.error_unexpected("`,` or `}`"));
+                    }
+                    Ok((names, p.bump()))
+                })?;
+                items = Some(names);
+                end = close.span;
+                break;
+            }
+            let part = self.expect_ident("a module name or `{` after `.`")?;
+            end = part.span;
+            path.push(part);
+        }
+        let alias = if items.is_none() && self.eat(&TokenKind::As).is_some() {
+            let alias = self.expect_ident("a name after `as`")?;
+            end = alias.span;
+            Some(alias)
+        } else {
+            None
+        };
+        Ok(ImportDecl {
+            path,
+            alias,
+            items,
+            span: import_token.span.to(end),
+        })
     }
 
     fn impl_decl(&mut self) -> PResult<ImplDecl> {
@@ -361,10 +477,14 @@ impl Parser {
             while matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Semi) {
                 self.bump();
             }
+            let public = self.eat(&TokenKind::Pub).is_some();
             match self.peek_kind() {
-                TokenKind::RBrace => break self.bump(),
+                TokenKind::RBrace if !public => break self.bump(),
                 TokenKind::Fn => match self.function() {
-                    Ok(f) => methods.push(f),
+                    Ok(mut f) => {
+                        f.public = public;
+                        methods.push(f);
+                    }
                     Err(Reported) => {
                         // Skip to the next method or the end of the block.
                         let mut depth = 0usize;
@@ -447,6 +567,7 @@ impl Parser {
             }
         };
         Ok(EnumDecl {
+            public: false,
             span: enum_token.span.to(close.span),
             name,
             type_params,
@@ -500,6 +621,7 @@ impl Parser {
             }
         };
         Ok(StructDecl {
+            public: false,
             span: struct_token.span.to(close.span),
             name,
             type_params,
@@ -557,6 +679,7 @@ impl Parser {
         }
         let body = self.block()?;
         Ok(FnDecl {
+            public: false,
             span: fn_token.span.to(body.span),
             name,
             type_params,
@@ -586,7 +709,15 @@ impl Parser {
     }
 
     fn type_expr(&mut self) -> PResult<TypeExpr> {
-        let name = self.expect_ident("a type")?;
+        let mut name = self.expect_ident("a type")?;
+        // `module.Type`
+        while self.eat(&TokenKind::Dot).is_some() {
+            let part = self.expect_ident("a type name after `.`")?;
+            name = Ident {
+                name: format!("{}.{}", name.name, part.name),
+                span: name.span.to(part.span),
+            };
+        }
         let mut span = name.span;
         let mut args = Vec::new();
         if self.at(&TokenKind::LBracket) {
@@ -1373,10 +1504,10 @@ impl Parser {
                     };
                 }
                 TokenKind::LBrace if !self.no_struct_literal => {
-                    let ExprKind::Name(name) = &expr.kind else {
+                    // `Name { ... }` or `module.Name { ... }`.
+                    let Some(name) = dotted_name(&expr) else {
                         break;
                     };
-                    let name = name.clone();
                     expr = self.struct_literal(name)?;
                 }
                 _ => break,

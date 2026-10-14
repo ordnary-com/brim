@@ -28,6 +28,12 @@ struct Signature {
     /// For methods with `self`: whether it is `mut self`. `self` is then the
     /// first parameter.
     receiver: Option<bool>,
+    /// Whether it is a method (declared in an `impl` block).
+    method: bool,
+    /// The module that declares the function.
+    module: usize,
+    /// Declared with `pub`.
+    public: bool,
 }
 
 struct ParamSig {
@@ -43,6 +49,8 @@ struct StructInfo {
     span: Span,
     type_params: Vec<String>,
     fields: Vec<FieldInfo>,
+    module: usize,
+    public: bool,
 }
 
 struct FieldInfo {
@@ -58,6 +66,9 @@ struct EnumInfo {
     name_span: Option<Span>,
     type_params: Vec<String>,
     variants: Vec<VariantInfo>,
+    /// `usize::MAX` for the built-in enums.
+    module: usize,
+    public: bool,
 }
 
 struct VariantInfo {
@@ -96,6 +107,33 @@ pub(crate) struct Checker<'a> {
     /// Set while checking a value whose expected type had an error: types
     /// that cannot be inferred are then not reported.
     quiet_inference: bool,
+    /// The module being checked. While it is, `type_by_name`, `by_name` and
+    /// `aliases` hold its scope; the other modules' scopes are in `scopes`.
+    module: usize,
+    /// Dotted module names; the root module's is empty.
+    module_names: Vec<String>,
+    scopes: Vec<ModuleScope<'a>>,
+    /// Imported modules, by the name they are used under.
+    aliases: HashMap<String, usize>,
+}
+
+/// The names visible in one module.
+#[derive(Default)]
+struct ModuleScope<'a> {
+    types: HashMap<String, Def>,
+    fns: HashMap<&'a str, FnId>,
+    aliases: HashMap<String, usize>,
+    /// The module's own items, for imports from other modules.
+    own_types: HashMap<String, Def>,
+    own_fns: HashMap<&'a str, FnId>,
+}
+
+/// A module to check: its dotted name (empty for the root module, which
+/// contains `main`) and its syntax tree.
+#[derive(Debug)]
+pub struct ModuleAst {
+    pub name: String,
+    pub program: ast::Program,
 }
 
 /// Per-function checking state.
@@ -153,7 +191,7 @@ fn error_expr(span: Span) -> CheckedExpr {
 }
 
 impl<'a> Checker<'a> {
-    pub(crate) fn check(program: &'a ast::Program) -> (Option<CheckedProgram>, Vec<Diagnostic>) {
+    pub(crate) fn check(modules: &'a [ModuleAst]) -> (Option<CheckedProgram>, Vec<Diagnostic>) {
         let mut checker = Checker {
             diags: Vec::new(),
             types: TypeTable::default(),
@@ -169,18 +207,73 @@ impl<'a> Checker<'a> {
             list_type_params: vec!["T".into()],
             map_type_params: vec!["K".into(), "V".into()],
             quiet_inference: false,
+            module: 0,
+            module_names: modules.iter().map(|m| m.name.clone()).collect(),
+            scopes: Vec::new(),
+            aliases: HashMap::new(),
         };
         checker.add_prelude();
-        checker.collect_types(program);
-        checker.collect_functions(program);
-        checker.collect_impls(program);
+        for _ in modules {
+            let mut scope = ModuleScope::default();
+            for (name, def) in [
+                ("Option", Def::Enum(EnumId(0))),
+                ("Result", Def::Enum(EnumId(1))),
+                ("List", Def::List),
+                ("Map", Def::Map),
+            ] {
+                scope.types.insert(name.into(), def);
+            }
+            checker.scopes.push(scope);
+        }
+
+        // Declarations happen in passes over all modules, so that every
+        // module can use what the others declare.
+        let mut bases = Vec::with_capacity(modules.len());
+        for (m, module) in modules.iter().enumerate() {
+            checker.enter(m);
+            bases.push(checker.declare_types(&module.program));
+            checker.declare_functions(&module.program);
+            checker.leave();
+            let scope = &mut checker.scopes[m];
+            scope.own_types = scope
+                .types
+                .iter()
+                .filter(|(_, d)| matches!(d, Def::Struct(_) | Def::Enum(_)))
+                .filter(|(n, _)| !matches!(n.as_str(), "Option" | "Result"))
+                .map(|(n, d)| (n.clone(), *d))
+                .collect();
+            scope.own_fns = scope.fns.clone();
+        }
+        for (m, module) in modules.iter().enumerate() {
+            checker.resolve_imports(m, &module.program);
+        }
+        for (m, module) in modules.iter().enumerate() {
+            checker.enter(m);
+            let (struct_base, enum_base) = bases[m];
+            checker.define_types(&module.program, struct_base, enum_base);
+            checker.leave();
+        }
+        checker.check_recursive_types();
+        for (m, module) in modules.iter().enumerate() {
+            checker.enter(m);
+            checker.collect_functions(&module.program);
+            checker.leave();
+        }
+        for (m, module) in modules.iter().enumerate() {
+            checker.enter(m);
+            checker.collect_impls(&module.program);
+            checker.leave();
+        }
+        checker.enter(0);
         let entry = checker.check_entry();
+        checker.leave();
         let decls = checker.fn_decls.clone();
-        let functions: Vec<CheckedFn> = decls
-            .iter()
-            .zip(0..)
-            .map(|(f, i)| checker.check_fn(f, FnId(i)))
-            .collect();
+        let mut functions: Vec<CheckedFn> = Vec::with_capacity(decls.len());
+        for (i, f) in decls.iter().enumerate() {
+            checker.enter(checker.sigs[i].module);
+            functions.push(checker.check_fn(f, FnId(i)));
+            checker.leave();
+        }
 
         let mut diags = checker.diags;
         // Source order; diagnostics without a location go last.
@@ -232,6 +325,185 @@ impl<'a> Checker<'a> {
             }),
             diags,
         )
+    }
+
+    /// Makes module `m`'s scope the current one.
+    fn enter(&mut self, m: usize) {
+        self.module = m;
+        let scope = &mut self.scopes[m];
+        std::mem::swap(&mut self.type_by_name, &mut scope.types);
+        std::mem::swap(&mut self.by_name, &mut scope.fns);
+        std::mem::swap(&mut self.aliases, &mut scope.aliases);
+    }
+
+    /// Puts the current module's scope back.
+    fn leave(&mut self) {
+        let scope = &mut self.scopes[self.module];
+        std::mem::swap(&mut self.type_by_name, &mut scope.types);
+        std::mem::swap(&mut self.by_name, &mut scope.fns);
+        std::mem::swap(&mut self.aliases, &mut scope.aliases);
+    }
+
+    /// Adds module `m`'s imports to its scope.
+    fn resolve_imports(&mut self, m: usize, program: &'a ast::Program) {
+        for import in &program.imports {
+            let path: Vec<&str> = import.path.iter().map(|p| p.name.as_str()).collect();
+            let joined = path.join(".");
+            let Some(target) = self
+                .module_names
+                .iter()
+                .position(|n| *n == joined && !n.is_empty())
+            else {
+                // The driver reports files it cannot find; this covers the rest.
+                self.diags.push(
+                    Diagnostic::error(format!("cannot find module `{joined}`"))
+                        .with_code("E0242")
+                        .with_primary(import.span, ""),
+                );
+                continue;
+            };
+            if target == m {
+                self.diags.push(
+                    Diagnostic::error("a module cannot import itself")
+                        .with_code("E0242")
+                        .with_primary(import.span, ""),
+                );
+                continue;
+            }
+            match &import.items {
+                None => {
+                    let alias = import
+                        .alias
+                        .as_ref()
+                        .unwrap_or_else(|| import.path.last().expect("a path"));
+                    if let Some(&previous) = self.scopes[m].aliases.get(&alias.name)
+                        && previous != target
+                    {
+                        self.diags.push(
+                            Diagnostic::error(format!(
+                                "`{}` is imported more than once",
+                                alias.name
+                            ))
+                            .with_code("E0243")
+                            .with_primary(alias.span, "")
+                            .with_help("give one of the modules another name with `as`"),
+                        );
+                        continue;
+                    }
+                    self.scopes[m].aliases.insert(alias.name.clone(), target);
+                }
+                Some(items) => {
+                    for item in items {
+                        let def = self.scopes[target].own_types.get(&item.name).copied();
+                        let func = self.scopes[target].own_fns.get(item.name.as_str()).copied();
+                        let public = match (def, func) {
+                            (Some(def), _) => self.def_public(def),
+                            (None, Some(f)) => self.fn_decls[f.0].public,
+                            (None, None) => {
+                                self.diags.push(
+                                    Diagnostic::error(format!(
+                                        "module `{joined}` has no item `{}`",
+                                        item.name
+                                    ))
+                                    .with_code("E0242")
+                                    .with_primary(item.span, ""),
+                                );
+                                continue;
+                            }
+                        };
+                        if !public {
+                            self.private_item(&item.name, &joined, item.span);
+                            continue;
+                        }
+                        let scope = &mut self.scopes[m];
+                        let taken = scope.types.contains_key(&item.name)
+                            || scope.fns.contains_key(item.name.as_str());
+                        if taken {
+                            self.diags.push(
+                                Diagnostic::error(format!(
+                                    "`{}` is already defined in this module",
+                                    item.name
+                                ))
+                                .with_code("E0243")
+                                .with_primary(item.span, "imported here")
+                                .with_help(format!(
+                                    "import the module instead and write `{}.{}`",
+                                    path.last().expect("a path"),
+                                    item.name
+                                )),
+                            );
+                            continue;
+                        }
+                        if let Some(def) = def {
+                            scope.types.insert(item.name.clone(), def);
+                        }
+                        if let Some(func) = func {
+                            let name = self.fn_decls[func.0].name.name.as_str();
+                            self.scopes[m].fns.insert(name, func);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn def_public(&self, def: Def) -> bool {
+        match def {
+            Def::Struct(id) => self.structs[id.0].public,
+            Def::Enum(id) => self.enums[id.0].public,
+            Def::List | Def::Map => true,
+        }
+    }
+
+    fn def_module(&self, def: Def) -> usize {
+        match def {
+            Def::Struct(id) => self.structs[id.0].module,
+            Def::Enum(id) => self.enums[id.0].module,
+            Def::List | Def::Map => usize::MAX,
+        }
+    }
+
+    fn private_item(&mut self, name: &str, module: &str, span: Span) {
+        self.diags.push(
+            Diagnostic::error(format!("`{name}` is private to module `{module}`"))
+                .with_code("E0241")
+                .with_primary(span, "not visible here")
+                .with_help(format!(
+                    "declare it with `pub` in `{module}` to use it elsewhere"
+                )),
+        );
+    }
+
+    /// Resolves a module-qualified type name, `alias.Type`, reporting
+    /// errors. `None` if `name` is not qualified or after an error (with
+    /// `reported` set).
+    fn qualified_type(&mut self, name: &str, span: Span) -> Result<Option<Def>, ()> {
+        let Some((alias, item)) = name.split_once('.') else {
+            return Ok(None);
+        };
+        let Some(&target) = self.aliases.get(alias) else {
+            self.diags.push(
+                Diagnostic::error(format!("unknown module `{alias}`"))
+                    .with_code("E0242")
+                    .with_primary(span, "")
+                    .with_help(format!("import it first: `import {alias}`")),
+            );
+            return Err(());
+        };
+        let module = self.module_names[target].clone();
+        let Some(def) = self.scopes[target].own_types.get(item).copied() else {
+            self.diags.push(
+                Diagnostic::error(format!("module `{module}` has no type `{item}`"))
+                    .with_code("E0212")
+                    .with_primary(span, "not a known type"),
+            );
+            return Err(());
+        };
+        if !self.def_public(def) {
+            self.private_item(item, &module, span);
+            return Err(());
+        }
+        Ok(Some(def))
     }
 
     /// A type as users write it, for messages.
