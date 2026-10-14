@@ -14,6 +14,7 @@ authors = ["Ordnary"]
 brim-ast = { path = "crates/brim-ast" }
 brim-codegen = { path = "crates/brim-codegen" }
 brim-diagnostics = { path = "crates/brim-diagnostics" }
+brim-fmt = { path = "crates/brim-fmt" }
 brim-interp = { path = "crates/brim-interp" }
 brim-ir = { path = "crates/brim-ir" }
 brim-lexer = { path = "crates/brim-lexer" }

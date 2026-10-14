@@ -21,6 +21,7 @@ llvm = ["brim-codegen/llvm"]
 brim-ast.workspace = true
 brim-codegen.workspace = true
 brim-diagnostics.workspace = true
+brim-fmt.workspace = true
 brim-interp.workspace = true
 brim-ir.workspace = true
 brim-lexer.workspace = true

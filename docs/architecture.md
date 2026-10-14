@@ -42,6 +42,7 @@ Every stage reports problems as `brim_diagnostics::Diagnostic`s. A stage only ru
 | `brim-interp` | Reference interpreter for IR | diagnostics, ir, runtime |
 | `brim-codegen` | `Backend` trait; `LlvmBackend` (IR to LLVM IR, object emission, linking with the C runtime in `runtime/brim_rt.c`). LLVM code is only compiled with the `llvm` feature | diagnostics, ir, runtime; `inkwell` (optional) |
 | `brim-manifest` | `brim.toml` parsing and validation (`M0xxx`) | diagnostics, serde, toml |
+| `brim-fmt` | The formatter (`brim fmt`): works on tokens so comments and line breaks survive, and checks that the tokens are unchanged | diagnostics, lexer, parser |
 | `brim-cli` | The `brim` binary: argument parsing, commands, exit codes | everything above |
 
 `brim-lower` and `brim-manifest` were added beyond the initially sketched layout. `brim-lower` keeps the IR independent of the AST and of semantic analysis: `brim-ir` itself depends on neither. `brim-manifest` keeps project configuration reusable by future tools, such as a package manager or language server, without depending on the CLI. `brim-interp` is separate from `brim-codegen` so the temporary interpreter is never confused with the native backend.

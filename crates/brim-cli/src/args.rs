@@ -45,6 +45,12 @@ pub enum Command {
         /// The directory to create; its name is the package name.
         path: PathBuf,
     },
+    Fmt {
+        /// Files and directories; empty for the current project.
+        paths: Vec<PathBuf>,
+        /// `--check`: report unformatted files instead of changing them.
+        check: bool,
+    },
 }
 
 /// A problem with the command line itself.
@@ -61,7 +67,9 @@ impl fmt::Display for UsageError {
     }
 }
 
-const COMMANDS: &[&str] = &["check", "run", "build", "test", "new", "help", "version"];
+const COMMANDS: &[&str] = &[
+    "check", "run", "build", "test", "new", "fmt", "help", "version",
+];
 
 /// Parses the arguments after the program name.
 pub fn parse(args: &[String]) -> Result<Command, UsageError> {
@@ -126,6 +134,28 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
                     command: Some("new"),
                 }),
             }
+        }
+        "fmt" => {
+            let mut paths = Vec::new();
+            let mut check = false;
+            let mut only_positional = false;
+            for arg in rest {
+                match arg.as_str() {
+                    "--" if !only_positional => only_positional = true,
+                    "-h" | "--help" if !only_positional => {
+                        return Ok(Command::Help(Some("fmt".into())));
+                    }
+                    "--check" if !only_positional => check = true,
+                    a if !only_positional && a.starts_with('-') && a != "-" => {
+                        return Err(UsageError {
+                            message: format!("unknown option `{a}` for `brim fmt`"),
+                            command: Some("fmt"),
+                        });
+                    }
+                    _ => paths.push(PathBuf::from(arg)),
+                }
+            }
+            Ok(Command::Fmt { paths, check })
         }
         other if other.starts_with('-') => Err(UsageError {
             message: format!("unknown option `{other}`"),
@@ -252,6 +282,7 @@ Commands:
   build [PATH]   Compile a native executable
   test [PATH]    Run a program's tests
   new <PATH>     Create a new project
+  fmt [PATH...]  Format source files
   help [COMMAND] Show help for a command
   version        Show the compiler version
 
@@ -345,6 +376,27 @@ Options:
   -h, --help  Show help
 "
         }
+        "fmt" => {
+            "\
+Format source files
+
+Formats each `.brim` file in place. A directory stands for the `.brim`
+files in it and its subdirectories (except `target` and hidden ones).
+Without PATH, the current project is formatted: the directory of the
+nearest `brim.toml`. `-` formats standard input to standard output.
+
+Formatting keeps comments, blank lines (at most one in a row) and line
+breaks, and sets indentation and the spaces between tokens. Files with
+syntax errors are reported and left unchanged.
+
+Usage: brim fmt [OPTIONS] [PATH...]
+
+Options:
+  --check     Change nothing; list the files that are not formatted and
+              exit with code 1 if there are any
+  -h, --help  Show help
+"
+        }
         "help" => "Show help for a command\n\nUsage: brim help [COMMAND]\n",
         "version" => "Show the compiler version\n\nUsage: brim version\n",
         _ => MAIN_HELP,
@@ -428,6 +480,20 @@ mod tests {
             })
         );
         assert_eq!(
+            p(&["fmt", "--check", "src", "a.brim"]),
+            Ok(Command::Fmt {
+                paths: vec!["src".into(), "a.brim".into()],
+                check: true,
+            })
+        );
+        assert_eq!(
+            p(&["fmt", "-"]),
+            Ok(Command::Fmt {
+                paths: vec!["-".into()],
+                check: false,
+            })
+        );
+        assert_eq!(
             p(&["new", "hello"]),
             Ok(Command::New {
                 path: "hello".into()
@@ -456,7 +522,7 @@ mod tests {
         let msg = |args: &[&str]| p(args).unwrap_err().message;
         assert_eq!(
             msg(&["frobnicate"]),
-            "unknown command `frobnicate` (available: check, run, build, test, new, help, version)"
+            "unknown command `frobnicate` (available: check, run, build, test, new, fmt, help, version)"
         );
         assert_eq!(
             msg(&["check", "a.brim", "b.brim"]),
@@ -488,6 +554,10 @@ mod tests {
             "`brim new` needs the path of the project to create"
         );
         assert_eq!(msg(&["new", "a", "b"]), "unexpected argument `b`");
+        assert_eq!(
+            msg(&["fmt", "--emit"]),
+            "unknown option `--emit` for `brim fmt`"
+        );
         assert_eq!(
             msg(&["build", "-o"]),
             "`-o` needs a value: the executable's path"

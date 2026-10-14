@@ -162,7 +162,7 @@ error[R0001]: integer overflow in `*`
 | Code | Meaning |
 |------|---------|
 | 0    | Success (warnings may have been printed) |
-| 1    | The program has syntax or semantic errors |
+| 1    | The program has syntax or semantic errors; for `brim fmt --check`, a file is not formatted |
 | 2    | Invalid command line (unknown command or option, missing input) |
 | 3    | Input problem: file missing or unreadable, not UTF-8, wrong extension, invalid `brim.toml` |
 | 4    | Requested feature unavailable: `brim build` in a `brim` compiled without the `llvm` feature, or no C compiler to link with |

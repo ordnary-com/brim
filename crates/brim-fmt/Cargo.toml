@@ -1,0 +1,17 @@
+[package]
+name = "brim-fmt"
+description = "The formatter for the Brim programming language"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+brim-diagnostics.workspace = true
+brim-lexer.workspace = true
+brim-parser.workspace = true
+
+[lints]
+workspace = true

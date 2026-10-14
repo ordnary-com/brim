@@ -439,3 +439,58 @@ fn test_runs_test_functions() {
     assert_eq!(out.status.code(), Some(1));
     assert!(stderr(&out).contains("error[E0210]"));
 }
+
+#[test]
+fn fmt_formats_files_in_place() {
+    let dir = scratch("fmt_project");
+    fs::create_dir_all(dir.join("src/util")).unwrap();
+    fs::create_dir_all(dir.join("target")).unwrap();
+    fs::write(
+        dir.join("brim.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2026\"\n",
+    )
+    .unwrap();
+    let messy = "fn main(){\nprint( 1+2 )   // three\n}\n";
+    let tidy = "fn main() {\n    print(1 + 2) // three\n}\n";
+    fs::write(dir.join("src/main.brim"), messy).unwrap();
+    fs::write(dir.join("src/util/ok.brim"), tidy).unwrap();
+    fs::write(dir.join("target/skipped.brim"), messy).unwrap();
+
+    let out = brim_in(&dir, &["fmt", "--check"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout(&out).replace('\\', "/"), "src/main.brim\n");
+    assert_eq!(
+        fs::read_to_string(dir.join("src/main.brim")).unwrap(),
+        messy
+    );
+
+    let out = brim_in(&dir, &["fmt"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(fs::read_to_string(dir.join("src/main.brim")).unwrap(), tidy);
+    assert_eq!(
+        fs::read_to_string(dir.join("target/skipped.brim")).unwrap(),
+        messy
+    );
+    let out = brim_in(&dir, &["fmt", "--check", "src"]);
+    assert_eq!(out.status.code(), Some(0));
+
+    fs::write(dir.join("bad.brim"), "fn main( {\n").unwrap();
+    let out = brim_in(&dir, &["fmt", "bad.brim"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(stderr(&out).contains("error[E"), "{}", stderr(&out));
+    assert_eq!(
+        fs::read_to_string(dir.join("bad.brim")).unwrap(),
+        "fn main( {\n"
+    );
+
+    let out = run_with_stdin(
+        {
+            let mut c = Command::new(env!("CARGO_BIN_EXE_brim"));
+            c.args(["fmt", "-"]).current_dir(&dir);
+            c
+        },
+        messy,
+    );
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(stdout(&out), tidy);
+}

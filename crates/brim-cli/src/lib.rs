@@ -83,6 +83,7 @@ pub fn run(args: &[String], ctx: &mut Context<'_>) -> i32 {
         } => build(input.as_deref(), output.as_deref(), release, ctx),
         Command::Test { input, filter } => test(input.as_deref(), filter.as_deref(), ctx),
         Command::New { path } => new_project(&path, ctx),
+        Command::Fmt { paths, check } => fmt(&paths, check, ctx),
     };
     match result {
         Ok(()) => exit::SUCCESS,
@@ -256,6 +257,130 @@ fn new_project(path: &Path, ctx: &mut Context<'_>) -> CmdResult {
     }
     let _ = writeln!(ctx.stderr, "created project `{name}` in {shown}");
     Ok(())
+}
+
+fn fmt(paths: &[PathBuf], check: bool, ctx: &mut Context<'_>) -> CmdResult {
+    if paths.iter().any(|p| p.as_os_str() == "-") {
+        if paths.len() > 1 {
+            let _ = writeln!(ctx.stderr, "error: `-` cannot be combined with other paths");
+            return Err(exit::USAGE);
+        }
+        let mut text = String::new();
+        if io::Read::read_to_string(ctx.stdin, &mut text).is_err() {
+            let _ = writeln!(ctx.stderr, "error: standard input is not valid UTF-8");
+            return Err(exit::INPUT);
+        }
+        let file = SourceFile::new("<stdin>", text);
+        return match brim_fmt::format(file.text()) {
+            Ok(formatted) if check => {
+                if formatted == file.text() {
+                    Ok(())
+                } else {
+                    let _ = writeln!(ctx.stdout, "<stdin>");
+                    Err(exit::COMPILE_ERROR)
+                }
+            }
+            Ok(formatted) => write_out(ctx.stdout, &formatted),
+            Err(diags) => {
+                let mut map = SourceMap::new();
+                map.add(file);
+                report(&diags, &map, ctx);
+                Err(exit::COMPILE_ERROR)
+            }
+        };
+    }
+    let roots = if paths.is_empty() {
+        match brim_manifest::find(&ctx.cwd) {
+            Some(manifest) => {
+                let dir = manifest.parent().unwrap_or(Path::new("")).to_path_buf();
+                vec![
+                    dir.strip_prefix(&ctx.cwd)
+                        .map(Path::to_path_buf)
+                        .unwrap_or(dir),
+                ]
+            }
+            None => {
+                let _ = writeln!(
+                    ctx.stderr,
+                    "error: no path given, and no {} found in this directory or its parents\n  \
+                     = help: pass the files or directories to format, e.g. `brim fmt src`",
+                    brim_manifest::MANIFEST_FILE
+                );
+                return Err(exit::USAGE);
+            }
+        }
+    } else {
+        paths.to_vec()
+    };
+    let mut files = Vec::new();
+    for root in &roots {
+        let full = ctx.cwd.join(root);
+        if full.is_dir() {
+            collect_sources(root, &ctx.cwd, &mut files);
+        } else if full.is_file() {
+            files.push(root.clone());
+        } else {
+            let shown = root.display().to_string();
+            return Err(input_error(
+                ctx,
+                &shown,
+                Diagnostic::error("file not found"),
+            ));
+        }
+    }
+    let mut result = Ok(());
+    for path in files {
+        let file = read_text(&path, ctx)?;
+        match brim_fmt::format(file.text()) {
+            Ok(formatted) if formatted == file.text() => {}
+            Ok(_) if check => {
+                let _ = writeln!(ctx.stdout, "{}", path.display());
+                result = Err(exit::COMPILE_ERROR);
+            }
+            Ok(formatted) => {
+                if let Err(e) = std::fs::write(ctx.cwd.join(&path), formatted) {
+                    let shown = path.display().to_string();
+                    return Err(input_error(
+                        ctx,
+                        &shown,
+                        Diagnostic::error(format!("cannot write file: {e}")),
+                    ));
+                }
+                let _ = writeln!(ctx.stderr, "formatted {}", path.display());
+            }
+            Err(diags) => {
+                let mut map = SourceMap::new();
+                map.add(file);
+                report(&diags, &map, ctx);
+                result = Err(exit::COMPILE_ERROR);
+            }
+        }
+    }
+    result
+}
+
+/// The `.brim` files in `dir` and its subdirectories, without `target` and
+/// hidden directories, in a stable order.
+fn collect_sources(dir: &Path, cwd: &Path, files: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(cwd.join(dir)) else {
+        return;
+    };
+    let mut names: Vec<_> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.file_name())
+        .collect();
+    names.sort();
+    for name in names {
+        let path = dir.join(&name);
+        let text = name.to_string_lossy();
+        if cwd.join(&path).is_dir() {
+            if text != "target" && !text.starts_with('.') {
+                collect_sources(&path, cwd, files);
+            }
+        } else if path.extension().is_some_and(|e| e == "brim") {
+            files.push(path);
+        }
+    }
 }
 
 /// The diagnostic for a run-time error, with the call stack.

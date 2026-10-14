@@ -28,6 +28,7 @@ dependencies = [
  "brim-ast",
  "brim-codegen",
  "brim-diagnostics",
+ "brim-fmt",
  "brim-interp",
  "brim-ir",
  "brim-lexer",
@@ -50,6 +51,15 @@ dependencies = [
 [[package]]
 name = "brim-diagnostics"
 version = "0.1.0"
+
+[[package]]
+name = "brim-fmt"
+version = "0.1.0"
+dependencies = [
+ "brim-diagnostics",
+ "brim-lexer",
+ "brim-parser",
+]
 
 [[package]]
 name = "brim-interp"

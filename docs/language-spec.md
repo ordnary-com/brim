@@ -659,4 +659,5 @@ entry = "src/main.brim" # optional; default "src/main.brim"; relative, inside th
 - Unknown tables and keys are errors, to catch typos.
 - `[dependencies]` is reserved and currently rejected with error `M0006`. Dependency resolution and a registry are not implemented.
 - `brim run`, `brim check`, `brim build` and `brim test` without a path use the nearest `brim.toml` in the current directory or its parents.
+- `brim fmt` formats the project's source files (all `.brim` files under the manifest's directory, except in `target`).
 - `brim new PATH` creates a project: a `brim.toml`, a `src/main.brim` with a test, and a `.gitignore`.
