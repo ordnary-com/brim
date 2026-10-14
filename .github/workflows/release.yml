@@ -95,10 +95,29 @@ jobs:
           name: ${{ matrix.name }}
           path: ${{ steps.package.outputs.archive }}
 
+  vscode:
+    name: VS Code extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Package
+        working-directory: editors/vscode
+        run: |
+          npm ci
+          version=$(node -p "require('./package.json').version")
+          npx --yes @vscode/vsce package -o "brim-vscode-$version.vsix"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vscode
+          path: editors/vscode/*.vsix
+
   publish:
     name: Publish the release
     if: github.ref_type == 'tag'
-    needs: build
+    needs: [build, vscode]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -128,3 +147,29 @@ jobs:
           prerelease=""
           case "$GITHUB_REF_NAME" in v0.*|*-*) prerelease="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" dist/* --title "Brim $GITHUB_REF_NAME" --notes-file notes.md $prerelease
+      # The marketplaces need a token each, stored as a repository secret;
+      # without one, that step is skipped.
+      - name: Publish to the Visual Studio Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        if: env.VSCE_PAT != ''
+        run: npx --yes @vscode/vsce publish --packagePath dist/*.vsix
+      - name: Publish to Open VSX
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        if: env.OVSX_PAT != ''
+        run: npx --yes ovsx publish dist/*.vsix -p "$OVSX_PAT"
+      - name: Update the Homebrew formula
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        if: env.GH_TOKEN != ''
+        run: |
+          gh repo clone ordnary-com/homebrew-tap tap
+          mkdir -p tap/Formula
+          scripts/homebrew-formula.sh "$GITHUB_REF_NAME" > tap/Formula/brim.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/brim.rb
+          git commit -m "brim ${GITHUB_REF_NAME#v}"
+          git push

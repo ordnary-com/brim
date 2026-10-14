@@ -30,8 +30,8 @@ mkdir -p "$tmp/helix/helix/runtime"
 cp "$root/editors/helix/languages.toml" "$tmp/helix/helix/languages.toml"
 cp -R "$root/editors/helix/runtime/queries" "$tmp/helix/helix/runtime/"
 export XDG_CONFIG_HOME="$tmp/helix"
-hx --grammar fetch > /dev/null
-hx --grammar build > /dev/null
+hx --grammar fetch
+hx --grammar build
 health=$(hx --health brim)
 echo "$health" | grep -q "Highlight queries: ✓" || { echo "$health"; echo "helix: highlight queries missing" >&2; exit 1; }
 echo "$health" | grep -q "brim: $BRIM" || echo "$health" | grep -q "Binary for language server: ✓" \
