@@ -16,8 +16,9 @@
 //! The parser never panics on malformed input. It records a [`Diagnostic`],
 //! then skips to the next statement (or the next `fn` at the top level) and
 //! continues, so several independent syntax errors can be reported at once.
-//! Expression nesting is limited to [`MAX_NESTING`] levels so that adversarial
-//! input cannot overflow the stack in this or later compiler phases.
+//! Nesting of blocks and expressions is limited to [`MAX_NESTING`] levels so
+//! that adversarial input cannot overflow the stack in this or later compiler
+//! phases.
 
 use brim_ast::{
     BinaryOp, Block, Expr, ExprKind, FnDecl, Ident, Param, Program, Stmt, StmtKind, TypeExpr,
@@ -26,7 +27,8 @@ use brim_ast::{
 use brim_diagnostics::{Diagnostic, Span};
 use brim_lexer::{Token, TokenKind, lex};
 
-/// Maximum nesting depth of expressions (including long operator chains).
+/// Maximum nesting depth of blocks and expressions (including long operator
+/// chains).
 pub const MAX_NESTING: usize = 128;
 
 /// Lexes and parses `src`. Lexer and parser diagnostics are returned together,
@@ -381,6 +383,14 @@ impl Parser {
 
     fn block(&mut self) -> PResult<Block> {
         let open = self.expect(&TokenKind::LBrace)?;
+        self.enter(0, open.span)?;
+        self.nesting += 1;
+        let result = self.block_rest(open);
+        self.nesting -= 1;
+        result
+    }
+
+    fn block_rest(&mut self, open: Token) -> PResult<Block> {
         let saved_parens = std::mem::replace(&mut self.paren_depth, 0);
         let mut stmts = Vec::new();
         let close;
@@ -533,16 +543,14 @@ impl Parser {
     #[cold]
     #[inline(never)]
     fn too_deep(&mut self, span: Span) -> Reported {
-        {
-            let diag = Diagnostic::error("expression is nested too deeply")
-                .with_code("E0105")
-                .with_primary(span, "")
-                .with_note(format!(
-                    "expressions may be nested at most {MAX_NESTING} levels deep"
-                ))
-                .with_help("split the expression using intermediate `let` variables");
-            self.report(diag)
-        }
+        let diag = Diagnostic::error("code is nested too deeply")
+            .with_code("E0105")
+            .with_primary(span, "")
+            .with_note(format!(
+                "blocks and expressions may be nested at most {MAX_NESTING} levels deep"
+            ))
+            .with_help("split the code using intermediate `let` variables or helper functions");
+        self.report(diag)
     }
 
     fn binary_op(kind: &TokenKind) -> Option<BinaryOp> {

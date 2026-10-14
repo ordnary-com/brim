@@ -298,6 +298,16 @@ fn deep_nesting_is_rejected_without_overflow() {
 }
 
 #[test]
+fn deep_block_nesting_is_rejected_without_overflow() {
+    let deep = format!(
+        "fn main() {{ {}{} }}",
+        "{".repeat(10_000),
+        "}".repeat(10_000)
+    );
+    assert!(codes(&deep).contains(&"E0105"));
+}
+
+#[test]
 fn lexer_errors_are_included() {
     // The unterminated string swallows the rest of the line, so the call and
     // the block are reported as unclosed too.
