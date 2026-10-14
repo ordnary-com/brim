@@ -41,10 +41,12 @@ fn brim(args: &[&str]) -> Outcome {
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
     let code = {
+        let mut stdin = std::io::empty();
         let mut ctx = Context {
             cwd: workspace_root(),
             stdout: &mut stdout,
             stderr: &mut stderr,
+            stdin: &mut stdin,
             color: ColorChoice::Never,
         };
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
@@ -183,6 +185,7 @@ fn run_native(program: &str, release: bool) -> Result<Outcome, String> {
     let out = std::process::Command::new(&exe)
         .current_dir(workspace_root())
         .env("BRIM_RT_CHECK", "1")
+        .stdin(std::process::Stdio::null())
         .output()
         .map_err(|e| format!("{program}: cannot run {}: {e}", exe.display()))?;
     Ok(Outcome {

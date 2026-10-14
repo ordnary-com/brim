@@ -27,12 +27,16 @@
  * compiler's tests run every native program this way.
  */
 
+/* For `fileno` and `struct stat` with a strict C11 compiler. */
+#define _POSIX_C_SOURCE 200809L
+
 #include <errno.h>
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 typedef struct BrimStr {
     int64_t rc;
@@ -740,9 +744,536 @@ BrimMap *brim_rt_map_remove_at(BrimMap *m, int64_t i, int64_t key_kind, int64_t 
     return m;
 }
 
+/* ---- the standard library ------------------------------------------------- */
+
+/*
+ * These functions must behave exactly like their counterparts in the
+ * `brim-runtime` crate, which the interpreter uses, including the text of
+ * error messages.
+ */
+
+static BrimStr EMPTY_STR = {-1, 0};
+
+static BrimStr *str_from(const char *data, int64_t len) {
+    if (len == 0) {
+        return &EMPTY_STR;
+    }
+    BrimStr *s = str_alloc(len);
+    memcpy(s->data, data, (size_t)len);
+    return s;
+}
+
+static BrimStr *str_from_c(const char *text) {
+    return str_from(text, (int64_t)strlen(text));
+}
+
+/* A NUL-terminated copy of a string, for C library calls. */
+static char *c_string(const BrimStr *s) {
+    char *c = malloc((size_t)s->len + 1);
+    if (c == NULL) {
+        fatal("out of memory");
+    }
+    memcpy(c, s->data, (size_t)s->len);
+    c[s->len] = 0;
+    return c;
+}
+
+void brim_rt_eprint_str(const BrimStr *s) {
+    fflush(stdout);
+    fwrite(s->data, 1, (size_t)s->len, stderr);
+    fputc('\n', stderr);
+}
+
+int64_t brim_rt_str_compare(const BrimStr *a, const BrimStr *b) {
+    int64_t n = a->len < b->len ? a->len : b->len;
+    int c = memcmp(a->data, b->data, (size_t)n);
+    if (c != 0) {
+        return c < 0 ? -1 : 1;
+    }
+    return a->len < b->len ? -1 : (a->len > b->len ? 1 : 0);
+}
+
+int64_t brim_rt_str_len(const BrimStr *s) {
+    return s->len;
+}
+
+/* The first position of `pattern` in `s` at or after `from`, or -1. */
+static int64_t find_from(const BrimStr *s, const BrimStr *pattern, int64_t from) {
+    for (int64_t i = from; i + pattern->len <= s->len; i++) {
+        if (memcmp(s->data + i, pattern->data, (size_t)pattern->len) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int64_t brim_rt_str_find(const BrimStr *s, const BrimStr *pattern) {
+    return find_from(s, pattern, 0);
+}
+
+uint8_t brim_rt_str_contains(const BrimStr *s, const BrimStr *pattern) {
+    return find_from(s, pattern, 0) >= 0;
+}
+
+uint8_t brim_rt_str_starts_with(const BrimStr *s, const BrimStr *prefix) {
+    return prefix->len <= s->len && memcmp(s->data, prefix->data, (size_t)prefix->len) == 0;
+}
+
+uint8_t brim_rt_str_ends_with(const BrimStr *s, const BrimStr *suffix) {
+    return suffix->len <= s->len &&
+           memcmp(s->data + s->len - suffix->len, suffix->data, (size_t)suffix->len) == 0;
+}
+
+/* Whether byte `i` starts a character (or is the end of the string). */
+static int char_boundary(const BrimStr *s, int64_t i) {
+    return i == s->len || ((uint8_t)s->data[i] & 0xC0) != 0x80;
+}
+
+BrimStr *brim_rt_str_slice(const BrimStr *s, int64_t start, int64_t end, const char *head,
+                           const char *sep, const char *note) {
+    if (start < 0 || end < start || end > s->len || !char_boundary(s, start) ||
+        !char_boundary(s, end)) {
+        brim_rt_trap(head, sep, note);
+    }
+    return str_from(s->data + start, end - start);
+}
+
+static int is_space(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
+}
+
+BrimStr *brim_rt_str_trim_start(const BrimStr *s) {
+    int64_t i = 0;
+    while (i < s->len && is_space(s->data[i])) {
+        i++;
+    }
+    return str_from(s->data + i, s->len - i);
+}
+
+BrimStr *brim_rt_str_trim_end(const BrimStr *s) {
+    int64_t n = s->len;
+    while (n > 0 && is_space(s->data[n - 1])) {
+        n--;
+    }
+    return str_from(s->data, n);
+}
+
+BrimStr *brim_rt_str_trim(const BrimStr *s) {
+    int64_t i = 0;
+    int64_t n = s->len;
+    while (i < n && is_space(s->data[i])) {
+        i++;
+    }
+    while (n > i && is_space(s->data[n - 1])) {
+        n--;
+    }
+    return str_from(s->data + i, n - i);
+}
+
+static BrimStr *map_ascii(const BrimStr *s, int upper) {
+    BrimStr *out = str_alloc(s->len);
+    for (int64_t i = 0; i < s->len; i++) {
+        char c = s->data[i];
+        if (upper && c >= 'a' && c <= 'z') {
+            c = (char)(c - 'a' + 'A');
+        } else if (!upper && c >= 'A' && c <= 'Z') {
+            c = (char)(c - 'A' + 'a');
+        }
+        out->data[i] = c;
+    }
+    return out;
+}
+
+BrimStr *brim_rt_str_to_upper(const BrimStr *s) {
+    return map_ascii(s, 1);
+}
+
+BrimStr *brim_rt_str_to_lower(const BrimStr *s) {
+    return map_ascii(s, 0);
+}
+
+/* A growable byte buffer for building strings. */
+typedef struct Buffer {
+    char *data;
+    int64_t len;
+    int64_t cap;
+} Buffer;
+
+static void buffer_add(Buffer *b, const char *data, int64_t len) {
+    if (b->len + len > b->cap) {
+        int64_t cap = b->cap < 16 ? 16 : b->cap;
+        while (cap < b->len + len) {
+            cap *= 2;
+        }
+        char *bigger = realloc(b->data, (size_t)cap);
+        if (bigger == NULL) {
+            fatal("out of memory");
+        }
+        b->data = bigger;
+        b->cap = cap;
+    }
+    memcpy(b->data + b->len, data, (size_t)len);
+    b->len += len;
+}
+
+static BrimStr *buffer_finish(Buffer *b) {
+    BrimStr *s = str_from(b->data, b->len);
+    free(b->data);
+    return s;
+}
+
+/* The length of the UTF-8 character starting at byte `i`. */
+static int64_t char_len(const BrimStr *s, int64_t i) {
+    int64_t n = 1;
+    while (i + n < s->len && ((uint8_t)s->data[i + n] & 0xC0) == 0x80) {
+        n++;
+    }
+    return n;
+}
+
+BrimStr *brim_rt_str_replace(const BrimStr *s, const BrimStr *from, const BrimStr *to) {
+    Buffer b = {0};
+    if (from->len == 0) {
+        /* Before every character, and at the end. */
+        for (int64_t i = 0; i < s->len;) {
+            int64_t n = char_len(s, i);
+            buffer_add(&b, to->data, to->len);
+            buffer_add(&b, s->data + i, n);
+            i += n;
+        }
+        buffer_add(&b, to->data, to->len);
+        return buffer_finish(&b);
+    }
+    int64_t i = 0;
+    for (;;) {
+        int64_t at = find_from(s, from, i);
+        if (at < 0) {
+            break;
+        }
+        buffer_add(&b, s->data + i, at - i);
+        buffer_add(&b, to->data, to->len);
+        i = at + from->len;
+    }
+    buffer_add(&b, s->data + i, s->len - i);
+    return buffer_finish(&b);
+}
+
+BrimStr *brim_rt_str_repeat(const BrimStr *s, int64_t n) {
+    Buffer b = {0};
+    for (int64_t i = 0; i < n; i++) {
+        buffer_add(&b, s->data, s->len);
+    }
+    return buffer_finish(&b);
+}
+
+static void str_elem_retain(void *p) {
+    brim_rt_retain(*(BrimStr **)p);
+}
+
+static void str_elem_release(void *p) {
+    brim_rt_release(*(BrimStr **)p);
+}
+
+/* Appends a new string (taking over the caller's reference). */
+static BrimList *push_str(BrimList *l, BrimStr *s) {
+    l = brim_rt_list_push(l, &s, (int64_t)sizeof s, str_elem_retain, str_elem_release);
+    brim_rt_release(s);
+    return l;
+}
+
+BrimList *brim_rt_str_chars(const BrimStr *s) {
+    BrimList *l = NULL;
+    for (int64_t i = 0; i < s->len;) {
+        int64_t n = char_len(s, i);
+        l = push_str(l, str_from(s->data + i, n));
+        i += n;
+    }
+    return l;
+}
+
+BrimList *brim_rt_str_split(const BrimStr *s, const BrimStr *sep) {
+    if (sep->len == 0) {
+        return brim_rt_str_chars(s);
+    }
+    BrimList *l = NULL;
+    int64_t i = 0;
+    for (;;) {
+        int64_t at = find_from(s, sep, i);
+        if (at < 0) {
+            break;
+        }
+        l = push_str(l, str_from(s->data + i, at - i));
+        i = at + sep->len;
+    }
+    return push_str(l, str_from(s->data + i, s->len - i));
+}
+
+BrimList *brim_rt_str_lines(const BrimStr *s) {
+    BrimList *l = NULL;
+    int64_t start = 0;
+    for (int64_t i = 0; i < s->len; i++) {
+        if (s->data[i] == '\n') {
+            int64_t end = i;
+            if (end > start && s->data[end - 1] == '\r') {
+                end--;
+            }
+            l = push_str(l, str_from(s->data + start, end - start));
+            start = i + 1;
+        }
+    }
+    if (start < s->len) {
+        l = push_str(l, str_from(s->data + start, s->len - start));
+    }
+    return l;
+}
+
+/* Parses an optionally signed decimal `i64`; returns whether `s` is one. */
+static int parse_int(const BrimStr *s, int64_t *out) {
+    int64_t i = 0;
+    int negative = 0;
+    if (i < s->len && (s->data[i] == '+' || s->data[i] == '-')) {
+        negative = s->data[i] == '-';
+        i++;
+    }
+    if (i == s->len) {
+        return 0;
+    }
+    /* Accumulate as a negative number, which reaches i64::MIN. */
+    int64_t value = 0;
+    for (; i < s->len; i++) {
+        char c = s->data[i];
+        if (c < '0' || c > '9') {
+            return 0;
+        }
+        int64_t digit = c - '0';
+        if (value < (INT64_MIN + digit) / 10) {
+            return 0;
+        }
+        value = value * 10 - digit;
+    }
+    if (!negative) {
+        if (value == INT64_MIN) {
+            return 0;
+        }
+        value = -value;
+    }
+    *out = value;
+    return 1;
+}
+
+uint8_t brim_rt_str_parse_int_ok(const BrimStr *s) {
+    int64_t value;
+    return (uint8_t)parse_int(s, &value);
+}
+
+int64_t brim_rt_str_parse_int(const BrimStr *s) {
+    int64_t value = 0;
+    parse_int(s, &value);
+    return value;
+}
+
+/* ---- input, files and the environment ------------------------------------ */
+
+static BrimStr *last_error;
+static int program_argc;
+static char **program_argv;
+
+static void set_error(BrimStr *message) {
+    brim_rt_release(last_error);
+    last_error = message;
+}
+
+BrimStr *brim_rt_last_error(void) {
+    if (last_error == NULL) {
+        return &EMPTY_STR;
+    }
+    brim_rt_retain(last_error);
+    return last_error;
+}
+
+static int valid_utf8(const char *data, int64_t len) {
+    int64_t i = 0;
+    while (i < len) {
+        uint8_t c = (uint8_t)data[i];
+        int64_t n;
+        uint32_t min;
+        uint32_t cp;
+        if (c < 0x80) {
+            i++;
+            continue;
+        } else if ((c & 0xE0) == 0xC0) {
+            n = 2;
+            min = 0x80;
+            cp = c & 0x1F;
+        } else if ((c & 0xF0) == 0xE0) {
+            n = 3;
+            min = 0x800;
+            cp = c & 0x0F;
+        } else if ((c & 0xF8) == 0xF0) {
+            n = 4;
+            min = 0x10000;
+            cp = c & 0x07;
+        } else {
+            return 0;
+        }
+        if (i + n > len) {
+            return 0;
+        }
+        for (int64_t k = 1; k < n; k++) {
+            uint8_t cont = (uint8_t)data[i + k];
+            if ((cont & 0xC0) != 0x80) {
+                return 0;
+            }
+            cp = (cp << 6) | (cont & 0x3F);
+        }
+        if (cp < min || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+            return 0;
+        }
+        i += n;
+    }
+    return 1;
+}
+
+BrimStr *brim_rt_read_line(void) {
+    fflush(stdout);
+    set_error(NULL);
+    Buffer b = {0};
+    int c;
+    int any = 0;
+    while ((c = fgetc(stdin)) != EOF) {
+        any = 1;
+        if (c == '\n') {
+            if (b.len > 0 && b.data[b.len - 1] == '\r') {
+                b.len--;
+            }
+            break;
+        }
+        char ch = (char)c;
+        buffer_add(&b, &ch, 1);
+    }
+    if (!any) {
+        free(b.data);
+        set_error(str_from_c("end of input"));
+        return &EMPTY_STR;
+    }
+    if (!valid_utf8(b.data, b.len)) {
+        free(b.data);
+        set_error(str_from_c("input is not valid UTF-8"));
+        return &EMPTY_STR;
+    }
+    return buffer_finish(&b);
+}
+
+static void file_error(const char *verb, const BrimStr *path, const char *reason) {
+    Buffer b = {0};
+    buffer_add(&b, "cannot ", 7);
+    buffer_add(&b, verb, (int64_t)strlen(verb));
+    buffer_add(&b, " file \"", 7);
+    buffer_add(&b, path->data, path->len);
+    buffer_add(&b, "\": ", 3);
+    buffer_add(&b, reason, (int64_t)strlen(reason));
+    set_error(buffer_finish(&b));
+}
+
+static const char *errno_reason(int error) {
+    switch (error) {
+    case ENOENT:
+        return "file not found";
+    case EACCES:
+        return "permission denied";
+    case EISDIR:
+        return "is a directory";
+    default:
+        return "input/output error";
+    }
+}
+
+BrimStr *brim_rt_read_file(const BrimStr *path) {
+    set_error(NULL);
+    char *name = c_string(path);
+    FILE *f = fopen(name, "rb");
+    struct stat info;
+    if (f != NULL && fstat(fileno(f), &info) == 0 && S_ISDIR(info.st_mode)) {
+        fclose(f);
+        f = NULL;
+        errno = EISDIR;
+    }
+    free(name);
+    if (f == NULL) {
+        file_error("read", path, errno_reason(errno));
+        return &EMPTY_STR;
+    }
+    Buffer b = {0};
+    char chunk[65536];
+    size_t n;
+    while ((n = fread(chunk, 1, sizeof chunk, f)) > 0) {
+        buffer_add(&b, chunk, (int64_t)n);
+    }
+    int failed = ferror(f);
+    fclose(f);
+    if (failed) {
+        free(b.data);
+        file_error("read", path, "input/output error");
+        return &EMPTY_STR;
+    }
+    if (!valid_utf8(b.data, b.len)) {
+        free(b.data);
+        file_error("read", path, "file is not valid UTF-8");
+        return &EMPTY_STR;
+    }
+    return buffer_finish(&b);
+}
+
+int64_t brim_rt_write_file(const BrimStr *path, const BrimStr *text) {
+    set_error(NULL);
+    char *name = c_string(path);
+    FILE *f = fopen(name, "wb");
+    free(name);
+    if (f == NULL) {
+        file_error("write", path, errno_reason(errno));
+        return 0;
+    }
+    size_t written = fwrite(text->data, 1, (size_t)text->len, f);
+    int failed = fclose(f) != 0 || written != (size_t)text->len;
+    if (failed) {
+        file_error("write", path, "input/output error");
+        return 0;
+    }
+    return text->len;
+}
+
+BrimList *brim_rt_args(void) {
+    BrimList *l = NULL;
+    for (int i = 1; i < program_argc; i++) {
+        l = push_str(l, str_from_c(program_argv[i]));
+    }
+    return l;
+}
+
+uint8_t brim_rt_env_has(const BrimStr *name) {
+    char *c = c_string(name);
+    uint8_t set = getenv(c) != NULL;
+    free(c);
+    return set;
+}
+
+BrimStr *brim_rt_env_get(const BrimStr *name) {
+    char *c = c_string(name);
+    const char *value = getenv(c);
+    free(c);
+    return value == NULL ? &EMPTY_STR : str_from_c(value);
+}
+
+_Noreturn void brim_rt_exit(int64_t code) {
+    fflush(stdout);
+    exit((int)(code & 0xff));
+}
+
 /* ---- process entry ------------------------------------------------------- */
 
-int main(void) {
+int main(int argc, char **argv) {
+    program_argc = argc;
+    program_argv = argv;
     const char *check = getenv("BRIM_RT_CHECK");
     checking = check != NULL && strcmp(check, "1") == 0;
     frames = malloc(sizeof(const char *) * (size_t)brim_max_call_depth);
@@ -754,6 +1285,7 @@ int main(void) {
         fprintf(stderr, "error[R0004]: failed to write output: %s\n", strerror(errno));
         return 101;
     }
+    set_error(NULL);
     if (checking && live_strings != 0) {
         fprintf(stderr, "error: brim runtime check: %" PRId64 " string(s) or list(s) leaked\n",
                 live_strings);

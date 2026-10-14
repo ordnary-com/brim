@@ -82,7 +82,7 @@ Guidelines for writing diagnostics:
 | E0213 | `void` used as a variable, parameter or field type |
 | E0214 | Function, struct or enum used as a value, or a variable called as a function |
 | E0215 | Integer literal out of range for `i64` |
-| E0216 | Function redefines a builtin |
+| E0216 | Function redefines a builtin (including `Some`, `None`, `Ok`, `Err` and the I/O functions) |
 | E0217 | `break` or `continue` outside of a loop |
 | E0218 | Assignment to an immutable variable, a parameter, or a field of one |
 | E0219 | Type name already used: by another struct or enum, a built-in type (including `Option` and `Result`) or a function; or a type parameter named like a built-in type |
@@ -138,6 +138,7 @@ Guidelines for writing diagnostics:
 | R0004 | Writing program output failed |
 | R0005 | List index out of bounds |
 | R0006 | Map key not found |
+| R0007 | Invalid string slice |
 
 Run-time errors are reported like compile-time diagnostics, with the source location of the failing operation and the call stack:
 

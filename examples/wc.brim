@@ -1,0 +1,78 @@
+// A small `wc`: counts lines, words and bytes of the files given as
+// arguments, or of standard input.
+//
+//     brim run examples/wc.brim README.md docs/roadmap.md
+//     brim build examples/wc.brim && ./examples/wc README.md
+
+struct Counts {
+    lines: i64
+    words: i64
+    bytes: i64
+}
+
+impl Counts {
+    fn of(text: string) -> Counts {
+        let mut words: i64 = 0
+        for line in text.lines() {
+            for word in line.split(" ") {
+                if !word.trim().is_empty() {
+                    words += 1
+                }
+            }
+        }
+        return Counts { lines: text.lines().len(), words: words, bytes: text.len() }
+    }
+
+    fn add(mut self, other: Counts) {
+        self.lines += other.lines
+        self.words += other.words
+        self.bytes += other.bytes
+    }
+
+    fn show(self, name: string) -> string {
+        return to_string(self.lines) + "\t" + to_string(self.words) + "\t" + to_string(self.bytes) + "\t" + name
+    }
+}
+
+fn read_input() -> string {
+    let mut lines: List[string] = []
+    while true {
+        match read_line() {
+            Some(line) => lines.push(line)
+            None => break
+        }
+    }
+    if lines.is_empty() {
+        return ""
+    }
+    return lines.join("\n") + "\n"
+}
+
+fn main() {
+    let files: List[string] = args()
+    if files.is_empty() {
+        print(Counts.of(read_input()).show(""))
+        return
+    }
+    let mut total: Counts = Counts { lines: 0, words: 0, bytes: 0 }
+    let mut failed: bool = false
+    for file in files {
+        match read_file(file) {
+            Ok(text) => {
+                let counts: Counts = Counts.of(text)
+                print(counts.show(file))
+                total.add(counts)
+            }
+            Err(message) => {
+                eprint("wc: " + message)
+                failed = true
+            }
+        }
+    }
+    if files.len() > 1 {
+        print(total.show("total"))
+    }
+    if failed {
+        exit(1)
+    }
+}

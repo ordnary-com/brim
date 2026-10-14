@@ -498,7 +498,7 @@ Operands are evaluated left to right. Function arguments are evaluated left to r
 | `/`                 | `i64`, `i64`               | `i64`    | truncates toward zero; division by zero and `i64::MIN / -1` are run-time errors |
 | `%`                 | `i64`, `i64`               | `i64`    | result has the sign of the left operand; `% 0` is a run-time error |
 | `+`                 | `string`, `string`         | `string` | concatenation |
-| `<` `<=` `>` `>=`   | `i64`, `i64`               | `bool`   | |
+| `<` `<=` `>` `>=`   | `i64`, `i64` or `string`, `string` | `bool`   | strings compare byte by byte |
 | `==` `!=`           | both `i64`, both `bool`, or both `string` | `bool` | strings compare by content |
 | `&&` `\|\|`         | `bool`, `bool`             | `bool`   | short-circuit: the right side is evaluated only if needed |
 | unary `-`           | `i64`                      | `i64`    | `-i64::MIN` is a run-time error |
@@ -528,6 +528,7 @@ These stop the program immediately, after the output produced so far has been fl
 | `R0004` | writing program output failed |
 | `R0005` | a list index outside the list |
 | `R0006` | a map key that is not in the map |
+| `R0007` | a string slice outside the string or not on a character boundary |
 
 Integers never wrap silently.
 
@@ -538,9 +539,40 @@ Builtins are always in scope and cannot be redefined.
 | Builtin | Forms                                             | Effect |
 |---------|---------------------------------------------------|--------|
 | `print` | `print(string)`, `print(i64)`, `print(bool)`      | writes the value and a newline to standard output |
+| `eprint` | `eprint(string)` | writes the text and a newline to standard error |
 | `to_string` | `to_string(i64) -> string`, `to_string(bool) -> string` | the decimal representation of an integer, or `"true"`/`"false"` |
+| `read_line` | `read_line() -> Option[string]` | the next line of standard input without its line ending (`\n` or `\r\n`); `None` at the end of input |
+| `read_file` | `read_file(path: string) -> Result[string, string]` | a file's contents; `Err` with a message if it cannot be read or is not UTF-8 |
+| `write_file` | `write_file(path: string, text: string) -> Result[i64, string]` | creates or replaces a file; `Ok` with the number of bytes written |
+| `args` | `args() -> List[string]` | the program's command-line arguments, without the program name |
+| `env` | `env(name: string) -> Option[string]` | an environment variable |
+| `exit` | `exit(code: i64)` | ends the program with an exit code (its low 8 bits); a statement calling `exit` diverges |
 
-A builtin selects its form by the argument's type. User functions cannot be overloaded.
+A builtin selects its form by the argument's type. User functions cannot be overloaded, and builtins cannot be redefined (`E0216`).
+
+File error messages have the form `cannot read file "PATH": REASON`, where the reason is `file not found`, `permission denied`, `is a directory`, `file is not valid UTF-8` or `input/output error`. Relative paths are relative to the current directory.
+
+### 10.1 String methods
+
+Positions and lengths count **bytes** of the UTF-8 text.
+
+| Method | Result | |
+|--------|--------|---|
+| `len()` | `i64` | the length in bytes |
+| `is_empty()` | `bool` | |
+| `contains(t)`, `starts_with(t)`, `ends_with(t)` | `bool` | |
+| `find(t)` | `Option[i64]` | the position of the first `t` |
+| `slice(start, end)` | `string` | bytes `start..end`; outside the string or not on a character boundary is run-time error `R0007` |
+| `trim()`, `trim_start()`, `trim_end()` | `string` | without spaces, tabs, line feeds, carriage returns, vertical tabs and form feeds |
+| `to_upper()`, `to_lower()` | `string` | ASCII letters only |
+| `replace(from, to)` | `string` | every non-overlapping `from`; an empty `from` matches before every character and at the end |
+| `repeat(n)` | `string` | empty for `n <= 0` |
+| `split(sep)` | `List[string]` | the parts between separators (`"a,,b"` gives three parts); an empty separator splits into characters |
+| `lines()` | `List[string]` | without line endings; a final line ending does not start another line |
+| `chars()` | `List[string]` | each character as a string |
+| `parse_int()` | `Option[i64]` | a decimal integer with an optional `+` or `-`, and nothing else |
+
+Strings can be compared with `<`, `<=`, `>` and `>=`, byte by byte.
 
 ## 11. Open design questions
 
@@ -550,10 +582,10 @@ These questions are not settled. The current behavior is a reversible default.
 2. **`if` as an expression.** `if` is a statement. Making it an expression (`let x: i64 = if c { 1 } else { 2 }`) is attractive but needs rules for blocks with values.
 3. **Integer types.** Only `i64` exists. Sized (`i32`, `u8`, ...) and pointer-sized types are needed for systems work. Literal typing rules depend on this.
 4. **Overflow semantics.** Checked arithmetic that traps is the current rule. Whether release builds keep the checks, and whether explicit wrapping operations are added, is open.
-5. **String model.** Strings are immutable UTF-8. Indexing, slicing, byte access and the cost model (reference counting vs. copying) are undecided. See `docs/architecture.md`, Memory management.
+5. **String model.** Strings are immutable, reference-counted UTF-8. Methods work on byte positions. Unicode-aware case conversion, grapheme handling and a byte type are undecided.
 6. **Error handling in the language.** Recoverable errors are `Result` values with `?` propagation. Open: converting between error types in `?`, a standard error type, and whether `main` may return a `Result`. Run-time errors (`R` codes) still abort. See `docs/error-handling.md`.
 7. **Statement termination.** Newline termination with continuation after operators is the current rule. Behavior around method chains (`.` at line start) must be decided when methods exist.
-8. **`main` signature.** Whether `main` may return an exit code or receive arguments is undecided.
+8. **`main` signature.** `main` takes no parameters and returns nothing; arguments come from `args()` and the exit code from `exit`. Returning a `Result` from `main` is undecided.
 9. **Unicode identifiers.** Identifiers are ASCII-only. Allowing Unicode (UAX #31) is possible later.
 10. **Entry point and modules.** The module system, visibility (`pub` is reserved) and how `brim.toml` maps packages to modules are undesigned.
 11. **Loop forms.** `while` and `for` exist. A dedicated `loop` keyword, labeled `break` for nested loops, and `for` over other collections are candidates.

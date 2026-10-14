@@ -61,7 +61,7 @@ fn usage_errors_exit_2() {
     for args in [
         &[][..],
         &["frobnicate"],
-        &["run", "a.brim", "b.brim"],
+        &["check", "a.brim", "b.brim"],
         &["check", "--emit=x"],
     ] {
         let out = brim(args);
@@ -267,4 +267,81 @@ fn manifest_errors() {
     let out = brim_in(&dir, &["run"]);
     assert_eq!(out.status.code(), Some(2));
     assert!(stderr(&out).contains("no brim.toml found"));
+}
+
+/// A program that uses its arguments, standard input and a file.
+const IO_PROGRAM: &str = r#"fn main() {
+    let words: List[string] = args()
+    let mut lines: List[string] = []
+    while true {
+        match read_line() {
+            Some(line) => lines.push(line.to_upper())
+            None => break
+        }
+    }
+    match write_file("out.txt", words.join("+") + "\n" + lines.join("\n")) {
+        Ok(n) => print("wrote " + to_string(n) + " bytes")
+        Err(message) => print(message)
+    }
+    match read_file("out.txt") {
+        Ok(text) => print(text)
+        Err(message) => print(message)
+    }
+    match write_file("missing/dir/out.txt", "x") {
+        Ok(n) => print(n)
+        Err(message) => print(message)
+    }
+    exit(words.len())
+}
+"#;
+
+const IO_EXPECTED: &str =
+    "wrote 13 bytes\na+b+c\nONE\nTWO\ncannot write file \"missing/dir/out.txt\": file not found\n";
+
+fn run_with_stdin(mut command: Command, input: &str) -> Output {
+    use std::io::Write as _;
+    use std::process::Stdio;
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn run_passes_arguments_and_input() {
+    let dir = scratch("run_io");
+    fs::write(dir.join("io.brim"), IO_PROGRAM).unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_brim"));
+    command
+        .args(["run", "io.brim", "a+b", "c"])
+        .current_dir(&dir);
+    let out = run_with_stdin(command, "one\ntwo\n");
+    assert_eq!(stdout(&out), IO_EXPECTED, "{}", stderr(&out));
+    assert_eq!(out.status.code(), Some(2));
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn native_programs_get_arguments_and_input() {
+    let dir = scratch("native_io");
+    fs::write(dir.join("io.brim"), IO_PROGRAM).unwrap();
+    let built = brim_in(&dir, &["build", "io.brim", "-o", "io"]);
+    assert_eq!(built.status.code(), Some(0), "{}", stderr(&built));
+    let mut command = Command::new(dir.join("io"));
+    command
+        .args(["a+b", "c"])
+        .current_dir(&dir)
+        .env("BRIM_RT_CHECK", "1");
+    let out = run_with_stdin(command, "one\ntwo\n");
+    assert_eq!(stdout(&out), IO_EXPECTED, "{}", stderr(&out));
+    assert_eq!(out.status.code(), Some(2));
 }

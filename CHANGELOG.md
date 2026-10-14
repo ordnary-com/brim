@@ -18,6 +18,9 @@ All notable changes to this project are documented here. The format follows [Kee
 - New diagnostics `E0234` and `E0235`; `examples/lists.brim`.
 - `Map[K, V]` with `i64`, `bool` or `string` keys: literals (`["a": 1]`, `[:]`), indexing (`m[k]`, run-time error `R0006` for a missing key), assignment through keys, and the methods `len`, `is_empty`, `get`, `contains_key`, `keys`, `values`, `insert`, `remove` and `clear`. Entries keep insertion order. Maps are values with copy-on-write.
 - `E0236` for map keys of other types; `examples/maps.brim`.
+- Standard library: string methods (`len`, `is_empty`, `contains`, `starts_with`, `ends_with`, `find`, `slice`, `trim`, `trim_start`, `trim_end`, `to_upper`, `to_lower`, `replace`, `repeat`, `split`, `lines`, `chars`, `parse_int`), string comparison with `<` and friends, and the builtins `eprint`, `read_line`, `read_file`, `write_file`, `args`, `env` and `exit`. Run-time error `R0007` for invalid string slices.
+- `brim run PROGRAM ARGS...` passes arguments to the program, and the program's exit code becomes `brim run`'s.
+- `examples/wc.brim`, a small `wc`.
 - Methods: `impl Type { fn name(self, ...) }`, with `self` (a copy), `mut self` (changes the caller's value, which is moved into the method so lists in it change in place) and methods without `self` called on the type (`Stack.new()`). Generic types get generic `impl` blocks. New diagnostics `E0237` to `E0240`; `impl` and `self` are keywords.
 - Structs: `struct` declarations, struct literals (`Point { x: 1, y: 2 }`), field access (`p.x`) and field assignment (`p.x = 3`, `p.from.y += 1`), with value semantics. Supported by the interpreter and the native backend, including reference counting of strings inside structs. New diagnostics `E0219` to `E0224`; `struct` is now a keyword.
 - `E0007` for floating-point literals such as `9.99`.

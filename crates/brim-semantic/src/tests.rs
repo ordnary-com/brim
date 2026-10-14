@@ -206,7 +206,8 @@ fn error_invalid_operators() {
         )]
     );
     assert_eq!(codes(&main_with("print(1 && true)")), vec!["E0209"]);
-    assert_eq!(codes(&main_with("print(\"a\" < \"b\")")), vec!["E0209"]);
+    assert_eq!(codes(&main_with("print(true < false)")), vec!["E0209"]);
+    assert!(codes(&main_with("print(\"a\" < \"b\")")).is_empty());
     assert_eq!(codes(&main_with("print(1 == true)")), vec!["E0209"]);
     assert_eq!(codes(&main_with("print(-true)")), vec!["E0209"]);
     assert_eq!(codes(&main_with("print(!1)")), vec!["E0209"]);

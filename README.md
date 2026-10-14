@@ -125,6 +125,7 @@ Brim is at **version 0.1**. It is a working foundation, **not ready for producti
 - `i64`, `bool`, `string`; arithmetic, comparison and logical operators; string concatenation and equality
 - `List[T]` and `Map[K, V]` with indexing and methods, and `for` loops over lists and ranges
 - Methods in `impl` blocks, including `mut self` methods that change the caller's value
+- A standard library for command-line tools: string methods, `read_line`, `read_file`, `write_file`, `args`, `env`, `exit`
 - Builtins `print` and `to_string`
 - Full static type checking, return checking on all paths, and detailed diagnostics
 - `brim build` (native executables via LLVM 22, opt-in at compile time), `brim run` (reference interpreter), `brim check`, `brim.toml` projects
@@ -132,7 +133,7 @@ Brim is at **version 0.1**. It is a working foundation, **not ready for producti
 **Not yet**
 
 - Debug information and Windows builds for native executables
-- Traits (interfaces), string functions, generics, modules and imports, error handling, closures, concurrency
+- Traits (interfaces), networking and HTTP, generics, modules and imports, error handling, closures, concurrency
 - Standard library beyond `print` and `to_string`; dependencies and a package registry; formatter and language server
 
 The [roadmap](docs/roadmap.md) lists the milestones in order.

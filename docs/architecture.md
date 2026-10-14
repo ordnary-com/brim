@@ -159,6 +159,8 @@ The interpreter implements these functions with `brim-runtime`'s Rust functions.
 
 Besides the functions above, the C runtime has backend-internal entry points that are not part of the IR: `brim_rt_enter(name, ...)` and `brim_rt_leave()` bracket every Brim call to maintain the call stack and enforce the call-depth limit (`brim_runtime::MAX_CALL_DEPTH`, shared with the interpreter), `brim_rt_trap(...)` reports a run-time error and exits with 101, and `brim_rt_retain(str)` / `brim_rt_release(str)` manage string memory (see [Memory management](#memory-management)). The runtime also defines the process entry point `main`, which calls the generated `brim_entry`.
 
+The standard library adds string functions, I/O and the environment to the ABI. A function that can fail (`brim_rt_str_slice`) takes the pre-rendered error message as extra arguments, like a trap. I/O functions that can fail without stopping the program record an error instead, which `brim_rt_last_error` returns; lowering turns that into a `Result` or `Option`. `brim_rt_exit` never returns. Both implementations produce the same error messages, so the differential tests cover them.
+
 Integer arithmetic is **not** a runtime call. The backend emits the operation together with an overflow check (LLVM's `llvm.s{add,sub,mul}.with.overflow` intrinsics, and explicit checks for division by zero and `i64::MIN / -1`), and branches to a trap. The semantics are defined once, in `brim_runtime::ops`, and the interpreter uses those functions directly.
 
 ## Memory management

@@ -43,7 +43,8 @@ use brim_ir::{
 use brim_runtime::RuntimeFn;
 use brim_semantic::checked::{
     BinaryOp, CheckedArm, CheckedExpr, CheckedExprKind, CheckedFn, CheckedForIter, CheckedPattern,
-    CheckedPlace, CheckedProgram, CheckedStmt, ListOp, ListReceiver, MapOp, PlaceStep, UnaryOp,
+    CheckedPlace, CheckedProgram, CheckedStmt, Intrinsic, ListOp, ListReceiver, MapOp, PlaceStep,
+    UnaryOp,
 };
 use brim_semantic::{Def, Type, TypeTable};
 
@@ -279,6 +280,8 @@ fn branches(expr: &CheckedExpr) -> bool {
         CheckedExprKind::Unary { operand, .. } => branches(operand),
         CheckedExprKind::Binary { lhs, rhs, .. } => branches(lhs) || branches(rhs),
         CheckedExprKind::CallMut { .. } => true,
+        // Most intrinsics build an `Option` or `Result` with a branch.
+        CheckedExprKind::Intrinsic { .. } => true,
         CheckedExprKind::Call { args, .. }
         | CheckedExprKind::Builtin { args, .. }
         | CheckedExprKind::Variant { args, .. } => args.iter().any(branches),
@@ -497,6 +500,12 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             }
             CheckedStmt::Expr(expr) => {
                 self.expr(expr);
+                // `exit(...)` does not return.
+                if let CheckedExprKind::Builtin { runtime, .. } = &expr.kind
+                    && runtime.diverges()
+                {
+                    self.terminate(Terminator::Unreachable);
+                }
             }
             CheckedStmt::Return { value, span } => {
                 let value = value.as_ref().map(|v| self.value(v));
@@ -1661,6 +1670,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 self.make_variant(enum_ty, *index, &values, span)
             }
             CheckedExprKind::Try { operand } => self.try_expr(operand, ty, span),
+            CheckedExprKind::Intrinsic { op, args } => self.intrinsic(*op, args, ty, expr.ty, span),
             CheckedExprKind::Field { base, index } => {
                 let v = self.value(base);
                 self.emit_value(InstKind::Extract(v, *index), ty, span)
@@ -1708,6 +1718,117 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             }
         };
         Some(value)
+    }
+
+    // ---- intrinsics ----------------------------------------------------------
+
+    fn runtime(&mut self, rt: RuntimeFn, args: Vec<ValueId>, ty: IrType, span: Span) -> ValueId {
+        self.emit_value(InstKind::CallRuntime(rt, args), ty, span)
+    }
+
+    fn intrinsic(
+        &mut self,
+        op: Intrinsic,
+        args: &[CheckedExpr],
+        ty: IrType,
+        result_ty: brim_semantic::Type,
+        span: Span,
+    ) -> ValueId {
+        let args = self.values(&args.iter().collect::<Vec<_>>());
+        let (i64_ty, bool_ty, str_ty) = (IrType::I64, IrType::Bool, IrType::Str);
+        let enum_ty = self.concrete(result_ty);
+        match op {
+            Intrinsic::StrIsEmpty => {
+                let len = self.runtime(RuntimeFn::StrLen, vec![args[0]], i64_ty, span);
+                let zero = self.emit_value(InstKind::Const(Const::I64(0)), i64_ty, span);
+                self.emit_value(
+                    InstKind::Binary(brim_ir::BinaryOp::IEq, len, zero),
+                    bool_ty,
+                    span,
+                )
+            }
+            Intrinsic::StrFind => {
+                let at = self.runtime(RuntimeFn::StrFind, args, i64_ty, span);
+                let zero = self.emit_value(InstKind::Const(Const::I64(0)), i64_ty, span);
+                let found = self.emit_value(
+                    InstKind::Binary(brim_ir::BinaryOp::IGe, at, zero),
+                    bool_ty,
+                    span,
+                );
+                self.choose_variant(found, enum_ty, at, None, span)
+            }
+            Intrinsic::ParseInt => {
+                let ok = self.runtime(RuntimeFn::StrParseIntOk, vec![args[0]], bool_ty, span);
+                let value = self.runtime(RuntimeFn::StrParseInt, vec![args[0]], i64_ty, span);
+                self.choose_variant(ok, enum_ty, value, None, span)
+            }
+            Intrinsic::Env => {
+                let set = self.runtime(RuntimeFn::EnvHas, vec![args[0]], bool_ty, span);
+                let value = self.runtime(RuntimeFn::EnvGet, vec![args[0]], str_ty, span);
+                self.choose_variant(set, enum_ty, value, None, span)
+            }
+            Intrinsic::ReadLine | Intrinsic::ReadFile | Intrinsic::WriteFile => {
+                let (rt, value_ty) = match op {
+                    Intrinsic::ReadLine => (RuntimeFn::ReadLine, str_ty),
+                    Intrinsic::ReadFile => (RuntimeFn::ReadFile, str_ty),
+                    _ => (RuntimeFn::WriteFile, i64_ty),
+                };
+                let value = self.runtime(rt, args, value_ty, span);
+                let error = self.runtime(RuntimeFn::LastError, vec![], str_ty, span);
+                let empty =
+                    self.emit_value(InstKind::Const(Const::Str(String::new())), str_ty, span);
+                let ok = self.runtime(RuntimeFn::StrEq, vec![error, empty], bool_ty, span);
+                // `read_line` gives `Option`; the file functions `Result`.
+                let error = (op != Intrinsic::ReadLine).then_some(error);
+                self.choose_variant(ok, enum_ty, value, error, span)
+            }
+            Intrinsic::Args => self.runtime(RuntimeFn::Args, vec![], ty, span),
+        }
+    }
+
+    /// `Some(value)` / `Ok(value)` if `cond`, else `None` (no `error`) or
+    /// `Err(error)`.
+    fn choose_variant(
+        &mut self,
+        cond: ValueId,
+        enum_ty: brim_semantic::Type,
+        value: ValueId,
+        error: Option<ValueId>,
+        span: Span,
+    ) -> ValueId {
+        let value_ty = self.func.values[value.index()];
+        let value_slot = self.new_slot("value", value_ty);
+        self.emit(InstKind::Store(value_slot, value), None, span);
+        let error_slot = error.map(|e| {
+            let slot = self.new_slot("error", IrType::Str);
+            self.emit(InstKind::Store(slot, e), None, span);
+            slot
+        });
+        let result_ir = self.m.ir_type(enum_ty);
+        let result = self.new_slot("result", result_ir);
+        let yes = self.new_block();
+        let no = self.new_block();
+        let join = self.new_block();
+        self.terminate(Terminator::Branch {
+            cond,
+            then_block: yes,
+            else_block: no,
+        });
+        self.switch_to(yes);
+        let value = self.emit_value(InstKind::Load(value_slot), value_ty, span);
+        let good = self.make_variant(enum_ty, 0, &[value], span);
+        self.emit(InstKind::Store(result, good), None, span);
+        self.terminate(Terminator::Jump(join));
+        self.switch_to(no);
+        let payload: Vec<ValueId> = error_slot
+            .map(|slot| self.emit_value(InstKind::Load(slot), IrType::Str, span))
+            .into_iter()
+            .collect();
+        let bad = self.make_variant(enum_ty, 1, &payload, span);
+        self.emit(InstKind::Store(result, bad), None, span);
+        self.terminate(Terminator::Jump(join));
+        self.switch_to(join);
+        self.emit_value(InstKind::Load(result), result_ir, span)
     }
 
     /// Variant `index` of the concrete enum `enum_ty`, with `payload`.
@@ -1813,6 +1934,18 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             BinaryOp::StrConcat => {
                 let kind = InstKind::CallRuntime(RuntimeFn::StrConcat, vec![a, b]);
                 return self.emit_value(kind, IrType::Str, span);
+            }
+            BinaryOp::StrLt | BinaryOp::StrLe | BinaryOp::StrGt | BinaryOp::StrGe => {
+                let kind = InstKind::CallRuntime(RuntimeFn::StrCompare, vec![a, b]);
+                let order = self.emit_value(kind, IrType::I64, span);
+                let zero = self.emit_value(InstKind::Const(Const::I64(0)), IrType::I64, span);
+                let cmp = match op {
+                    BinaryOp::StrLt => Ir::ILt,
+                    BinaryOp::StrLe => Ir::ILe,
+                    BinaryOp::StrGt => Ir::IGt,
+                    _ => Ir::IGe,
+                };
+                return self.emit_value(InstKind::Binary(cmp, order, zero), IrType::Bool, span);
             }
             BinaryOp::StrEq | BinaryOp::StrNe => {
                 let kind = InstKind::CallRuntime(RuntimeFn::StrEq, vec![a, b]);

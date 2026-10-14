@@ -1,0 +1,10 @@
+> name: brim
+> version: 0.1.0
+> 
+> features: generics, enums
+4 lines
+cannot read file "tests/data/missing.txt": file not found
+0
+not set
+no input
+before exit

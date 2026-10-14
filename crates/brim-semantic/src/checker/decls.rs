@@ -276,7 +276,10 @@ impl<'a> Checker<'a> {
     pub(super) fn collect_functions(&mut self, program: &'a ast::Program) {
         for (i, f) in program.functions.iter().enumerate() {
             let name = f.name.name.as_str();
-            if brim_stdlib::lookup(name).is_some() || self.prelude_variants.contains_key(name) {
+            if brim_stdlib::lookup(name).is_some()
+                || self.prelude_variants.contains_key(name)
+                || super::strings::intrinsic_function(name).is_some()
+            {
                 self.diags.push(
                     Diagnostic::error(format!("cannot redefine builtin function `{name}`"))
                         .with_code("E0216")

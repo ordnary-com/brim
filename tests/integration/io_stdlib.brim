@@ -1,0 +1,39 @@
+// exit: 3
+// Files, arguments, the environment and standard input. The test harness
+// runs programs without arguments and with an empty standard input.
+
+fn count_lines(path: string) -> Result[i64, string] {
+    let text: string = read_file(path)?
+    return Ok(text.lines().len())
+}
+
+fn main() {
+    match read_file("tests/data/sample.txt") {
+        Ok(text) => {
+            for line in text.lines() {
+                print("> " + line)
+            }
+        }
+        Err(message) => print(message)
+    }
+    match count_lines("tests/data/sample.txt") {
+        Ok(n) => print(to_string(n) + " lines")
+        Err(message) => print(message)
+    }
+    match count_lines("tests/data/missing.txt") {
+        Ok(n) => print(n)
+        Err(message) => print(message)
+    }
+    print(args().len())
+    match env("BRIM_SURELY_NOT_SET_VARIABLE") {
+        Some(value) => print(value)
+        None => print("not set")
+    }
+    match read_line() {
+        Some(line) => print("read: " + line)
+        None => print("no input")
+    }
+    eprint("this goes to standard error")
+    print("before exit")
+    exit(3)
+}

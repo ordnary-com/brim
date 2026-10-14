@@ -203,6 +203,9 @@ impl<'a> Checker<'a> {
         let probe = self.check_expr(base, ctx);
         // Discard what the probe reported; the real check reports it again.
         self.diags.truncate(errors);
+        if probe.ty == Type::String {
+            return Some(self.check_str_method(base, name, args, span, ctx));
+        }
         if self.as_map(probe.ty).is_some() {
             return self.check_map_method(base, name, args, span, ctx);
         }
@@ -524,7 +527,10 @@ impl<'a> Checker<'a> {
                 }
             };
             self.diags.push(diag);
-        } else if self.by_name.contains_key(name) || brim_stdlib::lookup(name).is_some() {
+        } else if self.by_name.contains_key(name)
+            || brim_stdlib::lookup(name).is_some()
+            || super::strings::intrinsic_function(name).is_some()
+        {
             self.diags.push(
                 Diagnostic::error(format!("`{name}` is a function, not a value"))
                     .with_code("E0214")
@@ -1123,6 +1129,10 @@ impl<'a> Checker<'a> {
             (Op::Le, I64, I64) => Some((BinaryOp::IntLe, Bool)),
             (Op::Gt, I64, I64) => Some((BinaryOp::IntGt, Bool)),
             (Op::Ge, I64, I64) => Some((BinaryOp::IntGe, Bool)),
+            (Op::Lt, String, String) => Some((BinaryOp::StrLt, Bool)),
+            (Op::Le, String, String) => Some((BinaryOp::StrLe, Bool)),
+            (Op::Gt, String, String) => Some((BinaryOp::StrGt, Bool)),
+            (Op::Ge, String, String) => Some((BinaryOp::StrGe, Bool)),
             (Op::And | Op::Or, Bool, Bool) => None,
             _ => {
                 self.invalid_binary(op, op_span, &lhs, &rhs);
@@ -1178,7 +1188,7 @@ impl<'a> Checker<'a> {
                 diag.with_note(format!("`{sym}` requires two `i64` operands"))
             }
             Op::Lt | Op::Le | Op::Gt | Op::Ge => {
-                diag.with_note(format!("`{sym}` compares two `i64` values"))
+                diag.with_note(format!("`{sym}` compares two `i64` or two `string` values"))
             }
             Op::Eq | Op::Ne => diag.with_note(format!(
                 "`{sym}` compares two values of the same type (`i64`, `bool` or `string`)"
@@ -1220,6 +1230,10 @@ impl<'a> Checker<'a> {
         if let Some(&id) = self.by_name.get(name) {
             return self.finish_call(id, None, &arg_refs, span, expected, ctx);
         }
+        if let Some(result) = self.check_intrinsic_call(callee, args, span, ctx) {
+            return result;
+        }
+
         if let Some(builtin) = brim_stdlib::lookup(name) {
             let args: Vec<CheckedExpr> = args.iter().map(|a| self.check_expr(a, ctx)).collect();
             let arities = builtin.arities();
@@ -1318,7 +1332,8 @@ impl<'a> Checker<'a> {
                     .by_name
                     .keys()
                     .copied()
-                    .chain(brim_stdlib::BUILTINS.iter().map(|b| b.name));
+                    .chain(brim_stdlib::BUILTINS.iter().map(|b| b.name))
+                    .chain(super::strings::INTRINSIC_FUNCTIONS.iter().copied());
                 if let Some(similar) = suggest::similar(name, candidates) {
                     diag = diag.with_help(format!(
                         "a function with a similar name exists: `{similar}`"

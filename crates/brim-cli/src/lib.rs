@@ -37,8 +37,10 @@ pub struct Context<'a> {
     pub cwd: PathBuf,
     /// Program output and `--emit` output.
     pub stdout: &'a mut dyn Write,
-    /// Diagnostics and status messages.
+    /// Diagnostics and status messages; also the program's standard error.
     pub stderr: &'a mut dyn Write,
+    /// The program's standard input.
+    pub stdin: &'a mut dyn io::BufRead,
     /// Whether diagnostics on `stderr` are colored.
     pub color: ColorChoice,
 }
@@ -71,7 +73,7 @@ pub fn run(args: &[String], ctx: &mut Context<'_>) -> i32 {
         Command::Help(Some(cmd)) => write_out(ctx.stdout, args::command_help(&cmd)),
         Command::Version => write_out(ctx.stdout, &format!("brim {}\n", env!("CARGO_PKG_VERSION"))),
         Command::Check { input, emit } => check(input.as_deref(), emit, ctx),
-        Command::Run { input } => run_program(input.as_deref(), ctx),
+        Command::Run { input, args } => run_program(input.as_deref(), args, ctx),
         Command::Build {
             input,
             output,
@@ -101,11 +103,20 @@ fn check(input: Option<&Path>, emit: Option<Emit>, ctx: &mut Context<'_>) -> Cmd
     Ok(())
 }
 
-fn run_program(input: Option<&Path>, ctx: &mut Context<'_>) -> CmdResult {
+fn run_program(input: Option<&Path>, args: Vec<String>, ctx: &mut Context<'_>) -> CmdResult {
     let file = load_input(input, ctx)?.file;
     let module = compile(&file, None, ctx)?;
-    match brim_interp::run(&module, ctx.stdout, brim_interp::Limits::default()) {
-        Ok(()) => Ok(()),
+    let mut host = brim_interp::Host {
+        out: ctx.stdout,
+        err: ctx.stderr,
+        input: ctx.stdin,
+        args,
+        cwd: ctx.cwd.clone(),
+    };
+    let result = brim_interp::run(&module, &mut host, brim_interp::Limits::default());
+    match result {
+        Ok(0) => Ok(()),
+        Ok(code) => Err(code),
         Err(trap) => {
             let mut diag = Diagnostic::error(trap.error.to_string()).with_code(trap.error.code());
             if let Some(span) = trap.span {

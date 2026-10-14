@@ -94,6 +94,24 @@ pub const BUILTINS: &[Builtin] = &[
         ],
     },
     Builtin {
+        name: "eprint",
+        summary: "Writes a string followed by a newline to standard error.",
+        overloads: &[Overload {
+            params: &[Prim::String],
+            ret: Prim::Void,
+            runtime: RuntimeFn::EPrintStr,
+        }],
+    },
+    Builtin {
+        name: "exit",
+        summary: "Ends the program with an exit code (0 to 255).",
+        overloads: &[Overload {
+            params: &[Prim::I64],
+            ret: Prim::Void,
+            runtime: RuntimeFn::Exit,
+        }],
+    },
+    Builtin {
         name: "to_string",
         summary: "Converts a value to its textual representation.",
         overloads: &[

@@ -318,6 +318,12 @@ pub enum CheckedExprKind {
     /// A struct literal. `fields` holds every field exactly once, as
     /// `(field index, value)` in **source order**, which is the order the
     /// values are evaluated in.
+    /// A built-in operation with a non-primitive type; string methods pass
+    /// the string as the first argument.
+    Intrinsic {
+        op: Intrinsic,
+        args: Vec<CheckedExpr>,
+    },
     /// The struct type is the expression's type.
     StructLit {
         fields: Vec<(usize, CheckedExpr)>,
@@ -389,4 +395,30 @@ pub enum BinaryOp {
     StrConcat,
     StrEq,
     StrNe,
+    /// Byte-wise string comparisons.
+    StrLt,
+    StrLe,
+    StrGt,
+    StrGe,
+}
+
+/// Built-in operations that lower to more than one runtime call.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Intrinsic {
+    /// `s.is_empty()`
+    StrIsEmpty,
+    /// `s.find(t)`: `Option[i64]`.
+    StrFind,
+    /// `s.parse_int()`: `Option[i64]`.
+    ParseInt,
+    /// `read_line()`: `Option[string]`.
+    ReadLine,
+    /// `read_file(path)`: `Result[string, string]`.
+    ReadFile,
+    /// `write_file(path, text)`: `Result[i64, string]`.
+    WriteFile,
+    /// `args()`: `List[string]`.
+    Args,
+    /// `env(name)`: `Option[string]`.
+    Env,
 }

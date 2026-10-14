@@ -1,0 +1,6 @@
+// exit: 101
+fn main() {
+    let word: string = "héllo"
+    print(word.slice(0, 1))
+    print(word.slice(0, 2))
+}

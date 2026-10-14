@@ -416,7 +416,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                     InstKind::CallRuntime(rt, args) => {
                         let args: Vec<BasicValueEnum<'ctx>> =
                             args.iter().map(|a| get(*a)).collect();
-                        self.call_runtime(*rt, &args)?
+                        self.call_runtime(*rt, &args, inst.span)?
                     }
                     InstKind::MakeStruct(id, args) => {
                         let mut value = self.struct_types[id.index()].get_undef().into();
@@ -726,6 +726,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
         &mut self,
         rt: RuntimeFn,
         args: &[BasicValueEnum<'ctx>],
+        span: Option<Span>,
     ) -> Result<Option<BasicValueEnum<'ctx>>, BuilderError> {
         let function = self.runtime_fn(rt);
         let i8_type = self.context.i8_type();
@@ -738,6 +739,15 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                     .into(),
                 _ => (*arg).into(),
             });
+        }
+        // Functions that can fail get the message to report.
+        if let Some(error) = rt.failure() {
+            let [head, sep, note] = self.trap_text(&error, span);
+            abi_args.extend::<[BasicMetadataValueEnum<'ctx>; 3]>([
+                head.into(),
+                sep.into(),
+                note.into(),
+            ]);
         }
         let result = self
             .builder
@@ -887,12 +897,18 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             match ty {
                 AbiType::I64 => self.context.i64_type().into(),
                 AbiType::Bool => self.context.i8_type().into(),
-                AbiType::Str => self.context.ptr_type(AddressSpace::default()).into(),
+                AbiType::Str | AbiType::StrList => {
+                    self.context.ptr_type(AddressSpace::default()).into()
+                }
                 AbiType::Void => unreachable!("`void` is never a runtime parameter"),
             }
         };
-        let params: Vec<BasicMetadataTypeEnum<'ctx>> =
+        let mut params: Vec<BasicMetadataTypeEnum<'ctx>> =
             rt.params().iter().map(|t| abi(*t).into()).collect();
+        if rt.failure().is_some() {
+            let ptr = self.context.ptr_type(AddressSpace::default());
+            params.extend::<[BasicMetadataTypeEnum<'ctx>; 3]>([ptr.into(), ptr.into(), ptr.into()]);
+        }
         let fn_type = match rt.ret() {
             AbiType::Void => self.context.void_type().fn_type(&params, false),
             ty => abi(ty).fn_type(&params, false),
@@ -900,6 +916,13 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
         let f = self
             .module
             .add_function(rt.symbol(), fn_type, Some(Linkage::External));
+        if rt.diverges() {
+            let kind = Attribute::get_named_enum_kind_id("noreturn");
+            f.add_attribute(
+                AttributeLoc::Function,
+                self.context.create_enum_attribute(kind, 0),
+            );
+        }
         self.runtime.insert(rt, f);
         f
     }

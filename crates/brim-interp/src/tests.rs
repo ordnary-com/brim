@@ -11,16 +11,30 @@ fn compile(src: &str) -> Module {
     module
 }
 
-fn output(src: &str) -> String {
+fn run_with(src: &str, limits: Limits) -> (Result<i32, Trap>, String) {
     let mut out = Vec::new();
-    run(&compile(src), &mut out, Limits::default()).expect("program runs");
-    String::from_utf8(out).unwrap()
+    let mut err = Vec::new();
+    let mut input = std::io::empty();
+    let mut host = Host {
+        out: &mut out,
+        err: &mut err,
+        input: &mut input,
+        args: Vec::new(),
+        cwd: std::path::PathBuf::from("."),
+    };
+    let result = run(&compile(src), &mut host, limits);
+    (result, String::from_utf8(out).unwrap())
+}
+
+fn output(src: &str) -> String {
+    let (result, out) = run_with(src, Limits::default());
+    result.expect("program runs");
+    out
 }
 
 fn run_trap(src: &str) -> (Trap, String) {
-    let mut out = Vec::new();
-    let trapped = run(&compile(src), &mut out, Limits::default()).expect_err("program traps");
-    (trapped, String::from_utf8(out).unwrap())
+    let (result, out) = run_with(src, Limits::default());
+    (result.expect_err("program traps"), out)
 }
 
 #[test]
@@ -136,9 +150,18 @@ fn write_errors_are_reported() {
             Ok(())
         }
     }
+    let mut err_out = Vec::new();
+    let mut input = std::io::empty();
+    let mut host = Host {
+        out: &mut Broken,
+        err: &mut err_out,
+        input: &mut input,
+        args: Vec::new(),
+        cwd: std::path::PathBuf::from("."),
+    };
     let err = run(
         &compile("fn main() { print(1) }"),
-        &mut Broken,
+        &mut host,
         Limits::default(),
     )
     .unwrap_err();

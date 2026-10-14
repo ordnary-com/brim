@@ -2,6 +2,7 @@ mod collections;
 mod decls;
 mod exprs;
 mod matching;
+mod strings;
 
 use std::collections::HashMap;
 
@@ -503,6 +504,7 @@ impl<'a> Checker<'a> {
                             | CheckedExprKind::ListOp { .. }
                             | CheckedExprKind::MapOp { .. }
                             | CheckedExprKind::CallMut { .. }
+                            | CheckedExprKind::Intrinsic { .. }
                     )
                 };
                 // `do_something()?` is a call too: only its error is used.
@@ -517,7 +519,12 @@ impl<'a> Checker<'a> {
                             .with_help("store it with `let`, or remove the expression"),
                     );
                 }
-                (CheckedStmt::Expr(checked), false)
+                // `exit(...)` ends the program.
+                let diverges = matches!(
+                    checked.kind,
+                    CheckedExprKind::Builtin { runtime, .. } if runtime.diverges()
+                );
+                (CheckedStmt::Expr(checked), diverges)
             }
             ast::StmtKind::Block(block) => {
                 let (stmts, diverges) = self.check_block(&block.stmts, ctx);

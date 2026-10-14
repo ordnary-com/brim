@@ -26,6 +26,8 @@ pub enum Command {
     },
     Run {
         input: Option<PathBuf>,
+        /// Arguments for the program (`args()`), after its path.
+        args: Vec<String>,
     },
     Build {
         input: Option<PathBuf>,
@@ -85,6 +87,7 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
             let parsed = CommandArgs::parse("run", rest)?;
             Ok(parsed.help.unwrap_or(Command::Run {
                 input: parsed.input,
+                args: parsed.program_args,
             }))
         }
         "build" => {
@@ -128,6 +131,8 @@ struct CommandArgs {
     emit: Option<Emit>,
     output: Option<PathBuf>,
     release: bool,
+    /// `run` only: positional arguments after the path.
+    program_args: Vec<String>,
     help: Option<Command>,
 }
 
@@ -140,6 +145,7 @@ impl CommandArgs {
             emit: None,
             output: None,
             release: false,
+            program_args: Vec::new(),
             help: None,
         };
         let mut only_positional = false;
@@ -179,6 +185,10 @@ impl CommandArgs {
                 }
             } else if parsed.input.is_none() {
                 parsed.input = Some(PathBuf::from(arg));
+            } else if command == "run" {
+                // Everything after the program belongs to the program.
+                parsed.program_args.push(arg.clone());
+                only_positional = true;
             } else {
                 return Err(unexpected(arg, Some(command)));
             }
@@ -240,7 +250,10 @@ Check a program and run it with the reference interpreter
 The interpreter is a temporary execution path while the native backend is
 developed. Program output goes to stdout; diagnostics go to stderr.
 
-Usage: brim run [PATH]
+Usage: brim run [PATH] [ARGS...]
+
+ARGS are passed to the program (`args()`). The program's exit code (see
+`exit`) becomes the exit code of `brim run`.
 
 Options:
   -h, --help  Show help
@@ -311,11 +324,25 @@ mod tests {
                 emit: Some(Emit::Ast)
             })
         );
-        assert_eq!(p(&["run"]), Ok(Command::Run { input: None }));
+        assert_eq!(
+            p(&["run"]),
+            Ok(Command::Run {
+                input: None,
+                args: vec![]
+            })
+        );
         assert_eq!(
             p(&["run", "--", "-weird.brim"]),
             Ok(Command::Run {
-                input: Some("-weird.brim".into())
+                input: Some("-weird.brim".into()),
+                args: vec![]
+            })
+        );
+        assert_eq!(
+            p(&["run", "tool.brim", "a", "--flag", "-x"]),
+            Ok(Command::Run {
+                input: Some("tool.brim".into()),
+                args: vec!["a".into(), "--flag".into(), "-x".into()]
             })
         );
         assert_eq!(p(&["run", "-h"]), Ok(Command::Help(Some("run".into()))));
@@ -345,7 +372,7 @@ mod tests {
             "unknown command `frobnicate` (available: check, run, build, help, version)"
         );
         assert_eq!(
-            msg(&["run", "a.brim", "b.brim"]),
+            msg(&["check", "a.brim", "b.brim"]),
             "unexpected argument `b.brim`"
         );
         assert_eq!(

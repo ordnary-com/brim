@@ -1,1 +1,3 @@
 * text=auto eol=lf
+# Test data keeps its exact bytes (some files use \r\n on purpose).
+tests/data/** -text

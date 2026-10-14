@@ -37,10 +37,12 @@ fn main() -> ExitCode {
         .spawn(move || {
             let mut stdout = BufWriter::new(io::stdout().lock());
             let mut stderr = io::stderr().lock();
+            let mut stdin = io::stdin().lock();
             let mut ctx = Context {
                 cwd,
                 stdout: &mut stdout,
                 stderr: &mut stderr,
+                stdin: &mut stdin,
                 color,
             };
             brim_cli::run(&args, &mut ctx)

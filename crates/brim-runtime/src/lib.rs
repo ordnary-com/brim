@@ -11,6 +11,9 @@
 //!   (checked integer arithmetic).
 //! - [`RuntimeError`] describes run-time failures and their stable codes.
 //!
+//! The string and I/O functions here define the behaviour the native runtime
+//! must match exactly, including error messages.
+//!
 //! Everything here is safe Rust. Native executables use a small C
 //! implementation of the same functions (`crates/brim-codegen/runtime`),
 //! which must behave identically; the differential tests in `brim-cli` check
@@ -50,6 +53,8 @@ pub enum RuntimeError {
     IndexOutOfBounds { index: i64, len: i64 },
     /// A map was indexed with a key it does not have.
     KeyNotFound,
+    /// A string slice outside the string or not on character boundaries.
+    InvalidSlice,
 }
 
 impl RuntimeError {
@@ -62,6 +67,7 @@ impl RuntimeError {
             RuntimeError::Io { .. } => "R0004",
             RuntimeError::IndexOutOfBounds { .. } => "R0005",
             RuntimeError::KeyNotFound => "R0006",
+            RuntimeError::InvalidSlice => "R0007",
         }
     }
 }
@@ -85,6 +91,10 @@ impl fmt::Display for RuntimeError {
                 "index out of bounds: the index is {index} but the length is {len}"
             ),
             RuntimeError::KeyNotFound => write!(f, "key not found in map"),
+            RuntimeError::InvalidSlice => write!(
+                f,
+                "invalid string slice: outside the string or not on a character boundary"
+            ),
         }
     }
 }
@@ -127,6 +137,120 @@ pub fn bool_to_str(value: bool) -> BrimStr {
 /// Implements string `==`: byte-wise equality of the UTF-8 text.
 pub fn str_eq(a: &str, b: &str) -> bool {
     a == b
+}
+
+/// Writes a line to standard error (`eprint`).
+pub fn eprint_str(err: &mut dyn Write, value: &str) -> io::Result<()> {
+    writeln!(err, "{value}")
+}
+
+/// Byte-wise comparison: -1, 0 or 1 (string `<` and friends).
+pub fn str_compare(a: &str, b: &str) -> i64 {
+    match a.cmp(b) {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    }
+}
+
+/// The byte position of the first `pattern` in `s`, or -1.
+pub fn str_find(s: &str, pattern: &str) -> i64 {
+    s.find(pattern).map_or(-1, |i| i as i64)
+}
+
+/// Bytes `start..end` of `s`, which must be in the string and on character
+/// boundaries.
+pub fn str_slice(s: &str, start: i64, end: i64) -> Result<BrimStr, RuntimeError> {
+    let (Ok(start), Ok(end)) = (usize::try_from(start), usize::try_from(end)) else {
+        return Err(RuntimeError::InvalidSlice);
+    };
+    s.get(start..end)
+        .map(BrimStr::from)
+        .ok_or(RuntimeError::InvalidSlice)
+}
+
+/// The whitespace `trim` removes: space, tab, line feed, carriage return,
+/// vertical tab and form feed.
+fn is_space(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0b' | '\x0c')
+}
+
+pub fn str_trim(s: &str) -> BrimStr {
+    BrimStr::from(s.trim_matches(is_space))
+}
+
+pub fn str_trim_start(s: &str) -> BrimStr {
+    BrimStr::from(s.trim_start_matches(is_space))
+}
+
+pub fn str_trim_end(s: &str) -> BrimStr {
+    BrimStr::from(s.trim_end_matches(is_space))
+}
+
+/// ASCII letters in upper case; everything else unchanged.
+pub fn str_to_upper(s: &str) -> BrimStr {
+    BrimStr::from(s.to_ascii_uppercase())
+}
+
+/// ASCII letters in lower case; everything else unchanged.
+pub fn str_to_lower(s: &str) -> BrimStr {
+    BrimStr::from(s.to_ascii_lowercase())
+}
+
+/// Every non-overlapping `from` replaced by `to`. An empty `from` matches
+/// before every character and at the end.
+pub fn str_replace(s: &str, from: &str, to: &str) -> BrimStr {
+    BrimStr::from(s.replace(from, to))
+}
+
+/// `n` copies of `s`; empty for `n <= 0`.
+pub fn str_repeat(s: &str, n: i64) -> BrimStr {
+    BrimStr::from(s.repeat(usize::try_from(n).unwrap_or(0)))
+}
+
+/// The parts of `s` between separators. An empty separator splits into
+/// characters.
+pub fn str_split(s: &str, sep: &str) -> Vec<BrimStr> {
+    if sep.is_empty() {
+        return str_chars(s);
+    }
+    s.split(sep).map(BrimStr::from).collect()
+}
+
+/// The lines of `s`, without line endings (`\n` or `\r\n`). A final line
+/// ending does not start another line.
+pub fn str_lines(s: &str) -> Vec<BrimStr> {
+    s.lines().map(BrimStr::from).collect()
+}
+
+/// Each character of `s` as a string.
+pub fn str_chars(s: &str) -> Vec<BrimStr> {
+    s.chars()
+        .map(|c| BrimStr::from(c.encode_utf8(&mut [0; 4]) as &str))
+        .collect()
+}
+
+/// A decimal integer with an optional `+` or `-`, if `s` is exactly that
+/// and fits in an `i64`.
+pub fn str_parse_int(s: &str) -> Option<i64> {
+    let digits = s.strip_prefix(['+', '-']).unwrap_or(s);
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    s.parse().ok()
+}
+
+/// The message for a failed file operation (`verb` is "read" or "write"),
+/// the same in the interpreter and in native executables.
+pub fn file_error(verb: &str, path: &str, error: &io::Error) -> String {
+    let reason = match error.kind() {
+        io::ErrorKind::NotFound => "file not found",
+        io::ErrorKind::PermissionDenied => "permission denied",
+        io::ErrorKind::IsADirectory => "is a directory",
+        io::ErrorKind::InvalidData => "file is not valid UTF-8",
+        _ => "input/output error",
+    };
+    format!("cannot {verb} file \"{path}\": {reason}")
 }
 
 #[cfg(test)]

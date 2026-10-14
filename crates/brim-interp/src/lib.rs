@@ -12,7 +12,7 @@
 //! the configurable [`Limits::max_call_depth`] and report a clean run-time
 //! error instead of crashing the host process.
 
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::rc::Rc;
 
 use brim_diagnostics::Span;
@@ -264,7 +264,34 @@ impl Frame {
 ///
 /// The module must have passed [`brim_ir::validate`]; executing invalid IR
 /// may panic.
-pub fn run(module: &Module, out: &mut dyn Write, limits: Limits) -> Result<(), Trap> {
+/// What a running program can use from its environment.
+pub struct Host<'a> {
+    /// Standard output (`print`).
+    pub out: &'a mut dyn Write,
+    /// Standard error (`eprint`).
+    pub err: &'a mut dyn Write,
+    /// Standard input (`read_line`).
+    pub input: &'a mut dyn BufRead,
+    /// The program's arguments (`args()`), without a program name.
+    pub args: Vec<String>,
+    /// The directory relative file paths are resolved against.
+    pub cwd: std::path::PathBuf,
+}
+
+impl std::fmt::Debug for Host<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Host")
+            .field("args", &self.args)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Runs `module` from its entry point. Returns the program's exit code: 0,
+/// or the code it passed to `exit`.
+///
+/// The module must have passed [`brim_ir::validate`]; executing invalid IR
+/// may panic.
+pub fn run(module: &Module, host: &mut Host<'_>, limits: Limits) -> Result<i32, Trap> {
     let mut cache = vec![None; module.functions.len()];
     let mut stack = vec![Frame::new(
         module,
@@ -273,9 +300,13 @@ pub fn run(module: &Module, out: &mut dyn Write, limits: Limits) -> Result<(), T
         None,
         &mut cache,
     )];
-    let result = execute(module, out, limits, &mut stack, &mut cache);
+    let mut state = State {
+        host,
+        last_error: String::new(),
+    };
+    let result = execute(module, &mut state, limits, &mut stack, &mut cache);
     // Output written before a failure is still delivered.
-    let flushed = out.flush();
+    let flushed = state.host.out.flush().and(state.host.err.flush());
     match result {
         Err((error, span)) => Err(Trap {
             error,
@@ -285,7 +316,7 @@ pub fn run(module: &Module, out: &mut dyn Write, limits: Limits) -> Result<(), T
                 .map(|f| module.function(f.func).name.clone())
                 .collect(),
         }),
-        Ok(()) => flushed.map_err(|e| Trap {
+        Ok(code) => flushed.map(|()| code).map_err(|e| Trap {
             error: RuntimeError::Io {
                 message: e.to_string(),
             },
@@ -295,15 +326,22 @@ pub fn run(module: &Module, out: &mut dyn Write, limits: Limits) -> Result<(), T
     }
 }
 
+/// The host and the runtime's own state.
+struct State<'h, 'a> {
+    host: &'h mut Host<'a>,
+    /// The error of the last I/O function (`LastError`); empty on success.
+    last_error: String,
+}
+
 type Failure = (RuntimeError, Option<Span>);
 
 fn execute(
     module: &Module,
-    out: &mut dyn Write,
+    state: &mut State<'_, '_>,
     limits: Limits,
     stack: &mut Vec<Frame>,
     cache: &mut [Option<Rc<LastUses>>],
-) -> Result<(), Failure> {
+) -> Result<i32, Failure> {
     loop {
         let frame = stack.last_mut().expect("the stack is never empty here");
         if let Some((block, ip)) = frame.pending.take() {
@@ -321,7 +359,7 @@ fn execute(
                     let value = value.map(|v| frame.get(v).clone());
                     let finished = stack.pop().expect("frame exists");
                     let Some(caller) = stack.last_mut() else {
-                        return Ok(());
+                        return Ok(0);
                     };
                     if let (Some(dest), Some(value)) = (finished.return_to, value) {
                         caller.values[dest.index()] = Some(value);
@@ -475,9 +513,13 @@ fn execute(
                 let parts: Vec<&str> = frame.get(*v).list().iter().map(Value::str).collect();
                 Value::Str(BrimStr::from(parts.join(sep)))
             }
+            InstKind::CallRuntime(RuntimeFn::Exit, args) => {
+                // Exit codes are the low 8 bits, as on POSIX systems.
+                return Ok((frame.get(args[0]).i64() & 0xff) as i32);
+            }
             InstKind::CallRuntime(rt, args) => {
                 let args: Vec<&Value> = args.iter().map(|a| frame.get(*a)).collect();
-                match call_runtime(*rt, &args, out).map_err(fail)? {
+                match call_runtime(*rt, &args, state).map_err(fail)? {
                     Some(v) => v,
                     None => continue,
                 }
@@ -545,37 +587,116 @@ fn binary(op: BinaryOp, a: &Value, b: &Value) -> Result<Value, RuntimeError> {
     })
 }
 
+fn str_list(items: Vec<BrimStr>) -> Value {
+    Value::List(Rc::new(items.into_iter().map(Value::Str).collect()))
+}
+
 fn call_runtime(
     rt: RuntimeFn,
     args: &[&Value],
-    out: &mut dyn Write,
+    state: &mut State<'_, '_>,
 ) -> Result<Option<Value>, RuntimeError> {
+    use brim_runtime as r;
     let io = |e: std::io::Error| RuntimeError::Io {
         message: e.to_string(),
     };
+    let str_value = |s: BrimStr| Some(Value::Str(s));
+    let s = |i: usize| args[i].str();
     Ok(match rt {
         RuntimeFn::PrintI64 => {
-            brim_runtime::print_i64(out, args[0].i64()).map_err(io)?;
+            r::print_i64(state.host.out, args[0].i64()).map_err(io)?;
             None
         }
         RuntimeFn::PrintBool => {
-            brim_runtime::print_bool(out, args[0].bool()).map_err(io)?;
+            r::print_bool(state.host.out, args[0].bool()).map_err(io)?;
             None
         }
         RuntimeFn::PrintStr => {
-            brim_runtime::print_str(out, args[0].str()).map_err(io)?;
+            r::print_str(state.host.out, s(0)).map_err(io)?;
             None
         }
-        RuntimeFn::StrConcat => Some(Value::Str(brim_runtime::str_concat(
-            args[0].str(),
-            args[1].str(),
-        ))),
-        RuntimeFn::I64ToStr => Some(Value::Str(brim_runtime::i64_to_str(args[0].i64()))),
-        RuntimeFn::BoolToStr => Some(Value::Str(brim_runtime::bool_to_str(args[0].bool()))),
-        RuntimeFn::StrEq => Some(Value::Bool(brim_runtime::str_eq(
-            args[0].str(),
-            args[1].str(),
-        ))),
+        RuntimeFn::EPrintStr => {
+            // Keep stdout and stderr in order when both go to a terminal.
+            state.host.out.flush().map_err(io)?;
+            r::eprint_str(state.host.err, s(0)).map_err(io)?;
+            None
+        }
+        RuntimeFn::StrConcat => str_value(r::str_concat(s(0), s(1))),
+        RuntimeFn::I64ToStr => str_value(r::i64_to_str(args[0].i64())),
+        RuntimeFn::BoolToStr => str_value(r::bool_to_str(args[0].bool())),
+        RuntimeFn::StrEq => Some(Value::Bool(r::str_eq(s(0), s(1)))),
+        RuntimeFn::StrCompare => Some(Value::I64(r::str_compare(s(0), s(1)))),
+        RuntimeFn::StrLen => Some(Value::I64(s(0).len() as i64)),
+        RuntimeFn::StrContains => Some(Value::Bool(s(0).contains(s(1)))),
+        RuntimeFn::StrStartsWith => Some(Value::Bool(s(0).starts_with(s(1)))),
+        RuntimeFn::StrEndsWith => Some(Value::Bool(s(0).ends_with(s(1)))),
+        RuntimeFn::StrFind => Some(Value::I64(r::str_find(s(0), s(1)))),
+        RuntimeFn::StrSlice => str_value(r::str_slice(s(0), args[1].i64(), args[2].i64())?),
+        RuntimeFn::StrTrim => str_value(r::str_trim(s(0))),
+        RuntimeFn::StrTrimStart => str_value(r::str_trim_start(s(0))),
+        RuntimeFn::StrTrimEnd => str_value(r::str_trim_end(s(0))),
+        RuntimeFn::StrToUpper => str_value(r::str_to_upper(s(0))),
+        RuntimeFn::StrToLower => str_value(r::str_to_lower(s(0))),
+        RuntimeFn::StrReplace => str_value(r::str_replace(s(0), s(1), s(2))),
+        RuntimeFn::StrRepeat => str_value(r::str_repeat(s(0), args[1].i64())),
+        RuntimeFn::StrSplit => Some(str_list(r::str_split(s(0), s(1)))),
+        RuntimeFn::StrLines => Some(str_list(r::str_lines(s(0)))),
+        RuntimeFn::StrChars => Some(str_list(r::str_chars(s(0)))),
+        RuntimeFn::StrParseIntOk => Some(Value::Bool(r::str_parse_int(s(0)).is_some())),
+        RuntimeFn::StrParseInt => Some(Value::I64(r::str_parse_int(s(0)).unwrap_or(0))),
+        RuntimeFn::ReadLine => {
+            state.host.out.flush().map_err(io)?;
+            let mut line = String::new();
+            state.last_error.clear();
+            match state.host.input.read_line(&mut line) {
+                Ok(0) => state.last_error = "end of input".into(),
+                Ok(_) => {
+                    if line.ends_with('\n') {
+                        line.pop();
+                        if line.ends_with('\r') {
+                            line.pop();
+                        }
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+                    state.last_error = "input is not valid UTF-8".into();
+                }
+                Err(_) => state.last_error = "cannot read input".into(),
+            }
+            str_value(BrimStr::from(line))
+        }
+        RuntimeFn::ReadFile => {
+            state.last_error.clear();
+            match std::fs::read_to_string(state.host.cwd.join(s(0))) {
+                Ok(text) => str_value(BrimStr::from(text)),
+                Err(e) => {
+                    state.last_error = r::file_error("read", s(0), &e);
+                    str_value(BrimStr::from(""))
+                }
+            }
+        }
+        RuntimeFn::WriteFile => {
+            state.last_error.clear();
+            match std::fs::write(state.host.cwd.join(s(0)), s(1)) {
+                Ok(()) => Some(Value::I64(s(1).len() as i64)),
+                Err(e) => {
+                    state.last_error = r::file_error("write", s(0), &e);
+                    Some(Value::I64(0))
+                }
+            }
+        }
+        RuntimeFn::LastError => str_value(BrimStr::from(state.last_error.as_str())),
+        RuntimeFn::Args => Some(str_list(
+            state
+                .host
+                .args
+                .iter()
+                .map(|a| BrimStr::from(a.as_str()))
+                .collect(),
+        )),
+        RuntimeFn::EnvHas => Some(Value::Bool(std::env::var_os(s(0)).is_some())),
+        RuntimeFn::EnvGet => str_value(BrimStr::from(std::env::var(s(0)).unwrap_or_default())),
+        RuntimeFn::Exit => unreachable!("handled by the interpreter loop"),
     })
 }
 

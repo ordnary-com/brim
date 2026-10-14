@@ -373,10 +373,32 @@ impl FnValidator<'_> {
                 (callee.ret != Type::Void).then_some(callee.ret)
             }
             InstKind::CallRuntime(rt, args) => {
-                let params: Vec<Type> = rt.params().iter().map(|t| Type::from(*t)).collect();
+                let Some(params) = rt
+                    .params()
+                    .iter()
+                    .map(|t| Type::from_abi(*t))
+                    .collect::<Option<Vec<Type>>>()
+                else {
+                    self.error(format!("@{rt} takes a list, which IR cannot pass yet"));
+                    return;
+                };
                 self.check_args(&format!("@{rt}"), args, &params, local);
-                let ret = Type::from(rt.ret());
-                (ret != Type::Void).then_some(ret)
+                match Type::from_abi(rt.ret()) {
+                    Some(ret) => (ret != Type::Void).then_some(ret),
+                    // A list of strings: the result's declared list type.
+                    None => match result.map(|v| f.values.get(v.index()).copied()) {
+                        Some(Some(ty @ Type::List(id)))
+                            if self.module.lists.get(id.index()) == Some(&Type::Str) =>
+                        {
+                            Some(ty)
+                        }
+                        Some(_) => {
+                            self.error(format!("@{rt} returns a list of str"));
+                            return;
+                        }
+                        None => None,
+                    },
+                }
             }
             InstKind::MakeStruct(id, args) => {
                 let Some(def) = self.module.structs.get(id.index()) else {

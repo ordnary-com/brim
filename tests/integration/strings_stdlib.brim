@@ -1,0 +1,57 @@
+// String methods. Positions and lengths count bytes (UTF-8).
+
+fn show(xs: List[string]) -> string {
+    return "[" + xs.join("|") + "]"
+}
+
+fn main() {
+    let s: string = "  Hello, Wörld!  "
+    print(s.len())
+    print(show([s.trim(), s.trim_start(), s.trim_end()]))
+    print(s.trim().to_upper() + " " + s.trim().to_lower())
+    print(s.contains("Wörld"))
+    print(s.trim().starts_with("Hello") && s.trim().ends_with("!"))
+    match s.find("ö") {
+        Some(i) => print("ö at byte " + to_string(i))
+        None => print("no ö")
+    }
+    match s.find("xyz") {
+        Some(i) => print(i)
+        None => print("no xyz")
+    }
+    let t: string = s.trim()
+    print(t.slice(0, 5) + "|" + t.slice(7, 13))
+    print("".is_empty() && !t.is_empty())
+
+    print(show("a,b,,c".split(",")))
+    print(show("a, b, c".split(", ")))
+    print(show("héllo".split("")))
+    print(show("héllo".chars()))
+    print(show("one\ntwo\r\nthree\n".lines()))
+    print(show("".lines()))
+    print("ab".repeat(3) + "x".repeat(0))
+    print("a-b-c".replace("-", "+") + " " + "abc".replace("", "."))
+
+    for text in ["42", "-7", "+3", "007", "", "4 2", "12a", "9223372036854775807", "9223372036854775808"] {
+        match text.parse_int() {
+            Some(n) => print("'" + text + "' -> " + to_string(n))
+            None => print("'" + text + "' is not a number")
+        }
+    }
+
+    // Comparison is byte-wise.
+    print("apple" < "banana")
+    print("Zebra" < "apple")
+    print("abc" <= "abc" && "abd" > "abc" && "b" >= "a")
+
+    // Words, counted.
+    let text: string = "the quick brown fox jumps over the lazy dog the end"
+    let mut counts: Map[string, i64] = [:]
+    for word in text.split(" ") {
+        match counts.get(word) {
+            Some(n) => counts[word] = n + 1
+            None => counts[word] = 1
+        }
+    }
+    print(counts["the"])
+}

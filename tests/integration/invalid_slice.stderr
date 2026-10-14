@@ -1,0 +1,5 @@
+error[R0007]: invalid string slice: outside the string or not on a character boundary
+ --> tests/integration/invalid_slice.brim:5:11
+  |
+5 |     print(word.slice(0, 2))
+  |           ^^^^^^^^^^^^^^^^

@@ -129,14 +129,17 @@ impl fmt::Display for Type {
     }
 }
 
-impl From<brim_runtime::AbiType> for Type {
-    fn from(t: brim_runtime::AbiType) -> Type {
-        match t {
+impl Type {
+    /// The IR type of an ABI type; `None` for `StrList`, which is any list
+    /// type whose elements are `str`.
+    pub fn from_abi(t: brim_runtime::AbiType) -> Option<Type> {
+        Some(match t {
             brim_runtime::AbiType::I64 => Type::I64,
             brim_runtime::AbiType::Bool => Type::Bool,
             brim_runtime::AbiType::Str => Type::Str,
             brim_runtime::AbiType::Void => Type::Void,
-        }
+            brim_runtime::AbiType::StrList => return None,
+        })
     }
 }
 
