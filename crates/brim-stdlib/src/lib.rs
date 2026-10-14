@@ -71,27 +71,45 @@ impl Builtin {
 }
 
 /// Every builtin function.
-pub const BUILTINS: &[Builtin] = &[Builtin {
-    name: "print",
-    summary: "Writes a value followed by a newline to standard output.",
-    overloads: &[
-        Overload {
-            params: &[Prim::String],
-            ret: Prim::Void,
-            runtime: RuntimeFn::PrintStr,
-        },
-        Overload {
-            params: &[Prim::I64],
-            ret: Prim::Void,
-            runtime: RuntimeFn::PrintI64,
-        },
-        Overload {
-            params: &[Prim::Bool],
-            ret: Prim::Void,
-            runtime: RuntimeFn::PrintBool,
-        },
-    ],
-}];
+pub const BUILTINS: &[Builtin] = &[
+    Builtin {
+        name: "print",
+        summary: "Writes a value followed by a newline to standard output.",
+        overloads: &[
+            Overload {
+                params: &[Prim::String],
+                ret: Prim::Void,
+                runtime: RuntimeFn::PrintStr,
+            },
+            Overload {
+                params: &[Prim::I64],
+                ret: Prim::Void,
+                runtime: RuntimeFn::PrintI64,
+            },
+            Overload {
+                params: &[Prim::Bool],
+                ret: Prim::Void,
+                runtime: RuntimeFn::PrintBool,
+            },
+        ],
+    },
+    Builtin {
+        name: "to_string",
+        summary: "Converts a value to its textual representation.",
+        overloads: &[
+            Overload {
+                params: &[Prim::I64],
+                ret: Prim::String,
+                runtime: RuntimeFn::I64ToStr,
+            },
+            Overload {
+                params: &[Prim::Bool],
+                ret: Prim::String,
+                runtime: RuntimeFn::BoolToStr,
+            },
+        ],
+    },
+];
 
 /// Looks up a builtin by name.
 pub fn lookup(name: &str) -> Option<&'static Builtin> {
@@ -142,6 +160,13 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn to_string_resolves() {
+        let to_string = lookup("to_string").unwrap();
+        assert_eq!(to_string.resolve(&[Prim::I64]).unwrap().ret, Prim::String);
+        assert!(to_string.resolve(&[Prim::String]).is_none());
     }
 
     #[test]

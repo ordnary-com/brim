@@ -43,6 +43,8 @@ pub enum RuntimeFn {
     PrintStr,
     StrConcat,
     StrEq,
+    I64ToStr,
+    BoolToStr,
 }
 
 impl RuntimeFn {
@@ -53,6 +55,8 @@ impl RuntimeFn {
         RuntimeFn::PrintStr,
         RuntimeFn::StrConcat,
         RuntimeFn::StrEq,
+        RuntimeFn::I64ToStr,
+        RuntimeFn::BoolToStr,
     ];
 
     /// The linker symbol a native backend will call.
@@ -63,13 +67,15 @@ impl RuntimeFn {
             RuntimeFn::PrintStr => "brim_rt_print_str",
             RuntimeFn::StrConcat => "brim_rt_str_concat",
             RuntimeFn::StrEq => "brim_rt_str_eq",
+            RuntimeFn::I64ToStr => "brim_rt_i64_to_str",
+            RuntimeFn::BoolToStr => "brim_rt_bool_to_str",
         }
     }
 
     pub fn params(self) -> &'static [AbiType] {
         match self {
-            RuntimeFn::PrintI64 => &[AbiType::I64],
-            RuntimeFn::PrintBool => &[AbiType::Bool],
+            RuntimeFn::PrintI64 | RuntimeFn::I64ToStr => &[AbiType::I64],
+            RuntimeFn::PrintBool | RuntimeFn::BoolToStr => &[AbiType::Bool],
             RuntimeFn::PrintStr => &[AbiType::Str],
             RuntimeFn::StrConcat | RuntimeFn::StrEq => &[AbiType::Str, AbiType::Str],
         }
@@ -78,7 +84,7 @@ impl RuntimeFn {
     pub fn ret(self) -> AbiType {
         match self {
             RuntimeFn::PrintI64 | RuntimeFn::PrintBool | RuntimeFn::PrintStr => AbiType::Void,
-            RuntimeFn::StrConcat => AbiType::Str,
+            RuntimeFn::StrConcat | RuntimeFn::I64ToStr | RuntimeFn::BoolToStr => AbiType::Str,
             RuntimeFn::StrEq => AbiType::Bool,
         }
     }

@@ -96,6 +96,16 @@ pub fn str_concat(a: &str, b: &str) -> BrimStr {
     Rc::from(s)
 }
 
+/// Implements `to_string(i64)`: the decimal representation.
+pub fn i64_to_str(value: i64) -> BrimStr {
+    Rc::from(value.to_string())
+}
+
+/// Implements `to_string(bool)`: `"true"` or `"false"`.
+pub fn bool_to_str(value: bool) -> BrimStr {
+    Rc::from(if value { "true" } else { "false" })
+}
+
 /// Implements string `==`: byte-wise equality of the UTF-8 text.
 pub fn str_eq(a: &str, b: &str) -> bool {
     a == b
@@ -120,6 +130,8 @@ mod tests {
         assert_eq!(&*str_concat("", ""), "");
         assert!(str_eq("a", "a"));
         assert!(!str_eq("a", "A"));
+        assert_eq!(&*i64_to_str(-9223372036854775808), "-9223372036854775808");
+        assert_eq!(&*bool_to_str(false), "false");
     }
 
     #[test]

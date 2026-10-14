@@ -276,6 +276,8 @@ fn call_runtime(
             args[0].str(),
             args[1].str(),
         ))),
+        RuntimeFn::I64ToStr => Some(Value::Str(brim_runtime::i64_to_str(args[0].i64()))),
+        RuntimeFn::BoolToStr => Some(Value::Str(brim_runtime::bool_to_str(args[0].bool()))),
         RuntimeFn::StrEq => Some(Value::Bool(brim_runtime::str_eq(
             args[0].str(),
             args[1].str(),
