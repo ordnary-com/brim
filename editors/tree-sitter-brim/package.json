@@ -1,0 +1,12 @@
+{
+  "name": "tree-sitter-brim",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for the Brim programming language",
+  "license": "Apache-2.0",
+  "repository": { "type": "git", "url": "https://github.com/ordnary-com/brim" },
+  "main": "bindings/node",
+  "keywords": ["tree-sitter", "brim", "parser"],
+  "files": ["grammar.js", "src/**", "queries/*", "tree-sitter.json"],
+  "devDependencies": { "tree-sitter-cli": "^0.25.0" },
+  "scripts": { "build": "tree-sitter generate", "test": "tree-sitter test" }
+}

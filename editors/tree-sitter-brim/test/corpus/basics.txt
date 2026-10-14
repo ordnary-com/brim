@@ -1,0 +1,116 @@
+==================
+Function with index, generic call and struct literal
+==================
+
+import geo.{Point}
+
+pub fn f(xs: List[i64]) -> i64 {
+    let a: i64 = xs[2]
+    c[w] = a + 1
+    let p: geo.Point = geo.Point { x: 1 }
+    return swap[i64](a)
+}
+
+---
+
+(source_file
+  (import_declaration
+    path: (module_path)
+    (identifier))
+  (function_declaration
+    (visibility)
+    name: (identifier)
+    (parameters
+      (parameter
+        name: (identifier)
+        type: (generic_type
+          name: (path_type
+            (identifier))
+          (primitive_type))))
+    return_type: (primitive_type)
+    body: (block
+      (let_statement
+        name: (identifier)
+        type: (primitive_type)
+        value: (index_expression
+          value: (identifier)
+          index: (integer)))
+      (assignment_statement
+        target: (index_expression
+          value: (identifier)
+          index: (identifier))
+        value: (binary_expression
+          left: (identifier)
+          right: (integer)))
+      (let_statement
+        name: (identifier)
+        type: (path_type
+          (identifier)
+          (identifier))
+        value: (struct_expression
+          name: (scoped_type_identifier
+            (identifier)
+            (type_identifier))
+          (field_initializer
+            name: (field_identifier)
+            value: (integer))))
+      (return_statement
+        (call_expression
+          function: (identifier)
+          type_arguments: (type_arguments
+            (primitive_type))
+          arguments: (arguments
+            (identifier)))))))
+
+==================
+Enums, match and methods
+==================
+
+enum Shape {
+    Circle(i64)
+    Empty
+}
+
+impl Shape {
+    fn area(self) -> i64 {
+        match self {
+            Shape.Circle(r) => return r * r
+            _ => return 0
+        }
+    }
+}
+
+---
+
+(source_file
+  (enum_declaration
+    name: (type_identifier)
+    (variant
+      name: (identifier)
+      (primitive_type))
+    (variant
+      name: (identifier)))
+  (impl_declaration
+    type: (type_identifier)
+    (function_declaration
+      name: (identifier)
+      (parameters
+        (self_parameter
+          (self)))
+      return_type: (primitive_type)
+      body: (block
+        (match_statement
+          value: (self)
+          (match_arm
+            pattern: (variant_pattern
+              type: (type_identifier)
+              name: (identifier)
+              (identifier))
+            body: (return_statement
+              (binary_expression
+                left: (identifier)
+                right: (identifier))))
+          (match_arm
+            pattern: (wildcard_pattern)
+            body: (return_statement
+              (integer))))))))
