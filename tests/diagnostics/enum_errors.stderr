@@ -1,0 +1,125 @@
+error[E0221]: enum `List` contains itself
+ --> tests/diagnostics/enum_errors.brim:7:6
+  |
+7 | enum List {
+  |      ^^^^ infinitely large
+8 |     Cons(i64, List)
+  |     --------------- `List` contains itself through here
+  |
+  = note: the cycle is: List.Cons -> List
+  = note: structs and enums are values: what they contain is stored inside them
+  = note: recursive enums need indirection, which Brim does not have yet
+
+error[E0228]: variant `Circle` needs 1 value
+  --> tests/diagnostics/enum_errors.brim:13:26
+   |
+13 |     let a: Shape = Shape.Circle
+   |                          ^^^^^^ missing values
+   |
+   = help: write `Circle(...)`
+
+error[E0228]: variant `Empty` takes no values
+  --> tests/diagnostics/enum_errors.brim:14:20
+   |
+14 |     let b: Shape = Shape.Empty(1)
+   |                    ^^^^^^^^^^^^^^
+   |
+   = help: write just `Empty`
+
+error[E0228]: variant `Rect` takes 2 values but 1 was supplied
+  --> tests/diagnostics/enum_errors.brim:15:20
+   |
+15 |     let c: Shape = Shape.Rect(1)
+   |                    ^^^^^^^^^^^^^ expected 2 values
+
+error[E0227]: enum `Shape` has no variant `Square`
+  --> tests/diagnostics/enum_errors.brim:16:26
+   |
+ 1 | enum Shape {
+   |      ----- `Shape` is declared here
+...
+16 |     let d: Shape = Shape.Square(2)
+   |                          ^^^^^^ unknown variant
+   |
+   = note: the variants are `Circle`, `Rect`, `Empty`
+
+error[E0224]: `Shape` has no fields
+  --> tests/diagnostics/enum_errors.brim:17:13
+   |
+17 |     print(a.radius)
+   |           - this is `Shape`
+   |             ^^^^^^ unknown field
+   |
+   = note: only structs have fields
+   = help: use `match` to get the values inside an enum
+
+error[E0209]: cannot apply `==` to `Shape` and `Shape`
+  --> tests/diagnostics/enum_errors.brim:18:13
+   |
+18 |     print(a == b)
+   |           - `Shape`
+   |             ^^ `Shape == Shape` is not defined
+   |                - `Shape`
+   |
+   = note: enums cannot be compared with `==` yet
+   = help: use `match` instead
+
+error[E0229]: `match` does not cover every value
+  --> tests/diagnostics/enum_errors.brim:19:11
+   |
+19 |     match a {
+   |           ^ some values have no matching arm
+   |
+   = note: not covered: `Rect(_, _)`, `Empty`
+   = help: add an arm for each, or a `_ => ...` arm
+
+error[E0228]: variant `Rect` has 2 values but the pattern has 1
+  --> tests/diagnostics/enum_errors.brim:21:9
+   |
+21 |         Rect(w) => print(w)
+   |         ^^^^^^^
+   |
+   = help: write `Rect(_, _)`, naming the values you need
+
+warning[W0004]: unreachable pattern
+  --> tests/diagnostics/enum_errors.brim:25:9
+   |
+25 |         Circle(_) => print(2)
+   |         ^^^^^^^^^ this arm will never run
+   |
+   = note: an earlier arm already matches every value this pattern matches
+
+warning[W0004]: unreachable pattern
+  --> tests/diagnostics/enum_errors.brim:27:9
+   |
+27 |         Empty => print(4)
+   |         ^^^^^ this arm will never run
+   |
+   = note: an earlier arm already matches every value this pattern matches
+
+error[E0229]: `match` does not cover every value
+  --> tests/diagnostics/enum_errors.brim:29:11
+   |
+29 |     match 5 {
+   |           ^ some values have no matching arm
+   |
+   = note: `i64` has too many values to list each one
+   = help: add a `_ => ...` arm for the remaining values
+
+error[E0230]: pattern does not match the type of the value
+  --> tests/diagnostics/enum_errors.brim:31:9
+   |
+31 |         Empty => print(2)
+   |         ^^^^^ expected a pattern for `i64`, found `Empty`
+   |
+   = note: the value being matched is `i64`
+
+error[E0214]: `Shape` is an enum, not a value
+  --> tests/diagnostics/enum_errors.brim:33:20
+   |
+33 |     let s: Shape = Shape
+   |                    ^^^^^ enums cannot be used as values
+   |
+   = help: use one of its variants, such as `Shape.Circle`
+
+error: could not compile tests/diagnostics/enum_errors.brim due to 12 errors; 2 warnings emitted

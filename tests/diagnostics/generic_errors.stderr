@@ -1,0 +1,88 @@
+error[E0209]: cannot apply `==` to `T` and `T`
+  --> tests/diagnostics/generic_errors.brim:10:14
+   |
+10 |     return a == b
+   |            - `T`
+   |              ^^ `T == T` is not defined
+   |                 - `T`
+   |
+   = note: `T` can be any type, and not every type can be compared with `==`
+
+error[E0225]: `Option` takes 1 type argument but 0 were supplied
+  --> tests/diagnostics/generic_errors.brim:15:12
+   |
+15 |     let y: Option = Some(1)
+   |            ^^^^^^ expected 1 type argument
+   |
+   = help: write `Option[T]` with actual types
+
+error[E0225]: `Box` takes 1 type argument but 2 were supplied
+  --> tests/diagnostics/generic_errors.brim:16:12
+   |
+16 |     let z: Box[i64, bool] = Box { value: 1 }
+   |            ^^^^^^^^^^^^^^ expected 1 type argument
+   |
+   = help: write `Box[T]` with actual types
+
+error[E0225]: `i64` does not take type arguments
+  --> tests/diagnostics/generic_errors.brim:17:12
+   |
+17 |     let n: i64[bool] = 1
+   |            ^^^^^^^^^
+   |
+   = help: write just `i64`
+
+error[E0206]: mismatched types
+  --> tests/diagnostics/generic_errors.brim:18:31
+   |
+18 |     let w: Option[i64] = Some("text")
+   |                               ^^^^^^ expected `i64`, found `string`
+   |
+   = note: Brim never converts between types implicitly
+
+error[E0206]: mismatched types
+  --> tests/diagnostics/generic_errors.brim:19:27
+   |
+ 5 | fn first[T](a: T, b: T) -> T {
+   |                   ---- parameter declared here
+...
+19 |     let v: i64 = first(1, "two")
+   |                           ^^^^^ expected `i64`, found `string`
+   |
+   = note: Brim never converts between types implicitly
+
+error[E0226]: cannot infer the type parameter `T` of `None`
+  --> tests/diagnostics/generic_errors.brim:20:17
+   |
+20 |     print(first(None, None))
+   |                 ^^^^ the type is not known here
+   |
+   = help: add a type annotation, for example `let x: Option[i64] = None`
+
+error[E0226]: cannot infer the type parameter `T` of `None`
+  --> tests/diagnostics/generic_errors.brim:20:23
+   |
+20 |     print(first(None, None))
+   |                       ^^^^ the type is not known here
+   |
+   = help: add a type annotation, for example `let x: Option[i64] = None`
+
+error[E0229]: `match` does not cover every value
+  --> tests/diagnostics/generic_errors.brim:22:11
+   |
+22 |     match r {
+   |           ^ some values have no matching arm
+   |
+   = note: not covered: `Err(_)`
+   = help: add an arm for each, or a `_ => ...` arm
+
+error[E0231]: `Option[i64]` has no method `len`
+  --> tests/diagnostics/generic_errors.brim:29:13
+   |
+29 |     print(x.len())
+   |           - this is `Option[i64]`
+   |             ^^^ unknown method
+   |
+   = note: methods are not supported yet; use a function instead
+
+error: could not compile tests/diagnostics/generic_errors.brim due to 10 errors

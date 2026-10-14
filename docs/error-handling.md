@@ -54,9 +54,9 @@ Guidelines for writing diagnostics:
 | Code  | Meaning |
 |-------|---------|
 | E0100 | Unexpected token ("expected X, found Y"), including unclosed blocks and parentheses |
-| E0101 | Reserved keyword used (`for`, `enum`, `match`, ...): the feature is not supported yet |
+| E0101 | Reserved keyword used (`for`, `trait`, `impl`, ...): the feature is not supported yet |
 | E0102 | Missing type annotation on a `let`, a parameter or a struct field |
-| E0103 | Something other than a function or struct declaration at the top level, or a struct declared inside a function |
+| E0103 | Something other than a function, struct or enum declaration at the top level, or a struct or enum declared inside a function |
 | E0104 | Invalid assignment target (only variables and their fields can be assigned to) |
 | E0105 | Blocks or expressions nested too deeply (implementation limit: 128) |
 | E0106 | Chained comparison such as `a < b < c` |
@@ -80,17 +80,24 @@ Guidelines for writing diagnostics:
 | E0211 | `main` has parameters or a return type |
 | E0212 | Unknown type name, including an unknown struct in a struct literal |
 | E0213 | `void` used as a variable, parameter or field type |
-| E0214 | Function or struct used as a value, or a variable called as a function |
+| E0214 | Function, struct or enum used as a value, or a variable called as a function |
 | E0215 | Integer literal out of range for `i64` |
 | E0216 | Function redefines a builtin |
 | E0217 | `break` or `continue` outside of a loop |
 | E0218 | Assignment to an immutable variable, a parameter, or a field of one |
-| E0219 | Struct name already used: by another struct, a built-in type or a function |
-| E0220 | Field declared more than once in a struct |
-| E0221 | Struct contains itself, directly or through other structs |
+| E0219 | Type name already used: by another struct or enum, a built-in type (including `Option` and `Result`) or a function; or a type parameter named like a built-in type |
+| E0220 | Field, variant or type parameter declared more than once |
+| E0221 | Struct or enum contains itself, directly or through other types |
 | E0222 | Struct literal is missing fields |
 | E0223 | Field given more than once in a struct literal |
 | E0224 | Unknown field, or field access on a value that is not a struct |
+| E0225 | Wrong number of type arguments for a generic type, or type arguments on a type that takes none |
+| E0226 | A type argument of a generic function, struct or variant cannot be inferred |
+| E0227 | Unknown enum variant |
+| E0228 | Wrong number of values for an enum variant, in a constructor or a pattern |
+| E0229 | `match` does not cover every value |
+| E0230 | Pattern does not fit the type of the matched value |
+| E0231 | Method call (`value.name(...)`); methods are not supported yet |
 
 ### Warnings
 
@@ -99,6 +106,7 @@ Guidelines for writing diagnostics:
 | W0001 | Unreachable code after `return`, `break`, `continue` or a diverging `if`/`while` |
 | W0002 | Value of a non-call expression statement is unused |
 | W0003 | Variable declared `mut` but never reassigned |
+| W0004 | Unreachable `match` arm: earlier arms already cover it |
 
 ### Manifest errors (`brim-manifest`)
 

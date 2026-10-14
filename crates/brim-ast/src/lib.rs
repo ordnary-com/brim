@@ -15,6 +15,7 @@ pub use brim_diagnostics::Span;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Program {
     pub structs: Vec<StructDecl>,
+    pub enums: Vec<EnumDecl>,
     pub functions: Vec<FnDecl>,
 }
 
@@ -22,9 +23,58 @@ pub struct Program {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StructDecl {
     pub name: Ident,
+    pub type_params: Vec<Ident>,
     pub fields: Vec<FieldDecl>,
     /// From `struct` to the closing `}`.
     pub span: Span,
+}
+
+/// `enum Name { Variant, Variant(type, ...), ... }`
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnumDecl {
+    pub name: Ident,
+    pub type_params: Vec<Ident>,
+    pub variants: Vec<VariantDecl>,
+    /// From `enum` to the closing `}`.
+    pub span: Span,
+}
+
+/// `Name` or `Name(type, ...)` inside an enum declaration.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VariantDecl {
+    pub name: Ident,
+    /// The payload types; empty for a variant without payload.
+    pub fields: Vec<TypeExpr>,
+    pub span: Span,
+}
+
+/// One `pattern => body` arm of a `match`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body: Block,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pattern {
+    pub kind: PatternKind,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PatternKind {
+    /// `_`: matches anything.
+    Wildcard,
+    /// `Variant`, `Enum.Variant`, `Variant(a, _)` or `Enum.Variant(a, b)`.
+    /// A binding named `_` ignores that payload value.
+    Variant {
+        enum_name: Option<Ident>,
+        variant: Ident,
+        bindings: Vec<Ident>,
+    },
+    /// An integer (possibly negative), string or boolean literal.
+    Literal(Expr),
 }
 
 /// `name: type` inside a struct declaration.
@@ -54,6 +104,8 @@ pub struct Ident {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FnDecl {
     pub name: Ident,
+    /// `[T, U]` after the name; empty for non-generic functions.
+    pub type_params: Vec<Ident>,
     pub params: Vec<Param>,
     /// `None` when the `-> type` clause is omitted (the function returns `void`).
     pub ret: Option<TypeExpr>,
@@ -81,15 +133,19 @@ pub struct Param {
     pub span: Span,
 }
 
-/// A type as written in source. Only named types exist so far.
+/// A type as written in source: a name, with type arguments for generic
+/// types (`Option[i64]`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TypeExpr {
     pub name: Ident,
+    pub args: Vec<TypeExpr>,
+    /// From the name to the closing `]`, if any.
+    pub span: Span,
 }
 
 impl TypeExpr {
     pub fn span(&self) -> Span {
-        self.name.span
+        self.span
     }
 }
 
@@ -137,6 +193,11 @@ pub enum StmtKind {
     },
     /// `while cond { ... }`
     While { cond: Expr, body: Block },
+    /// `match value { pattern => body, ... }`
+    Match {
+        scrutinee: Expr,
+        arms: Vec<MatchArm>,
+    },
     /// `break`
     Break,
     /// `continue`
@@ -190,6 +251,13 @@ pub enum ExprKind {
     Field {
         base: Box<Expr>,
         field: Ident,
+    },
+    /// `base.name(args)`: an enum variant with a payload (`Shape.Circle(1)`).
+    /// Methods will use the same form.
+    MethodCall {
+        base: Box<Expr>,
+        name: Ident,
+        args: Vec<Expr>,
     },
 }
 
@@ -295,6 +363,16 @@ impl fmt::Display for Expr {
                 f.write_str(if fields.is_empty() { "}" } else { " }" })
             }
             ExprKind::Field { base, field } => write!(f, "({base}.{})", field.name),
+            ExprKind::MethodCall { base, name, args } => {
+                write!(f, "{base}.{}(", name.name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{arg}")?;
+                }
+                f.write_str(")")
+            }
         }
     }
 }

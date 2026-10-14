@@ -1,0 +1,34 @@
+enum Shape {
+    Circle(i64)
+    Rect(i64, i64)
+    Empty
+}
+
+enum List {
+    Cons(i64, List)
+    Nil
+}
+
+fn main() {
+    let a: Shape = Shape.Circle
+    let b: Shape = Shape.Empty(1)
+    let c: Shape = Shape.Rect(1)
+    let d: Shape = Shape.Square(2)
+    print(a.radius)
+    print(a == b)
+    match a {
+        Shape.Circle(r) => print(r)
+        Rect(w) => print(w)
+    }
+    match a {
+        Circle(_) => print(1)
+        Circle(_) => print(2)
+        _ => print(3)
+        Empty => print(4)
+    }
+    match 5 {
+        1 => print(1)
+        Empty => print(2)
+    }
+    let s: Shape = Shape
+}

@@ -60,13 +60,14 @@ Keywords with meaning in 0.1:
 
 ```
 fn  let  mut  return  if  else  while  break  continue  true  false  struct
+enum  match
 ```
 
 Reserved words for planned features. They cannot be used as identifiers, and using one produces error `E0101`:
 
 ```
-as  async  await  const  enum  for  impl  import  in  loop  match  pub  self
-trait  type  use
+as  async  await  const  for  impl  import  in  loop  pub  self  trait  type
+use
 ```
 
 The type names `i64`, `bool`, `string` and `void` are **not** keywords. They are predeclared type names, resolved during semantic analysis.
@@ -101,7 +102,7 @@ escape         = '\' ( 'n' | 'r' | 't' | '0' | '\' | '"' )
 ```
 +  -  *  /  %  ==  !=  <  <=  >  >=  &&  ||  !
 =  +=  -=  *=  /=  %=
-(  )  {  }  ,  :  ;  ->  .
+(  )  {  }  [  ]  ,  :  ;  ->  .  =>
 ```
 
 Any other character outside a string or comment is error `E0001`. Single `&` and `|` are errors too, with a hint to use `&&` and `||`.
@@ -112,22 +113,27 @@ The grammar below uses EBNF. `NEWLINE` is a newline token; `EOF` is the end of i
 
 ```ebnf
 program     = { separator } { item { separator } } EOF ;
-item        = function | struct ;
+item        = function | struct | enum ;
 separator   = NEWLINE | ";" ;
 
-struct      = "struct" identifier "{" { field_sep } [ field { field_sep { field_sep } field } ] { field_sep } "}" ;
+struct      = "struct" identifier [ type_params ] "{" { field_sep } [ field { field_sep { field_sep } field } ] { field_sep } "}" ;
 field       = identifier ":" type ;
 field_sep   = NEWLINE | ";" | "," ;
 
-function    = "fn" identifier "(" [ params ] ")" [ "->" type ] block ;
+enum        = "enum" identifier [ type_params ] "{" { field_sep } [ variant { field_sep { field_sep } variant } ] { field_sep } "}" ;
+variant     = identifier [ "(" type { "," type } [ "," ] ")" ] ;
+
+type_params = "[" identifier { "," identifier } [ "," ] "]" ;
+
+function    = "fn" identifier [ type_params ] "(" [ params ] ")" [ "->" type ] block ;
 params      = param { "," param } [ "," ] ;
 param       = identifier ":" type ;
-type        = identifier ;
+type        = identifier [ "[" type { "," type } [ "," ] "]" ] ;
 
 block       = "{" { separator } [ statement { terminator statement } ] { separator } "}" ;
 terminator  = separator { separator } ;     (* see 6.1; "}" also ends a statement *)
 
-statement   = let_stmt | assign_stmt | if_stmt | while_stmt
+statement   = let_stmt | assign_stmt | if_stmt | while_stmt | match_stmt
             | "break" | "continue" | return_stmt | block | expr_stmt ;
 let_stmt    = "let" [ "mut" ] identifier ":" type "=" expression ;
 assign_stmt = place assign_op expression ;
@@ -135,6 +141,11 @@ place       = identifier { "." identifier } ;
 assign_op   = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
 if_stmt     = "if" expression block [ "else" ( if_stmt | block ) ] ;
 while_stmt  = "while" expression block ;
+match_stmt  = "match" expression "{" { arm_sep } [ arm { arm_sep { arm_sep } arm } ] { arm_sep } "}" ;
+arm         = pattern "=>" ( block | statement ) ;
+arm_sep     = NEWLINE | ";" | "," ;
+pattern     = "_" | [ "-" ] integer_literal | string_literal | "true" | "false"
+            | [ identifier "." ] identifier [ "(" identifier { "," identifier } [ "," ] ")" ] ;
 return_stmt = "return" [ expression ] ;
 expr_stmt   = expression ;
 
@@ -146,7 +157,7 @@ cmp_expr    = add_expr [ ( "<" | "<=" | ">" | ">=" ) add_expr ] ;
 add_expr    = mul_expr { ( "+" | "-" ) mul_expr } ;
 mul_expr    = unary { ( "*" | "/" | "%" ) unary } ;
 unary       = ( "-" | "!" ) unary | postfix ;
-postfix     = primary { call | "." identifier | struct_lit } ;
+postfix     = primary { call | "." identifier [ call ] | struct_lit } ;
 call        = "(" [ args ] ")" ;                 (* only directly after a name *)
 struct_lit  = "{" [ field_init { "," field_init } [ "," ] ] "}" ;   (* only directly after a name *)
 field_init  = identifier ":" expression ;
@@ -192,6 +203,7 @@ Comparison operators at the same level cannot be chained: `a < b < c` and `a == 
 | `string` | immutable sequences of Unicode text (UTF-8) |
 | `void`   | no values                                 |
 | structs  | declared with `struct` (section 5.1)      |
+| enums    | declared with `enum` (section 5.2); `Option[T]` and `Result[T, E]` are built in (section 5.4) |
 
 - `void` may only appear as a function return type. Variables and parameters of type `void` are error `E0213`.
 - Unknown type names are error `E0212`.
@@ -220,7 +232,55 @@ A struct declaration introduces a new type with named, typed **fields**. Fields 
 
 **Operations.** Structs cannot be compared with `==` or `!=` yet (`E0209`), cannot be printed, and have no methods. Two struct types are compatible only if they are the same declaration.
 
-### 5.2 Function types
+### 5.2 Enums
+
+```brim
+enum Shape {
+    Circle(i64)
+    Rect(i64, i64)
+    Empty
+}
+```
+
+An enum declaration introduces a type whose values are exactly one of its **variants**. A variant may carry values of the listed types (its *payload*). Variants are separated by newlines or commas, and their names must be unique (`E0220`).
+
+- `Shape.Circle(3)` and `Shape.Empty` create values. The number of values must match the variant (`E0228`), and an unknown variant is `E0227`.
+- An enum is a value like a struct, and cannot contain itself (`E0221`): recursive enums such as linked lists need indirection, which Brim does not have yet.
+- Enums cannot be compared with `==` yet (`E0209`); use `match`.
+
+### 5.3 Generics
+
+Functions, structs and enums can take **type parameters**:
+
+```brim
+struct Pair[A, B] {
+    first: A
+    second: B
+}
+
+fn swap[A, B](p: Pair[A, B]) -> Pair[B, A] {
+    return Pair { first: p.second, second: p.first }
+}
+```
+
+- A generic type is used with type arguments: `Pair[i64, string]`. The number of arguments must match (`E0225`).
+- Type arguments of calls, struct literals and variants are **inferred**, from the arguments and from the type the context expects (a `let` annotation, a parameter type, a return type). Arguments that need the expected type themselves, such as `None`, are inferred last. When a type argument cannot be inferred, it is `E0226`; add an annotation.
+- Inside a generic function, a type parameter can be any type, so values of that type can only be stored, passed and returned. Operators such as `==` and builtins such as `print` do not accept them.
+- Generic code is checked once and compiled once per combination of type arguments it is used with (monomorphization): there is no run-time cost.
+- Type parameter names must be unique (`E0220`) and cannot be built-in type names (`E0219`).
+
+### 5.4 `Option` and `Result`
+
+Two generic enums are always available:
+
+```brim
+enum Option[T] { Some(T), None }
+enum Result[T, E] { Ok(T), Err(E) }
+```
+
+`Option[T]` is Brim's replacement for null: a value that may be absent. `Result[T, E]` is the result of an operation that can fail. Their variants can be used without the enum's name: `Some(1)`, `None`, `Ok(x)`, `Err(message)`. The names `Option`, `Result`, `Some`, `None`, `Ok` and `Err` cannot be redefined.
+
+### 5.5 Function types
 
 A function's type is its parameter type list and its return type, written informally as `fn(i64, i64) -> i64`. Function types cannot be written in source yet, and functions are not values: they can only be called by name (`E0214`).
 
@@ -289,7 +349,29 @@ Evaluates an expression for its effects. A non-call expression used as a stateme
 
 `{ ... }` groups statements and opens a new scope.
 
-### 6.9 Reachability and returns
+### 6.9 `match`
+
+```brim
+match shape {
+    Shape.Circle(r) => print(r)
+    Rect(w, h) => {
+        print(w * h)
+    }
+    _ => {}
+}
+```
+
+`match value { pattern => body ... }` runs the body of the first arm whose pattern matches `value`. A body is a block or a single statement. Arms are separated by newlines or commas. Patterns:
+
+- `_` matches anything.
+- A variant pattern, `Enum.Variant(a, b)` or just `Variant(a, b)`, matches that variant of an enum and binds its values to new immutable variables in the arm. `_` in place of a name ignores that value. The pattern must have exactly as many names as the variant has values (`E0228`).
+- An integer (possibly negative), string or boolean literal matches that value of an `i64`, `string` or `bool`.
+
+A pattern must fit the type of the matched value (`E0230`). The arms must be **exhaustive** (`E0229`): every variant of an enum, both `true` and `false`, or a `_` arm for integers, strings and other types. An arm that can never run because earlier arms cover everything it matches produces warning `W0004`.
+
+`match` is a statement. It diverges (section 6.10) when it is exhaustive and every arm diverges.
+
+### 6.10 Reachability and returns
 
 A statement **diverges** when control can never continue to the statement after it:
 
@@ -297,12 +379,13 @@ A statement **diverges** when control can never continue to the statement after 
 - a block diverges if any statement in it diverges;
 - `if`/`else` diverges if both branches diverge; an `if` without `else` never diverges;
 - `while true { ... }` diverges if its body contains no `break` for that loop. Any other `while` does not diverge, because its body may run zero times.
+- `match` diverges if every arm diverges.
 
 A function with a return type other than `void` must not be able to reach the end of its body: the body must diverge (`E0207`). Statements after a diverging statement are unreachable and produce warning `W0001`.
 
 ## 7. Names and scopes
 
-- **Types**: the built-in types and all structs in the file. Structs are visible everywhere in the file.
+- **Types**: the built-in types, `Option`, `Result`, and all structs and enums in the file, which are visible everywhere in the file. Type parameters are visible in their declaration.
 - **Functions** form one global namespace. All functions in the file are visible everywhere, including before their declaration, so mutual recursion works. Defining two functions with the same name is `E0202`. Defining a function with a builtin's name is `E0216`.
 - **Variables** live in lexical scopes. A function's parameters and its body's top-level statements share one scope. Each nested block opens a new scope.
 - Declaring a variable twice in the same scope is `E0203`, and duplicate parameter names are `E0204`. A nested block may **shadow** an outer variable.
@@ -379,11 +462,13 @@ These questions are not settled. The current behavior is a reversible default.
 9. **Unicode identifiers.** Identifiers are ASCII-only. Allowing Unicode (UAX #31) is possible later.
 10. **Entry point and modules.** The module system, visibility (`pub` is reserved) and how `brim.toml` maps packages to modules are undesigned.
 11. **Loop forms.** Only `while` exists. A `for` loop over ranges and collections (with `for` and `in` reserved), a dedicated `loop` keyword, and labeled `break` for nested loops are candidates.
-12. **Struct equality and printing.** Comparing structs field by field with `==` and printing them are natural next steps. Field-shorthand literals (`Point { x, y }`) and default values are also undecided.
+12. **Struct and enum equality and printing.** Comparing structs and enums field by field with `==` and printing them are natural next steps. Field-shorthand literals (`Point { x, y }`) and default values are also undecided.
+13. **`match` as an expression, or-patterns and nested patterns.** `match` is a statement; arms with several patterns (`A | B`) and patterns inside variant patterns (`Some(Circle(r))`) are not supported yet.
+14. **Constraints on type parameters.** Generic code can only store, pass and return values of a type parameter. Constraints (traits or interfaces) would allow `==` or printing in generic code.
 
 ## 12. Possible future features
 
-These are explicitly **not** part of 0.1. Their keywords are reserved where applicable, and none of them should be assumed to work: `for` loops, `loop`, `match`, enums, methods, traits, generics, modules and imports, closures and first-class functions, collections, error handling, async/await, macros, reflection, an ownership or borrowing system, and FFI.
+These are explicitly **not** part of 0.1. Their keywords are reserved where applicable, and none of them should be assumed to work: `for` loops, `loop`, methods, recursive enums, traits, generics, modules and imports, closures and first-class functions, collections, error handling, async/await, macros, reflection, an ownership or borrowing system, and FFI.
 
 See `docs/roadmap.md` for the order in which these are planned.
 

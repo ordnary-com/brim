@@ -308,6 +308,8 @@ impl Lexer<'_> {
             ')' => TokenKind::RParen,
             '{' => TokenKind::LBrace,
             '}' => TokenKind::RBrace,
+            '[' => TokenKind::LBracket,
+            ']' => TokenKind::RBracket,
             ',' => TokenKind::Comma,
             ':' => TokenKind::Colon,
             ';' => TokenKind::Semi,
@@ -324,6 +326,7 @@ impl Lexer<'_> {
             '-' if self.eat('=') => TokenKind::MinusEq,
             '-' => TokenKind::Minus,
             '=' if self.eat('=') => TokenKind::EqEq,
+            '=' if self.eat('>') => TokenKind::FatArrow,
             '=' => TokenKind::Eq,
             '!' if self.eat('=') => TokenKind::BangEq,
             '!' => TokenKind::Bang,
@@ -350,7 +353,6 @@ impl Lexer<'_> {
             '|' => diag.with_help("logical OR is written `||`"),
             '\'' => diag.with_help("string literals use double quotes: \"...\""),
             '#' => diag.with_help("comments start with `//`"),
-            '[' | ']' => diag.with_note("lists and arrays are not supported yet"),
             c if c.is_alphabetic() => {
                 diag.with_note("identifiers may only contain ASCII letters, digits and `_`")
             }

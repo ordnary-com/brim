@@ -33,6 +33,8 @@ pub enum TokenKind {
     Break,
     Continue,
     Struct,
+    Enum,
+    Match,
     /// A keyword reserved for a future language feature (`if`, `struct`, ...).
     Reserved(&'static str),
 
@@ -41,11 +43,15 @@ pub enum TokenKind {
     RParen,
     LBrace,
     RBrace,
+    LBracket,
+    RBracket,
     Comma,
     Colon,
     Semi,
     Arrow,
     Dot,
+    /// `=>`, between a `match` pattern and its body.
+    FatArrow,
 
     // Operators.
     Plus,
@@ -92,13 +98,15 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("break", TokenKind::Break),
     ("continue", TokenKind::Continue),
     ("struct", TokenKind::Struct),
+    ("enum", TokenKind::Enum),
+    ("match", TokenKind::Match),
 ];
 
 /// Words reserved for planned features. They cannot be used as identifiers,
 /// which lets those features be added later without breaking programs.
 pub const RESERVED: &[&str] = &[
-    "as", "async", "await", "const", "enum", "for", "impl", "import", "in", "loop", "match", "pub",
-    "self", "trait", "type", "use",
+    "as", "async", "await", "const", "for", "impl", "import", "in", "loop", "pub", "self", "trait",
+    "type", "use",
 ];
 
 impl TokenKind {
@@ -135,16 +143,21 @@ impl fmt::Display for TokenKind {
             TokenKind::Break => "break",
             TokenKind::Continue => "continue",
             TokenKind::Struct => "struct",
+            TokenKind::Enum => "enum",
+            TokenKind::Match => "match",
             TokenKind::Reserved(word) => word,
             TokenKind::LParen => "(",
             TokenKind::RParen => ")",
             TokenKind::LBrace => "{",
             TokenKind::RBrace => "}",
+            TokenKind::LBracket => "[",
+            TokenKind::RBracket => "]",
             TokenKind::Comma => ",",
             TokenKind::Colon => ":",
             TokenKind::Semi => ";",
             TokenKind::Arrow => "->",
             TokenKind::Dot => ".",
+            TokenKind::FatArrow => "=>",
             TokenKind::Plus => "+",
             TokenKind::Minus => "-",
             TokenKind::Star => "*",

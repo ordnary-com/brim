@@ -1,0 +1,93 @@
+// Enums hold one of several variants, each with its own values. `match`
+// runs the arm for the variant a value holds, and must cover every variant.
+
+enum Shape {
+    Circle(i64)
+    Rect(i64, i64)
+    Empty
+}
+
+fn area(s: Shape) -> i64 {
+    match s {
+        Shape.Circle(r) => return 3 * r * r
+        Shape.Rect(w, h) => return w * h
+        Shape.Empty => return 0
+    }
+}
+
+fn describe(s: Shape) -> string {
+    match s {
+        Circle(_) => return "circle"
+        Rect(w, h) => {
+            if w == h {
+                return "square"
+            }
+            return "rectangle"
+        }
+        _ => return "nothing"
+    }
+}
+
+enum Light {
+    Red
+    Orange
+    Green
+}
+
+fn next(l: Light) -> Light {
+    match l {
+        Light.Red => return Light.Green
+        Light.Green => return Light.Orange
+        Light.Orange => return Light.Red
+    }
+}
+
+fn name(l: Light) -> string {
+    match l {
+        Red => return "red"
+        Orange => return "orange"
+        Green => return "green"
+    }
+}
+
+fn main() {
+    let shapes: Shape = Shape.Rect(3, 4)
+    print(area(shapes))
+    print(area(Shape.Circle(2)))
+    print(area(Shape.Empty))
+    print(describe(Shape.Rect(5, 5)))
+    print(describe(Shape.Rect(5, 6)))
+    print(describe(Shape.Circle(1)))
+    print(describe(Shape.Empty))
+
+    let mut light: Light = Light.Red
+    let mut i: i64 = 0
+    while i < 4 {
+        print(name(light))
+        light = next(light)
+        i += 1
+    }
+
+    // Matching on integers, strings and booleans.
+    let mut n: i64 = -1
+    while n <= 3 {
+        match n {
+            -1 => print("minus one")
+            0 => print("zero")
+            1 => {}
+            2 => {}
+            _ => print("many")
+        }
+        n += 1
+    }
+    let word: string = "two"
+    match word {
+        "one" => print(1)
+        "two" => print(2)
+        _ => print(0)
+    }
+    match n > 2 {
+        true => print("big")
+        false => print("small")
+    }
+}

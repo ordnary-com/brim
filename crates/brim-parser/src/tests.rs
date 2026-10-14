@@ -212,8 +212,8 @@ fn error_reserved_keywords() {
         errors("fn main() {\n    for x {\n        print(1)\n    }\n}"),
         vec![("E0101", "`for` is not supported yet".to_string())]
     );
-    assert_eq!(codes("enum Color {}"), vec!["E0101"]);
-    assert_eq!(codes("fn match() {}"), vec!["E0101"]);
+    assert_eq!(codes("trait Show {}"), vec!["E0101"]);
+    assert_eq!(codes("fn impl() {}"), vec!["E0101"]);
     // Keywords cannot be used as names either.
     assert_eq!(
         errors("fn while() {}"),
@@ -572,10 +572,6 @@ fn struct_errors() {
         vec![("E0100", "field `x` needs a value".to_string())]
     );
     assert_eq!(codes("fn main() {\n    f().x = 1\n}"), vec!["E0104"]);
-    assert_eq!(
-        errors("fn main() {\n    p.len()\n}"),
-        vec![("E0107", "only named functions can be called".to_string())]
-    );
     assert_eq!(codes("fn main() {\n    p.1\n}"), vec!["E0100"]);
     // Structs and functions after an error are still parsed.
     let (program, diags) = parse("struct A { x i64 }\nstruct B { y: i64 }\nfn main() {}");
@@ -588,4 +584,95 @@ fn struct_errors() {
 fn long_field_chains_are_rejected_without_overflow() {
     let src = format!("fn main() {{\n    a{}\n}}", ".b".repeat(10_000));
     assert_eq!(codes(&src), vec!["E0105"]);
+}
+
+#[test]
+fn parses_enum_declarations() {
+    let program = parse_ok(
+        "enum Shape {\n    Circle(i64)\n    Rect(i64, i64,)\n    Empty\n}\nenum Unit { A, B }\nfn main() {}",
+    );
+    assert_eq!(program.enums.len(), 2);
+    let shape = &program.enums[0];
+    let variants: Vec<(String, usize)> = shape
+        .variants
+        .iter()
+        .map(|v| (v.name.name.clone(), v.fields.len()))
+        .collect();
+    assert_eq!(
+        variants,
+        [
+            ("Circle".to_string(), 1),
+            ("Rect".to_string(), 2),
+            ("Empty".to_string(), 0)
+        ]
+    );
+    assert_eq!(program.enums[1].variants.len(), 2);
+}
+
+#[test]
+fn parses_variant_constructors_as_method_calls() {
+    assert_eq!(expr("Shape.Rect(1, 2 + 3)"), "Shape.Rect(1, (2 + 3))");
+    assert_eq!(expr("Shape.Empty"), "(Shape.Empty)");
+    assert_eq!(expr("a.b.c(1).d"), "((a.b).c(1).d)");
+}
+
+#[test]
+fn parses_match() {
+    let StmtKind::Match { scrutinee, arms } = stmt(
+        "match shape {\n    Shape.Circle(r) => print(r)\n    Rect(w, _) => {\n        print(w)\n    },\n    -1 => return\n    \"x\" => {}\n    true => {}\n    _ => {}\n}",
+    ) else {
+        panic!()
+    };
+    assert_eq!(scrutinee.to_string(), "shape");
+    assert_eq!(arms.len(), 6);
+    let PatternKind::Variant {
+        enum_name,
+        variant,
+        bindings,
+    } = &arms[0].pattern.kind
+    else {
+        panic!()
+    };
+    assert_eq!(enum_name.as_ref().unwrap().name, "Shape");
+    assert_eq!(variant.name, "Circle");
+    assert_eq!(bindings.len(), 1);
+    let PatternKind::Variant {
+        enum_name,
+        bindings,
+        ..
+    } = &arms[1].pattern.kind
+    else {
+        panic!()
+    };
+    assert!(enum_name.is_none());
+    assert_eq!(bindings[1].name, "_");
+    let PatternKind::Literal(lit) = &arms[2].pattern.kind else {
+        panic!()
+    };
+    assert_eq!(lit.to_string(), "(-1)");
+    assert!(matches!(arms[5].pattern.kind, PatternKind::Wildcard));
+    assert_eq!(arms[1].body.stmts.len(), 1);
+}
+
+#[test]
+fn match_errors() {
+    assert_eq!(
+        errors("fn main() {\n    match x {\n        A print(1)\n    }\n}"),
+        vec![(
+            "E0100",
+            "expected `=>` after the pattern, found identifier `print`".to_string()
+        )]
+    );
+    assert_eq!(
+        errors("fn main() {\n    enum E { A }\n}"),
+        vec![(
+            "E0103",
+            "enums cannot be declared inside functions".to_string()
+        )]
+    );
+    assert_eq!(codes("enum E { A(i64 }\nfn main() {}"), vec!["E0100"]);
+    // Recovery: an error in one arm does not hide the next function.
+    let (program, diags) = parse("fn f() {\n    match x {\n        + => 1\n    }\n}\nfn main() {}");
+    assert_eq!(diags.len(), 1);
+    assert_eq!(program.functions.len(), 2);
 }

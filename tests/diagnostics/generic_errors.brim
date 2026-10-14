@@ -1,0 +1,30 @@
+struct Box[T] {
+    value: T
+}
+
+fn first[T](a: T, b: T) -> T {
+    return a
+}
+
+fn compare[T](a: T, b: T) -> bool {
+    return a == b
+}
+
+fn main() {
+    let x: Option[i64] = None
+    let y: Option = Some(1)
+    let z: Box[i64, bool] = Box { value: 1 }
+    let n: i64[bool] = 1
+    let w: Option[i64] = Some("text")
+    let v: i64 = first(1, "two")
+    print(first(None, None))
+    let r: Result[i64, string] = Ok(1)
+    match r {
+        Ok(v) => print(v)
+    }
+    match x {
+        Some(v) => print(v)
+        None => {}
+    }
+    print(x.len())
+}

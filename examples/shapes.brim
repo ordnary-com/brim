@@ -1,0 +1,59 @@
+// Enums, `match`, generics and `Option`/`Result` together.
+
+enum Shape {
+    Circle(i64)
+    Rect(i64, i64)
+}
+
+fn area(s: Shape) -> i64 {
+    match s {
+        Circle(r) => return 3 * r * r
+        Rect(w, h) => return w * h
+    }
+}
+
+fn parse_shape(kind: string, size: i64) -> Result[Shape, string] {
+    match kind {
+        "circle" => return Ok(Shape.Circle(size))
+        "square" => return Ok(Shape.Rect(size, size))
+        _ => return Err("unknown shape: " + kind)
+    }
+}
+
+// Works for any type: the compiler makes a copy per type it is used with.
+fn or_default[T](value: Option[T], default: T) -> T {
+    match value {
+        Some(v) => return v
+        None => return default
+    }
+}
+
+fn largest(a: Shape, b: Shape) -> Option[Shape] {
+    let x: i64 = area(a)
+    let y: i64 = area(b)
+    if x > y {
+        return Some(a)
+    } else if y > x {
+        return Some(b)
+    }
+    return None
+}
+
+fn main() {
+    match parse_shape("circle", 2) {
+        Ok(shape) => print("circle area: " + to_string(area(shape)))
+        Err(message) => print(message)
+    }
+    match parse_shape("triangle", 3) {
+        Ok(shape) => print(area(shape))
+        Err(message) => print(message)
+    }
+
+    let winner: Option[Shape] = largest(Shape.Circle(2), Shape.Rect(3, 3))
+    match winner {
+        Some(shape) => print("largest area: " + to_string(area(shape)))
+        None => print("a tie")
+    }
+    // Equal areas: no largest shape, so the default is used.
+    print(area(or_default(largest(Shape.Rect(2, 2), Shape.Rect(1, 4)), Shape.Rect(0, 0))))
+}

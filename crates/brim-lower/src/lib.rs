@@ -16,42 +16,202 @@
 //!   exit and `continue` to the header;
 //! - statements after a `return`, `break` or `continue` are unreachable and
 //!   are not lowered.
+//!
+//! Generics are **monomorphized**: every generic function is lowered once
+//! per combination of concrete type arguments it is called with, as an IR
+//! function named `name[args]`. Non-generic functions are lowered in source
+//! order first; instances are added as calls to them are found.
+//!
+//! Every concrete struct type becomes an IR struct. An enum becomes an IR
+//! struct too: field 0 is the variant's index (the *tag*), followed by the
+//! payload fields of every variant in turn. A value only uses its own
+//! variant's fields; the others hold zero values. `match` loads the tag and
+//! branches on it.
+
+use std::collections::{HashMap, VecDeque};
 
 use brim_ir::{
     Block, BlockId, Const, Field, FuncId, Function, Inst, InstKind, Module, Slot, SlotId, Span,
     StructDef, StructId, Terminator, Type as IrType, ValueId,
 };
 use brim_runtime::RuntimeFn;
-use brim_semantic::Type;
 use brim_semantic::checked::{
-    BinaryOp, CheckedExpr, CheckedExprKind, CheckedFn, CheckedProgram, CheckedStmt, CheckedStruct,
-    UnaryOp,
+    BinaryOp, CheckedArm, CheckedExpr, CheckedExprKind, CheckedFn, CheckedPattern, CheckedProgram,
+    CheckedStmt, UnaryOp,
 };
+use brim_semantic::{Def, Type, TypeTable};
 
 /// Lowers a checked program to IR.
 pub fn lower(program: &CheckedProgram) -> Module {
-    Module {
-        structs: program
-            .structs
-            .iter()
-            .map(|s| StructDef {
-                name: s.name.clone(),
-                fields: s
-                    .fields
-                    .iter()
-                    .map(|f| Field {
-                        name: f.name.clone(),
-                        ty: ir_type(f.ty),
-                    })
-                    .collect(),
-            })
-            .collect(),
-        functions: program
-            .functions
-            .iter()
-            .map(|f| FnLowerer::lower(f, &program.structs))
-            .collect(),
-        entry: func_id(program.entry.0),
+    let mut m = ModuleLowerer {
+        program,
+        types: program.types.clone(),
+        module: Module {
+            structs: Vec::new(),
+            functions: Vec::new(),
+            entry: FuncId(0),
+        },
+        ir_types: HashMap::new(),
+        enum_layouts: HashMap::new(),
+        instances: HashMap::new(),
+        queue: VecDeque::new(),
+    };
+    for (index, f) in program.functions.iter().enumerate() {
+        if f.type_params.is_empty() {
+            m.instance(index, Vec::new());
+        }
+    }
+    m.module.entry = m.instance(program.entry.0, Vec::new());
+    while let Some((id, index, type_args)) = m.queue.pop_front() {
+        let mut function = FnLowerer::lower(&mut m, &program.functions[index], type_args);
+        function.name = std::mem::take(&mut m.module.functions[id.index()].name);
+        m.module.functions[id.index()] = function;
+    }
+    m.module
+}
+
+fn func_id(index: usize) -> FuncId {
+    FuncId(u32::try_from(index).expect("function count fits in u32"))
+}
+
+/// Where each variant's payload lives in an enum's IR struct.
+#[derive(Clone)]
+struct EnumLayout {
+    /// Index of the first payload field of each variant.
+    offsets: Vec<usize>,
+}
+
+struct ModuleLowerer<'p> {
+    program: &'p CheckedProgram,
+    /// The program's types, extended with instantiations made here.
+    types: TypeTable,
+    module: Module,
+    /// IR types of concrete named types.
+    ir_types: HashMap<Type, IrType>,
+    enum_layouts: HashMap<Type, EnumLayout>,
+    /// `(function, type arguments)` to its IR function.
+    instances: HashMap<(usize, Vec<Type>), FuncId>,
+    /// Instances whose bodies still have to be lowered.
+    queue: VecDeque<(FuncId, usize, Vec<Type>)>,
+}
+
+impl ModuleLowerer<'_> {
+    /// The IR function for `function` with `type_args`, queued for lowering
+    /// the first time it is requested.
+    fn instance(&mut self, function: usize, type_args: Vec<Type>) -> FuncId {
+        let key = (function, type_args);
+        if let Some(id) = self.instances.get(&key) {
+            return *id;
+        }
+        let id = func_id(self.module.functions.len());
+        let f = &self.program.functions[function];
+        let name = if key.1.is_empty() {
+            f.name.clone()
+        } else {
+            let args: Vec<String> = key.1.iter().map(|t| self.type_name(*t)).collect();
+            format!("{}[{}]", f.name, args.join(", "))
+        };
+        // A placeholder until the queue reaches it.
+        self.module.functions.push(Function {
+            name,
+            param_count: 0,
+            ret: IrType::Void,
+            slots: Vec::new(),
+            values: Vec::new(),
+            blocks: Vec::new(),
+        });
+        self.instances.insert(key.clone(), id);
+        self.queue.push_back((id, key.0, key.1));
+        id
+    }
+
+    /// A concrete type as written in source, for IR names.
+    fn type_name(&self, ty: Type) -> String {
+        match ty {
+            Type::Named(id) => {
+                let named = self.types.get(id);
+                let name = match named.def {
+                    Def::Struct(s) => &self.program.struct_def(s).name,
+                    Def::Enum(e) => &self.program.enum_def(e).name,
+                };
+                if named.args.is_empty() {
+                    name.clone()
+                } else {
+                    let args: Vec<String> = named.args.iter().map(|t| self.type_name(*t)).collect();
+                    format!("{name}[{}]", args.join(", "))
+                }
+            }
+            other => other.to_string(),
+        }
+    }
+
+    /// The IR type of a concrete (parameter-free) type.
+    fn ir_type(&mut self, ty: Type) -> IrType {
+        match ty {
+            Type::I64 => IrType::I64,
+            Type::Bool => IrType::Bool,
+            Type::String => IrType::Str,
+            Type::Void => IrType::Void,
+            Type::Named(id) => {
+                if let Some(ir) = self.ir_types.get(&ty) {
+                    return *ir;
+                }
+                let named = self.types.get(id).clone();
+                let mut fields = Vec::new();
+                match named.def {
+                    Def::Struct(s) => {
+                        let def = self.program.struct_def(s);
+                        for field in &def.fields {
+                            let field_ty = self.types.subst(field.ty, &named.args);
+                            fields.push(Field {
+                                name: field.name.clone(),
+                                ty: self.ir_type(field_ty),
+                            });
+                        }
+                    }
+                    Def::Enum(e) => {
+                        let def = self.program.enum_def(e);
+                        fields.push(Field {
+                            name: "tag".into(),
+                            ty: IrType::I64,
+                        });
+                        let mut offsets = Vec::with_capacity(def.variants.len());
+                        for variant in &def.variants {
+                            offsets.push(fields.len());
+                            for (j, field) in variant.fields.iter().enumerate() {
+                                let field_ty = self.types.subst(*field, &named.args);
+                                fields.push(Field {
+                                    name: format!("{}.{j}", variant.name),
+                                    ty: self.ir_type(field_ty),
+                                });
+                            }
+                        }
+                        self.enum_layouts.insert(ty, EnumLayout { offsets });
+                    }
+                }
+                let id = StructId(
+                    u32::try_from(self.module.structs.len()).expect("struct count fits in u32"),
+                );
+                self.module.structs.push(StructDef {
+                    name: self.type_name(ty),
+                    fields,
+                });
+                let ir = IrType::Struct(id);
+                self.ir_types.insert(ty, ir);
+                ir
+            }
+            Type::Param(_) | Type::Error => {
+                unreachable!("lowering only sees concrete, error-free types")
+            }
+        }
+    }
+
+    fn enum_layout(&mut self, ty: Type) -> EnumLayout {
+        self.ir_type(ty);
+        self.enum_layouts
+            .get(&ty)
+            .expect("an enum type has a layout")
+            .clone()
     }
 }
 
@@ -65,33 +225,18 @@ fn branches(expr: &CheckedExpr) -> bool {
         | CheckedExprKind::Local(_) => false,
         CheckedExprKind::Unary { operand, .. } => branches(operand),
         CheckedExprKind::Binary { lhs, rhs, .. } => branches(lhs) || branches(rhs),
-        CheckedExprKind::Call { args, .. } | CheckedExprKind::Builtin { args, .. } => {
-            args.iter().any(branches)
-        }
-        CheckedExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| branches(v)),
+        CheckedExprKind::Call { args, .. }
+        | CheckedExprKind::Builtin { args, .. }
+        | CheckedExprKind::Variant { args, .. } => args.iter().any(branches),
+        CheckedExprKind::StructLit { fields } => fields.iter().any(|(_, v)| branches(v)),
         CheckedExprKind::Field { base, .. } => branches(base),
     }
 }
 
-fn func_id(index: usize) -> FuncId {
-    FuncId(u32::try_from(index).expect("function count fits in u32"))
-}
-
-fn ir_type(ty: Type) -> IrType {
-    match ty {
-        Type::I64 => IrType::I64,
-        Type::Bool => IrType::Bool,
-        Type::String => IrType::Str,
-        Type::Void => IrType::Void,
-        Type::Struct(id) => IrType::Struct(StructId(
-            u32::try_from(id.0).expect("struct count fits in u32"),
-        )),
-        Type::Error => unreachable!("checked programs never contain error types"),
-    }
-}
-
-struct FnLowerer<'a> {
-    structs: &'a [CheckedStruct],
+struct FnLowerer<'m, 'p> {
+    m: &'m mut ModuleLowerer<'p>,
+    /// The type arguments of this instance.
+    type_args: Vec<Type>,
     func: Function,
     current: BlockId,
     /// Whether the current block already has its terminator.
@@ -100,23 +245,16 @@ struct FnLowerer<'a> {
     loops: Vec<(BlockId, BlockId)>,
 }
 
-impl<'a> FnLowerer<'a> {
-    fn lower(f: &CheckedFn, structs: &'a [CheckedStruct]) -> Function {
-        let slots = f
-            .locals
-            .iter()
-            .map(|l| Slot {
-                name: l.name.clone(),
-                ty: ir_type(l.ty),
-            })
-            .collect();
+impl<'m, 'p> FnLowerer<'m, 'p> {
+    fn lower(m: &'m mut ModuleLowerer<'p>, f: &CheckedFn, type_args: Vec<Type>) -> Function {
         let mut lowerer = FnLowerer {
-            structs,
+            m,
+            type_args,
             func: Function {
-                name: f.name.clone(),
+                name: String::new(),
                 param_count: f.param_count,
-                ret: ir_type(f.ret),
-                slots,
+                ret: IrType::Void,
+                slots: Vec::new(),
                 values: Vec::new(),
                 blocks: Vec::new(),
             },
@@ -124,6 +262,14 @@ impl<'a> FnLowerer<'a> {
             terminated: false,
             loops: Vec::new(),
         };
+        lowerer.func.ret = lowerer.ir_type(f.ret);
+        for local in &f.locals {
+            let ty = lowerer.ir_type(local.ty);
+            lowerer.func.slots.push(Slot {
+                name: local.name.clone(),
+                ty,
+            });
+        }
         lowerer.current = lowerer.new_block();
         lowerer.stmts(&f.body);
         if !lowerer.terminated {
@@ -136,6 +282,22 @@ impl<'a> FnLowerer<'a> {
             lowerer.terminate(term);
         }
         lowerer.func
+    }
+
+    // ---- types ----------------------------------------------------------
+
+    /// `ty` with this instance's type arguments filled in.
+    fn concrete(&mut self, ty: Type) -> Type {
+        if self.type_args.is_empty() {
+            ty
+        } else {
+            self.m.types.subst(ty, &self.type_args)
+        }
+    }
+
+    fn ir_type(&mut self, ty: Type) -> IrType {
+        let ty = self.concrete(ty);
+        self.m.ir_type(ty)
     }
 
     // ---- building blocks ----------------------------------------------
@@ -189,6 +351,26 @@ impl<'a> FnLowerer<'a> {
             .expect("non-void instructions produce a value")
     }
 
+    /// A zero value of `ty`, for the unused payload fields of an enum.
+    fn zero(&mut self, ty: IrType, span: Span) -> ValueId {
+        let kind = match ty {
+            IrType::I64 => InstKind::Const(Const::I64(0)),
+            IrType::Bool => InstKind::Const(Const::Bool(false)),
+            IrType::Str => InstKind::Const(Const::Str(String::new())),
+            IrType::Struct(id) => {
+                let fields: Vec<IrType> = self.m.module.structs[id.index()]
+                    .fields
+                    .iter()
+                    .map(|f| f.ty)
+                    .collect();
+                let values = fields.into_iter().map(|f| self.zero(f, span)).collect();
+                InstKind::MakeStruct(id, values)
+            }
+            IrType::Void => unreachable!("fields are never void"),
+        };
+        self.emit_value(kind, ty, span)
+    }
+
     // ---- statements ---------------------------------------------------
 
     fn stmts(&mut self, stmts: &[CheckedStmt]) {
@@ -232,6 +414,7 @@ impl<'a> FnLowerer<'a> {
                 else_body,
             } => self.if_stmt(cond, then_body, else_body),
             CheckedStmt::While { cond, body } => self.while_stmt(cond, body),
+            CheckedStmt::Match { scrutinee, arms } => self.match_stmt(scrutinee, arms),
             CheckedStmt::Break => {
                 let (_, exit) = *self.loops.last().expect("checked: break is inside a loop");
                 self.terminate(Terminator::Jump(exit));
@@ -244,6 +427,35 @@ impl<'a> FnLowerer<'a> {
                 self.terminate(Terminator::Jump(header));
             }
         }
+    }
+
+    /// For `slot.a.b = v`: the slot's new struct value, with field `a.b`
+    /// replaced by `v`.
+    fn update_path(&mut self, slot: SlotId, path: &[usize], v: ValueId, span: Span) -> ValueId {
+        let root_ty = self.func.slots[slot.index()].ty;
+        // levels[i] is the struct that contains field path[i].
+        let mut levels = vec![(
+            self.emit_value(InstKind::Load(slot), root_ty, span),
+            root_ty,
+        )];
+        for &index in &path[..path.len() - 1] {
+            let (value, ty) = *levels.last().expect("not empty");
+            let field_ty = self.field_type(ty, index);
+            let field = self.emit_value(InstKind::Extract(value, index), field_ty, span);
+            levels.push((field, field_ty));
+        }
+        let mut new = v;
+        for (&index, (value, ty)) in path.iter().zip(levels).rev() {
+            new = self.emit_value(InstKind::Insert(value, index, new), ty, span);
+        }
+        new
+    }
+
+    fn field_type(&self, ty: IrType, index: usize) -> IrType {
+        let IrType::Struct(id) = ty else {
+            unreachable!("checked: only structs have fields");
+        };
+        self.m.module.structs[id.index()].fields[index].ty
     }
 
     /// Lowers `stmts` into the current block and, if control can still fall
@@ -308,33 +520,105 @@ impl<'a> FnLowerer<'a> {
         self.switch_to(exit);
     }
 
-    /// For `slot.a.b = v`: the slot's new struct value, with field `a.b`
-    /// replaced by `v`.
-    fn update_path(&mut self, slot: SlotId, path: &[usize], v: ValueId, span: Span) -> ValueId {
-        let root_ty = self.func.slots[slot.index()].ty;
-        // levels[i] is the struct that contains field path[i].
-        let mut levels = vec![(
-            self.emit_value(InstKind::Load(slot), root_ty, span),
-            root_ty,
-        )];
-        for &index in &path[..path.len() - 1] {
-            let (value, ty) = *levels.last().expect("not empty");
-            let field_ty = self.field_type(ty, index);
-            let field = self.emit_value(InstKind::Extract(value, index), field_ty, span);
-            levels.push((field, field_ty));
-        }
-        let mut new = v;
-        for (&index, (value, ty)) in path.iter().zip(levels).rev() {
-            new = self.emit_value(InstKind::Insert(value, index, new), ty, span);
-        }
-        new
-    }
-
-    fn field_type(&self, ty: IrType, index: usize) -> IrType {
-        let IrType::Struct(id) = ty else {
-            unreachable!("checked: only structs have fields");
+    /// The scrutinee is stored in a slot; each arm tests it in its own block
+    /// and falls through to the next arm's test when it does not match.
+    fn match_stmt(&mut self, scrutinee: &CheckedExpr, arms: &[CheckedArm]) {
+        let span = scrutinee.span;
+        let value = self.value(scrutinee);
+        let ty = self.concrete(scrutinee.ty);
+        let ir_ty = self.m.ir_type(ty);
+        let slot = self.new_slot("match", ir_ty);
+        self.emit(InstKind::Store(slot, value), None, span);
+        let layout = match self.m.types_def(ty) {
+            Some(Def::Enum(_)) => Some(self.m.enum_layout(ty)),
+            _ => None,
         };
-        ir_type(self.structs[id.index()].fields[index].ty)
+
+        let join = self.new_block();
+        let mut falls_through = false;
+        for arm in arms {
+            let body = self.new_block();
+            let next = self.new_block();
+            let cond = match &arm.pattern {
+                CheckedPattern::Wildcard => None,
+                CheckedPattern::Variant { index, .. } => {
+                    let v = self.emit_value(InstKind::Load(slot), ir_ty, span);
+                    let tag = self.emit_value(InstKind::Extract(v, 0), IrType::I64, span);
+                    let expected = self.emit_value(
+                        InstKind::Const(Const::I64(*index as i64)),
+                        IrType::I64,
+                        span,
+                    );
+                    Some(self.emit_value(
+                        InstKind::Binary(brim_ir::BinaryOp::IEq, tag, expected),
+                        IrType::Bool,
+                        span,
+                    ))
+                }
+                CheckedPattern::Int(n) => {
+                    let v = self.emit_value(InstKind::Load(slot), IrType::I64, span);
+                    let c = self.emit_value(InstKind::Const(Const::I64(*n)), IrType::I64, span);
+                    Some(self.emit_value(
+                        InstKind::Binary(brim_ir::BinaryOp::IEq, v, c),
+                        IrType::Bool,
+                        span,
+                    ))
+                }
+                CheckedPattern::Bool(b) => {
+                    let v = self.emit_value(InstKind::Load(slot), IrType::Bool, span);
+                    let c = self.emit_value(InstKind::Const(Const::Bool(*b)), IrType::Bool, span);
+                    Some(self.emit_value(
+                        InstKind::Binary(brim_ir::BinaryOp::BEq, v, c),
+                        IrType::Bool,
+                        span,
+                    ))
+                }
+                CheckedPattern::Str(s) => {
+                    let v = self.emit_value(InstKind::Load(slot), IrType::Str, span);
+                    let c =
+                        self.emit_value(InstKind::Const(Const::Str(s.clone())), IrType::Str, span);
+                    Some(self.emit_value(
+                        InstKind::CallRuntime(RuntimeFn::StrEq, vec![v, c]),
+                        IrType::Bool,
+                        span,
+                    ))
+                }
+            };
+            match cond {
+                Some(cond) => self.terminate(Terminator::Branch {
+                    cond,
+                    then_block: body,
+                    else_block: next,
+                }),
+                None => self.terminate(Terminator::Jump(body)),
+            }
+
+            self.switch_to(body);
+            if let CheckedPattern::Variant { index, bindings } = &arm.pattern {
+                let offset = layout
+                    .as_ref()
+                    .expect("variant patterns match enums")
+                    .offsets[*index];
+                let v = self.emit_value(InstKind::Load(slot), ir_ty, span);
+                for (j, binding) in bindings.iter().enumerate() {
+                    if let Some(local) = binding {
+                        let local_slot = SlotId(local.0 as u32);
+                        let field_ty = self.func.slots[local_slot.index()].ty;
+                        let x = self.emit_value(InstKind::Extract(v, offset + j), field_ty, span);
+                        self.emit(InstKind::Store(local_slot, x), None, span);
+                    }
+                }
+            }
+            falls_through |= self.stmts_then_jump(&arm.body, join);
+            self.switch_to(next);
+        }
+        // The arms are exhaustive: no value gets here.
+        self.terminate(Terminator::Unreachable);
+
+        self.switch_to(join);
+        if !falls_through {
+            self.terminated = true;
+        }
     }
 
     // ---- expressions --------------------------------------------------
@@ -345,10 +629,45 @@ impl<'a> FnLowerer<'a> {
             .expect("semantic analysis rejects void values")
     }
 
+    /// Lowers several operands, left to right, so that all their values are
+    /// usable in the block that is current afterwards.
+    ///
+    /// IR values only live within their block, but an operand containing
+    /// `&&` or `||` ends the current block. Values computed before such an
+    /// operand are therefore stored in temporary slots and loaded again
+    /// after it.
+    fn values(&mut self, exprs: &[&CheckedExpr]) -> Vec<ValueId> {
+        let mut values: Vec<ValueId> = Vec::with_capacity(exprs.len());
+        for (i, expr) in exprs.iter().enumerate() {
+            if i > 0 && branches(expr) {
+                let spilled: Vec<(SlotId, IrType)> = values
+                    .iter()
+                    .zip(exprs)
+                    .map(|(v, e)| {
+                        let ty = self.ir_type(e.ty);
+                        let slot = self.new_slot("tmp", ty);
+                        self.emit(InstKind::Store(slot, *v), None, e.span);
+                        (slot, ty)
+                    })
+                    .collect();
+                let value = self.value(expr);
+                values = spilled
+                    .into_iter()
+                    .zip(exprs)
+                    .map(|((slot, ty), e)| self.emit_value(InstKind::Load(slot), ty, e.span))
+                    .collect();
+                values.push(value);
+            } else {
+                values.push(self.value(expr));
+            }
+        }
+        values
+    }
+
     /// Lowers an expression; `None` for calls to `void` functions.
     fn expr(&mut self, expr: &CheckedExpr) -> Option<ValueId> {
         let span = expr.span;
-        let ty = ir_type(expr.ty);
+        let ty = self.ir_type(expr.ty);
         let value = match &expr.kind {
             CheckedExprKind::Int(v) => self.emit_value(InstKind::Const(Const::I64(*v)), ty, span),
             CheckedExprKind::Bool(v) => self.emit_value(InstKind::Const(Const::Bool(*v)), ty, span),
@@ -372,15 +691,21 @@ impl<'a> FnLowerer<'a> {
             }
             CheckedExprKind::And(lhs, rhs) => self.short_circuit(lhs, rhs, true, span),
             CheckedExprKind::Or(lhs, rhs) => self.short_circuit(lhs, rhs, false, span),
-            CheckedExprKind::Call { func, args } => {
+            CheckedExprKind::Call {
+                func,
+                type_args,
+                args,
+            } => {
+                let type_args: Vec<Type> = type_args.iter().map(|t| self.concrete(*t)).collect();
+                let callee = self.m.instance(func.0, type_args);
                 let args = self.values(&args.iter().collect::<Vec<_>>());
-                return self.emit(InstKind::Call(func_id(func.0), args), Some(ty), span);
+                return self.emit(InstKind::Call(callee, args), Some(ty), span);
             }
             CheckedExprKind::Builtin { runtime, args } => {
                 let args = self.values(&args.iter().collect::<Vec<_>>());
                 return self.emit(InstKind::CallRuntime(*runtime, args), Some(ty), span);
             }
-            CheckedExprKind::StructLit { fields, .. } => {
+            CheckedExprKind::StructLit { fields } => {
                 // Evaluate in source order, then put the values in field order.
                 let exprs: Vec<&CheckedExpr> = fields.iter().map(|(_, e)| e).collect();
                 let values = self.values(&exprs);
@@ -397,47 +722,41 @@ impl<'a> FnLowerer<'a> {
                 };
                 self.emit_value(InstKind::MakeStruct(id, ordered), ty, span)
             }
+            CheckedExprKind::Variant { index, args } => {
+                let values = self.values(&args.iter().collect::<Vec<_>>());
+                let enum_ty = self.concrete(expr.ty);
+                let layout = self.m.enum_layout(enum_ty);
+                let IrType::Struct(id) = ty else {
+                    unreachable!("enums lower to structs");
+                };
+                let field_types: Vec<IrType> = self.m.module.structs[id.index()]
+                    .fields
+                    .iter()
+                    .map(|f| f.ty)
+                    .collect();
+                let start = layout.offsets[*index];
+                let mut fields = Vec::with_capacity(field_types.len());
+                fields.push(self.emit_value(
+                    InstKind::Const(Const::I64(*index as i64)),
+                    IrType::I64,
+                    span,
+                ));
+                for (i, field_ty) in field_types.iter().enumerate().skip(1) {
+                    let value = if i >= start && i < start + values.len() {
+                        values[i - start]
+                    } else {
+                        self.zero(*field_ty, span)
+                    };
+                    fields.push(value);
+                }
+                self.emit_value(InstKind::MakeStruct(id, fields), ty, span)
+            }
             CheckedExprKind::Field { base, index } => {
                 let v = self.value(base);
                 self.emit_value(InstKind::Extract(v, *index), ty, span)
             }
         };
         Some(value)
-    }
-
-    /// Lowers several operands, left to right, so that all their values are
-    /// usable in the block that is current afterwards.
-    ///
-    /// IR values only live within their block, but an operand containing
-    /// `&&` or `||` ends the current block. Values computed before such an
-    /// operand are therefore stored in temporary slots and loaded again
-    /// after it.
-    fn values(&mut self, exprs: &[&CheckedExpr]) -> Vec<ValueId> {
-        let mut values: Vec<ValueId> = Vec::with_capacity(exprs.len());
-        for (i, expr) in exprs.iter().enumerate() {
-            if i > 0 && branches(expr) {
-                let spilled: Vec<(SlotId, IrType)> = values
-                    .iter()
-                    .zip(exprs)
-                    .map(|(v, e)| {
-                        let ty = ir_type(e.ty);
-                        let slot = self.new_slot("tmp", ty);
-                        self.emit(InstKind::Store(slot, *v), None, e.span);
-                        (slot, ty)
-                    })
-                    .collect();
-                let value = self.value(expr);
-                values = spilled
-                    .into_iter()
-                    .zip(exprs)
-                    .map(|((slot, ty), e)| self.emit_value(InstKind::Load(slot), ty, e.span))
-                    .collect();
-                values.push(value);
-            } else {
-                values.push(self.value(expr));
-            }
-        }
-        values
     }
 
     fn binary(&mut self, op: BinaryOp, a: ValueId, b: ValueId, span: Span) -> ValueId {
@@ -509,6 +828,16 @@ impl<'a> FnLowerer<'a> {
 
         self.switch_to(join);
         self.emit_value(InstKind::Load(result), IrType::Bool, span)
+    }
+}
+
+impl ModuleLowerer<'_> {
+    /// The declaration a concrete type refers to, if it is named.
+    fn types_def(&self, ty: Type) -> Option<Def> {
+        match ty {
+            Type::Named(id) => Some(self.types.get(id).def),
+            _ => None,
+        }
     }
 }
 
@@ -654,5 +983,28 @@ bb3:
         let text = module.to_string();
         assert!(text.contains("jump bb1"), "{text}");
         assert!(text.contains("jump bb3"), "{text}");
+    }
+
+    #[test]
+    fn monomorphizes_generic_functions() {
+        let module = lower_src(
+            "fn id[T](x: T) -> T {\n    return x\n}\nfn main() {\n    print(id(1))\n    print(id(\"a\"))\n    print(id(2))\n}",
+        );
+        let names: Vec<&str> = module.functions.iter().map(|f| f.name.as_str()).collect();
+        // Non-generic functions first, then one instance per type argument.
+        assert_eq!(names, ["main", "id[i64]", "id[string]"]);
+    }
+
+    #[test]
+    fn lowers_enums_to_tagged_structs() {
+        let module = lower_src(
+            "enum E {\n    A(i64)\n    B(string, bool)\n    C\n}\nfn main() {\n    let e: E = E.B(\"x\", true)\n    match e {\n        A(n) => print(n)\n        _ => {}\n    }\n}",
+        );
+        assert!(
+            module
+                .to_string()
+                .contains("struct %0 E { tag: i64, A.0: i64, B.0: str, B.1: bool }"),
+            "{module}"
+        );
     }
 }

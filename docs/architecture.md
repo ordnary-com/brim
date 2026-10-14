@@ -121,6 +121,10 @@ bb0:
 }
 ```
 
+Generics do not reach the IR: `brim-lower` **monomorphizes** the checked program. Non-generic functions are lowered in source order, and every generic function is lowered once per combination of concrete type arguments that is called, as an IR function named like `swap[i64, string]`. The checked program's `TypeTable` interns every `Name[args]` type, so equal types are equal values and substitution is cheap.
+
+Enums are lowered to structs: field 0 holds the variant index (the tag), followed by the payload fields of all variants. A value fills its own variant's fields and puts zero values (`0`, `false`, `""`, or a struct of zeros) in the others; a `match` stores the value in a slot, compares the tag (or the literal) arm by arm and extracts the bound values. This costs some space but needs no new IR concept, so the interpreter, the LLVM backend and reference counting support enums without changes.
+
 Structs are aggregate values in the IR: `Module::structs` lists every struct type (`%0`, `%1`, ...) with its fields, and three instructions work on them: `make %N(v...)` builds a struct from one value per field, `extract v.i` reads field `i`, and `insert v.i, x` returns a copy of `v` with field `i` replaced. A field assignment `p.a.b = x` lowers to loading `p`, extracting `a`, inserting `x` into it, inserting the result into `p`, and storing `p` again. Struct types never contain themselves, so every struct has a fixed layout. The interpreter represents a struct as a shared, immutable `Rc<[Value]>`, and the LLVM backend as a named LLVM struct type, built with `insertvalue` and read with `extractvalue`.
 
 `brim_ir::validate` checks: struct field types (no `void`, no struct containing itself), the entry function signature, slot and value types, single definition and same-block use of values, operand and result types of every instruction, call argument counts and types (including runtime calls), return types, and branch targets. Lowering is expected to always produce valid IR, so a validation failure is reported as an internal compiler error (exit code 70).

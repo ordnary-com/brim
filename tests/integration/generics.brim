@@ -1,0 +1,87 @@
+// Generic functions, structs and enums, and the built-in `Option` and
+// `Result`. Type arguments are inferred from arguments and annotations.
+
+struct Pair[A, B] {
+    first: A
+    second: B
+}
+
+enum Tree[T] {
+    Leaf(T)
+    Empty
+}
+
+fn swap[A, B](p: Pair[A, B]) -> Pair[B, A] {
+    return Pair { first: p.second, second: p.first }
+}
+
+fn first_or[T](o: Option[T], fallback: T) -> T {
+    match o {
+        Some(v) => return v
+        None => return fallback
+    }
+}
+
+fn parse_digit(s: string) -> Result[i64, string] {
+    match s {
+        "0" => return Ok(0)
+        "1" => return Ok(1)
+        "2" => return Ok(2)
+        _ => return Err("not a digit: " + s)
+    }
+}
+
+fn describe(r: Result[i64, string]) -> string {
+    match r {
+        Ok(n) => return "ok " + to_string(n)
+        Err(message) => return "error: " + message
+    }
+}
+
+fn identity[T](x: T) -> T {
+    return x
+}
+
+fn wrap[T](x: T) -> Option[T] {
+    return Some(identity(x))
+}
+
+fn leaf_value[T](t: Tree[T], fallback: T) -> T {
+    match t {
+        Tree.Leaf(v) => return v
+        Tree.Empty => return fallback
+    }
+}
+
+fn main() {
+    let p: Pair[i64, string] = Pair { first: 1, second: "one" }
+    let q: Pair[string, i64] = swap(p)
+    print(q.first + " " + to_string(q.second))
+
+    let some: Option[i64] = Some(5)
+    let none: Option[i64] = None
+    print(first_or(some, 0))
+    print(first_or(none, 7))
+    print(first_or(wrap("wrapped"), "nothing"))
+    print(first_or(None, true))
+
+    print(describe(parse_digit("2")))
+    print(describe(parse_digit("x")))
+
+    print(identity(identity(41)) + 1)
+    print(leaf_value(Tree.Leaf("leaf"), "none"))
+    let empty: Tree[bool] = Tree.Empty
+    print(leaf_value(empty, false))
+
+    // Nested generic types.
+    let nested: Option[Option[i64]] = Some(Some(3))
+    match nested {
+        Some(inner) => print(first_or(inner, -1))
+        None => print("none")
+    }
+    let pairs: Pair[Option[string], Pair[i64, bool]] = Pair {
+        first: Some("x"),
+        second: Pair { first: 9, second: true },
+    }
+    print(first_or(pairs.first, "") + to_string(pairs.second.first))
+}

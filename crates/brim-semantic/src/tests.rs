@@ -467,7 +467,10 @@ fn checks_structs() {
     ));
     assert_eq!(program.structs.len(), 2);
     assert_eq!(program.structs[1].name, "Line");
-    assert_eq!(program.structs[1].fields[0].ty, Type::Struct(StructId(0)));
+    let Type::Named(id) = program.structs[1].fields[0].ty else {
+        panic!()
+    };
+    assert_eq!(program.types.get(id).def, Def::Struct(StructId(0)));
     let main = &program.functions[program.entry.0];
     let CheckedStmt::Let { init, .. } = &main.body[0] else {
         panic!()
