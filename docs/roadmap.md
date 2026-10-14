@@ -56,7 +56,7 @@ Still open from this phase: debug information, Windows, cross-compilation, and l
 - **Done:** enums with payloads and exhaustive `match` (on enums, integers, strings and booleans).
 - **Done:** generics: generic functions, structs and enums with inferred type arguments, compiled by monomorphization.
 - **Done:** `Option[T]` and `Result[T, E]` as built-in enums.
-- Recoverable error handling in the language: `Result` exists; the `?` propagation operator is next (see `error-handling.md`).
+- **Done:** recoverable error handling: `Result` values with the `?` operator (also for `Option`). Error type conversion is still open.
 - Collections and string operations.
 - Standard library modules: I/O, files, formatting, environment, processes; later networking and HTTP for backend services.
 

@@ -1,0 +1,73 @@
+// `?` unwraps an `Ok` or `Some`, and returns an `Err` or `None` from the
+// function right away.
+
+fn digit(c: string) -> Result[i64, string] {
+    match c {
+        "0" => return Ok(0)
+        "1" => return Ok(1)
+        "2" => return Ok(2)
+        "3" => return Ok(3)
+        _ => return Err("not a digit: '" + c + "'")
+    }
+}
+
+fn number(a: string, b: string) -> Result[i64, string] {
+    let tens: i64 = digit(a)?
+    return Ok(tens * 10 + digit(b)?)
+}
+
+fn sum(a: string, b: string, c: string, d: string) -> Result[i64, string] {
+    return Ok(number(a, b)? + number(c, d)?)
+}
+
+fn report(r: Result[i64, string]) {
+    match r {
+        Ok(n) => print("ok: " + to_string(n))
+        Err(e) => print("error: " + e)
+    }
+}
+
+fn half(n: i64) -> Option[i64] {
+    if n % 2 == 0 {
+        return Some(n / 2)
+    }
+    return None
+}
+
+fn quarter(n: i64) -> Option[i64] {
+    return half(half(n)?)
+}
+
+fn check(n: i64) -> Result[bool, string] {
+    if n < 0 {
+        return Err("negative")
+    }
+    return Ok(true)
+}
+
+fn validate(a: i64, b: i64) -> Result[i64, string] {
+    // `?` as a statement: only the error matters.
+    check(a)?
+    check(b)?
+    return Ok(a + b)
+}
+
+fn main() {
+    report(number("1", "2"))
+    report(number("x", "2"))
+    report(number("3", "y"))
+    report(sum("1", "2", "3", "0"))
+    report(sum("1", "2", "z", "0"))
+
+    match quarter(12) {
+        Some(n) => print(n)
+        None => print("not divisible")
+    }
+    match quarter(6) {
+        Some(n) => print(n)
+        None => print("not divisible")
+    }
+
+    report(validate(1, 2))
+    report(validate(1, -2))
+}

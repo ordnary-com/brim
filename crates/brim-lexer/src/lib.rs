@@ -314,6 +314,7 @@ impl Lexer<'_> {
             ':' => TokenKind::Colon,
             ';' => TokenKind::Semi,
             '.' => TokenKind::Dot,
+            '?' => TokenKind::Question,
             '+' if self.eat('=') => TokenKind::PlusEq,
             '+' => TokenKind::Plus,
             '*' if self.eat('=') => TokenKind::StarEq,

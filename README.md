@@ -119,7 +119,7 @@ Brim is at **version 0.1**. It is a working foundation, **not ready for producti
 
 - Functions with typed parameters and return types, `main` as entry point
 - Structs with value semantics: `struct Point { x: i64, y: i64 }`, literals, field access and field assignment
-- Enums with payloads and exhaustive `match`; generic functions, structs and enums; `Option[T]` and `Result[T, E]`
+- Enums with payloads and exhaustive `match`; generic functions, structs and enums; `Option[T]` and `Result[T, E]` with the `?` operator
 - `let` and `let mut`, assignment and compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`)
 - `if` / `else` / `else if`, `while` with `break` and `continue`
 - `i64`, `bool`, `string`; arithmetic, comparison and logical operators; string concatenation and equality
@@ -130,7 +130,7 @@ Brim is at **version 0.1**. It is a working foundation, **not ready for producti
 **Not yet**
 
 - Debug information and Windows builds for native executables
-- Lists and maps, the `?` operator, generics, modules and imports, error handling, closures, concurrency
+- Lists and maps, generics, modules and imports, error handling, closures, concurrency
 - Standard library beyond `print` and `to_string`; dependencies and a package registry; formatter and language server
 
 The [roadmap](docs/roadmap.md) lists the milestones in order.

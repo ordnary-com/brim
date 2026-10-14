@@ -78,6 +78,7 @@ impl<'a> Checker<'a> {
                     ty,
                 )
             }
+            ast::ExprKind::Try(operand) => return self.check_try(operand, span, ctx),
             ast::ExprKind::MethodCall { base, name, args } => {
                 if let Some(e) = self.enum_name(base, ctx) {
                     return self.check_variant_name(e, name, Some(args), span, expected, ctx);
@@ -100,6 +101,61 @@ impl<'a> Checker<'a> {
             }
         };
         CheckedExpr { kind, ty, span }
+    }
+
+    /// `operand?`. The built-in enums are `Option` (`EnumId(0)`) and
+    /// `Result` (`EnumId(1)`); in both, variant 0 holds the value.
+    fn check_try(&mut self, operand: &ast::Expr, span: Span, ctx: &mut FnCtx) -> CheckedExpr {
+        let operand = self.check_expr(operand, ctx);
+        if operand.ty == Type::Error {
+            return error_expr(span);
+        }
+        let question = Span::new(span.end.saturating_sub(1), span.end);
+        let Some((e, args)) = self.as_enum(operand.ty).filter(|(e, _)| e.0 <= 1) else {
+            let ty = self.show(operand.ty);
+            self.diags.push(
+                Diagnostic::error(format!("`?` cannot be applied to a value of type `{ty}`"))
+                    .with_code("E0232")
+                    .with_primary(question, "")
+                    .with_secondary(operand.span, format!("this is `{ty}`"))
+                    .with_note("`?` works on `Option` and `Result` values"),
+            );
+            return error_expr(span);
+        };
+        let is_result = e.0 == 1;
+        let compatible = match self.as_enum(ctx.ret) {
+            _ if ctx.ret == Type::Error => true,
+            Some((ret_enum, ret_args)) if ret_enum == e => !is_result || ret_args[1] == args[1],
+            _ => false,
+        };
+        if !compatible {
+            let (kind, needed) = if is_result {
+                ("an `Err`", format!("`Result[..., {}]`", self.show(args[1])))
+            } else {
+                ("`None`", "`Option[...]`".to_string())
+            };
+            let ret = self.show(ctx.ret);
+            let mut diag = Diagnostic::error(format!(
+                "`?` cannot return {kind} from a function that returns `{ret}`"
+            ))
+            .with_code("E0233")
+            .with_primary(question, format!("this returns {kind} early"));
+            if let Some(ret_span) = ctx.ret_span {
+                diag = diag.with_secondary(ret_span, "the function's return type");
+            }
+            diag = diag.with_help(format!(
+                "the function must return {needed}, or handle the value with `match`"
+            ));
+            self.diags.push(diag);
+            return error_expr(span);
+        }
+        CheckedExpr {
+            ty: args[0],
+            kind: CheckedExprKind::Try {
+                operand: Box::new(operand),
+            },
+            span,
+        }
     }
 
     /// If `expr` is a plain name that refers to an enum (and not to a

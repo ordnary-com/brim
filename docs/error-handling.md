@@ -98,6 +98,8 @@ Guidelines for writing diagnostics:
 | E0229 | `match` does not cover every value |
 | E0230 | Pattern does not fit the type of the matched value |
 | E0231 | Method call (`value.name(...)`); methods are not supported yet |
+| E0232 | `?` applied to a value that is not an `Option` or `Result` |
+| E0233 | `?` in a function whose return type cannot carry the `Err` or `None` (a different error type, or not a `Result`/`Option`) |
 
 ### Warnings
 
@@ -156,14 +158,22 @@ error[R0001]: integer overflow in `*`
 
 The compiler must never panic on any input. Fuzz-style tests (`garbage_input_does_not_panic`, deep nesting tests) guard the lexer and parser. Invalid IR from lowering is caught by the IR validator and reported as an internal error (exit 70). A panic anywhere is caught at the top of `brim`, reported as an internal compiler error, and exits with 70.
 
-## Errors inside Brim programs: current model and open design
+## Errors inside Brim programs
 
-In Brim 0.1 the only run-time failures are the `R` errors above, and they all **abort** the program: output written so far is flushed, the error is reported on stderr, and the process exits with 101. There is no way to catch or recover from them inside a program.
+Brim has two kinds of failures:
 
-A recoverable error mechanism is required before Brim is useful for servers and CLI tools, for example to report "file not found" without terminating. It is an open design question (see `language-spec.md`, section 11). The leading candidate:
+- **Recoverable errors are values.** A function that can fail returns `Result[T, E]`: `Ok(value)` or `Err(error)`. The compiler makes callers deal with it: a `Result` is not a `T`, so the value can only be used after a `match` or the `?` operator, which returns the `Err` from the calling function unchanged:
 
-- errors as values, through a built-in result type, once generics or a special form exist;
-- explicit propagation with a short operator;
-- aborting errors kept for genuine bugs (overflow, failed assertions), as today.
+  ```brim
+  fn read_config(path: string) -> Result[Config, string] {
+      let text: string = read_file(path)?
+      return parse_config(text)
+  }
+  ```
 
-Exceptions with stack unwinding are considered undesirable: they complicate the native runtime and make control flow invisible. No decision has been made, and nothing in the current implementation depends on one.
+  Absent values use `Option[T]` the same way; there is no null.
+- **Run-time errors abort.** The `R` errors above (overflow, division by zero, stack overflow) are bugs, not conditions to handle: output written so far is flushed, the error is reported on stderr, and the process exits with 101.
+
+Not designed yet: converting one error type into another in `?` (today the types must be equal), a standard error type with context, and returning a `Result` from `main`.
+
+Brim has no exceptions with stack unwinding: they complicate the native runtime and make control flow invisible.

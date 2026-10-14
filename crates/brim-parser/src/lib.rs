@@ -1222,6 +1222,13 @@ impl Parser {
                         },
                     };
                 }
+                TokenKind::Question => {
+                    let question = self.bump();
+                    expr = Expr {
+                        span: expr.span.to(question.span),
+                        kind: ExprKind::Try(Box::new(expr)),
+                    };
+                }
                 TokenKind::LBrace if !self.no_struct_literal => {
                     let ExprKind::Name(name) = &expr.kind else {
                         break;

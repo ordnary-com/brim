@@ -218,7 +218,7 @@ impl ModuleLowerer<'_> {
 /// Whether lowering `expr` creates new blocks (it contains `&&` or `||`).
 fn branches(expr: &CheckedExpr) -> bool {
     match &expr.kind {
-        CheckedExprKind::And(..) | CheckedExprKind::Or(..) => true,
+        CheckedExprKind::And(..) | CheckedExprKind::Or(..) | CheckedExprKind::Try { .. } => true,
         CheckedExprKind::Int(_)
         | CheckedExprKind::Bool(_)
         | CheckedExprKind::Str(_)
@@ -237,6 +237,8 @@ struct FnLowerer<'m, 'p> {
     m: &'m mut ModuleLowerer<'p>,
     /// The type arguments of this instance.
     type_args: Vec<Type>,
+    /// The function's concrete return type.
+    ret: Type,
     func: Function,
     current: BlockId,
     /// Whether the current block already has its terminator.
@@ -247,9 +249,11 @@ struct FnLowerer<'m, 'p> {
 
 impl<'m, 'p> FnLowerer<'m, 'p> {
     fn lower(m: &'m mut ModuleLowerer<'p>, f: &CheckedFn, type_args: Vec<Type>) -> Function {
+        let ret = m.types.subst(f.ret, &type_args);
         let mut lowerer = FnLowerer {
             m,
             type_args,
+            ret,
             func: Function {
                 name: String::new(),
                 param_count: f.param_count,
@@ -725,38 +729,99 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             CheckedExprKind::Variant { index, args } => {
                 let values = self.values(&args.iter().collect::<Vec<_>>());
                 let enum_ty = self.concrete(expr.ty);
-                let layout = self.m.enum_layout(enum_ty);
-                let IrType::Struct(id) = ty else {
-                    unreachable!("enums lower to structs");
-                };
-                let field_types: Vec<IrType> = self.m.module.structs[id.index()]
-                    .fields
-                    .iter()
-                    .map(|f| f.ty)
-                    .collect();
-                let start = layout.offsets[*index];
-                let mut fields = Vec::with_capacity(field_types.len());
-                fields.push(self.emit_value(
-                    InstKind::Const(Const::I64(*index as i64)),
-                    IrType::I64,
-                    span,
-                ));
-                for (i, field_ty) in field_types.iter().enumerate().skip(1) {
-                    let value = if i >= start && i < start + values.len() {
-                        values[i - start]
-                    } else {
-                        self.zero(*field_ty, span)
-                    };
-                    fields.push(value);
-                }
-                self.emit_value(InstKind::MakeStruct(id, fields), ty, span)
+                self.make_variant(enum_ty, *index, &values, span)
             }
+            CheckedExprKind::Try { operand } => self.try_expr(operand, ty, span),
             CheckedExprKind::Field { base, index } => {
                 let v = self.value(base);
                 self.emit_value(InstKind::Extract(v, *index), ty, span)
             }
         };
         Some(value)
+    }
+
+    /// Variant `index` of the concrete enum `enum_ty`, with `payload`.
+    fn make_variant(
+        &mut self,
+        enum_ty: Type,
+        index: usize,
+        payload: &[ValueId],
+        span: Span,
+    ) -> ValueId {
+        let layout = self.m.enum_layout(enum_ty);
+        let ty = self.m.ir_type(enum_ty);
+        let IrType::Struct(id) = ty else {
+            unreachable!("enums lower to structs");
+        };
+        let field_types: Vec<IrType> = self.m.module.structs[id.index()]
+            .fields
+            .iter()
+            .map(|f| f.ty)
+            .collect();
+        let start = layout.offsets[index];
+        let mut fields = Vec::with_capacity(field_types.len());
+        fields.push(self.emit_value(InstKind::Const(Const::I64(index as i64)), IrType::I64, span));
+        for (i, field_ty) in field_types.iter().enumerate().skip(1) {
+            let value = if i >= start && i < start + payload.len() {
+                payload[i - start]
+            } else {
+                self.zero(*field_ty, span)
+            };
+            fields.push(value);
+        }
+        self.emit_value(InstKind::MakeStruct(id, fields), ty, span)
+    }
+
+    /// `operand?`: continues with the payload of variant 0 (`Some`/`Ok`), or
+    /// returns variant 1 (`None`/`Err`, with the error value) from the
+    /// function.
+    fn try_expr(&mut self, operand: &CheckedExpr, ty: IrType, span: Span) -> ValueId {
+        let value = self.value(operand);
+        let operand_ty = self.concrete(operand.ty);
+        let ir_ty = self.m.ir_type(operand_ty);
+        let layout = self.m.enum_layout(operand_ty);
+        let slot = self.new_slot("try", ir_ty);
+        self.emit(InstKind::Store(slot, value), None, span);
+        let tag = self.emit_value(InstKind::Extract(value, 0), IrType::I64, span);
+        let zero = self.emit_value(InstKind::Const(Const::I64(0)), IrType::I64, span);
+        let has_value = self.emit_value(
+            InstKind::Binary(brim_ir::BinaryOp::IEq, tag, zero),
+            IrType::Bool,
+            span,
+        );
+        let ok = self.new_block();
+        let fail = self.new_block();
+        self.terminate(Terminator::Branch {
+            cond: has_value,
+            then_block: ok,
+            else_block: fail,
+        });
+
+        self.switch_to(fail);
+        let failed = self.emit_value(InstKind::Load(slot), ir_ty, span);
+        let error_fields = layout.offsets.get(2).copied().unwrap_or_else(|| {
+            let IrType::Struct(id) = ir_ty else {
+                unreachable!("enums lower to structs");
+            };
+            self.m.module.structs[id.index()].fields.len()
+        }) - layout.offsets[1];
+        let payload: Vec<ValueId> = (0..error_fields)
+            .map(|j| {
+                let field_ty = self.field_type(ir_ty, layout.offsets[1] + j);
+                self.emit_value(
+                    InstKind::Extract(failed, layout.offsets[1] + j),
+                    field_ty,
+                    span,
+                )
+            })
+            .collect();
+        let ret = self.ret;
+        let returned = self.make_variant(ret, 1, &payload, span);
+        self.terminate(Terminator::Return(Some(returned)));
+
+        self.switch_to(ok);
+        let loaded = self.emit_value(InstKind::Load(slot), ir_ty, span);
+        self.emit_value(InstKind::Extract(loaded, layout.offsets[0]), ty, span)
     }
 
     fn binary(&mut self, op: BinaryOp, a: ValueId, b: ValueId, span: Span) -> ValueId {

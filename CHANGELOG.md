@@ -9,6 +9,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - Enums: `enum Shape { Circle(i64), Rect(i64, i64), Empty }`, constructed with `Shape.Circle(1)`, and `match` statements with variant, literal and `_` patterns, exhaustiveness checking and unreachable-arm warnings (`W0004`).
 - Generics: type parameters on functions, structs and enums (`fn swap[A, B](p: Pair[A, B]) -> Pair[B, A]`), with type arguments inferred from arguments and annotations, compiled by monomorphization.
 - Built-in `Option[T]` (`Some`, `None`) and `Result[T, E]` (`Ok`, `Err`).
+- The `?` operator: `parse(s)?` continues with the `Ok`/`Some` value, or returns the `Err`/`None` from the function (`E0232`, `E0233`).
 - New diagnostics `E0225` to `E0231` and `W0004`; `enum` and `match` are now keywords, and `[`, `]` and `=>` are tokens.
 - `examples/shapes.brim`.
 - Structs: `struct` declarations, struct literals (`Point { x: 1, y: 2 }`), field access (`p.x`) and field assignment (`p.x = 3`, `p.from.y += 1`), with value semantics. Supported by the interpreter and the native backend, including reference counting of strings inside structs. New diagnostics `E0219` to `E0224`; `struct` is now a keyword.

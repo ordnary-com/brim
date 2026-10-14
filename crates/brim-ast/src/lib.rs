@@ -252,6 +252,9 @@ pub enum ExprKind {
         base: Box<Expr>,
         field: Ident,
     },
+    /// `value?`: the value inside an `Ok` or `Some`; an `Err` or `None` is
+    /// returned from the function instead.
+    Try(Box<Expr>),
     /// `base.name(args)`: an enum variant with a payload (`Shape.Circle(1)`).
     /// Methods will use the same form.
     MethodCall {
@@ -363,6 +366,7 @@ impl fmt::Display for Expr {
                 f.write_str(if fields.is_empty() { "}" } else { " }" })
             }
             ExprKind::Field { base, field } => write!(f, "({base}.{})", field.name),
+            ExprKind::Try(inner) => write!(f, "({inner}?)"),
             ExprKind::MethodCall { base, name, args } => {
                 write!(f, "{base}.{}(", name.name)?;
                 for (i, arg) in args.iter().enumerate() {

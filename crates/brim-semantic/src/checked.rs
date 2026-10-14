@@ -220,6 +220,12 @@ pub enum CheckedExprKind {
         index: usize,
         args: Vec<CheckedExpr>,
     },
+    /// `operand?` on an `Option` or `Result`: the payload of `Some`/`Ok`;
+    /// `None`/`Err` is returned from the function (as the function's own
+    /// `Option`/`Result` type).
+    Try {
+        operand: Box<CheckedExpr>,
+    },
     /// `base.field`, with the field's index in its struct.
     Field {
         base: Box<CheckedExpr>,

@@ -1,0 +1,9 @@
+ok: 12
+error: not a digit: 'x'
+error: not a digit: 'y'
+ok: 42
+error: not a digit: 'z'
+3
+not divisible
+ok: 3
+error: negative

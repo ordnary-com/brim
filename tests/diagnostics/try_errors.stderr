@@ -1,0 +1,48 @@
+error[E0233]: `?` cannot return an `Err` from a function that returns `Result[i64, bool]`
+ --> tests/diagnostics/try_errors.brim:6:25
+  |
+5 | fn flag() -> Result[i64, bool] {
+  |              ----------------- the function's return type
+6 |     return Ok(parse("1")?)
+  |                         ^ this returns an `Err` early
+  |
+  = help: the function must return `Result[..., string]`, or handle the value with `match`
+
+error[E0233]: `?` cannot return an `Err` from a function that returns `Option[i64]`
+  --> tests/diagnostics/try_errors.brim:10:27
+   |
+ 9 | fn maybe() -> Option[i64] {
+   |               ----------- the function's return type
+10 |     return Some(parse("1")?)
+   |                           ^ this returns an `Err` early
+   |
+   = help: the function must return `Result[..., string]`, or handle the value with `match`
+
+error[E0233]: `?` cannot return an `Err` from a function that returns `i64`
+  --> tests/diagnostics/try_errors.brim:14:22
+   |
+13 | fn plain() -> i64 {
+   |               --- the function's return type
+14 |     return parse("1")?
+   |                      ^ this returns an `Err` early
+   |
+   = help: the function must return `Result[..., string]`, or handle the value with `match`
+
+error[E0232]: `?` cannot be applied to a value of type `i64`
+  --> tests/diagnostics/try_errors.brim:19:12
+   |
+19 |     print(n?)
+   |           - this is `i64`
+   |            ^
+   |
+   = note: `?` works on `Option` and `Result` values
+
+error[E0233]: `?` cannot return an `Err` from a function that returns `void`
+  --> tests/diagnostics/try_errors.brim:20:15
+   |
+20 |     parse("x")?
+   |               ^ this returns an `Err` early
+   |
+   = help: the function must return `Result[..., string]`, or handle the value with `match`
+
+error: could not compile tests/diagnostics/try_errors.brim due to 5 errors

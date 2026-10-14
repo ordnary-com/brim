@@ -1,0 +1,21 @@
+fn parse(s: string) -> Result[i64, string] {
+    return Ok(1)
+}
+
+fn flag() -> Result[i64, bool] {
+    return Ok(parse("1")?)
+}
+
+fn maybe() -> Option[i64] {
+    return Some(parse("1")?)
+}
+
+fn plain() -> i64 {
+    return parse("1")?
+}
+
+fn main() {
+    let n: i64 = 5
+    print(n?)
+    parse("x")?
+}

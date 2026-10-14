@@ -52,6 +52,8 @@ pub enum TokenKind {
     Dot,
     /// `=>`, between a `match` pattern and its body.
     FatArrow,
+    /// `?`, which propagates an error or a missing value.
+    Question,
 
     // Operators.
     Plus,
@@ -158,6 +160,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Arrow => "->",
             TokenKind::Dot => ".",
             TokenKind::FatArrow => "=>",
+            TokenKind::Question => "?",
             TokenKind::Plus => "+",
             TokenKind::Minus => "-",
             TokenKind::Star => "*",
