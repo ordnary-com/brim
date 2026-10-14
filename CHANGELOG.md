@@ -4,10 +4,15 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-14
+
 ### Added
 
 - `install.sh` (macOS, Linux) and `install.ps1` (Windows) install the latest release, after checking its checksum.
 - A standard library reference on the documentation site, with an example for every part.
+- Releases include the VS Code extension as a `.vsix` file, and can publish it to the Visual Studio Marketplace and Open VSX and update a Homebrew formula (`scripts/homebrew-formula.sh`).
+- Helix indent and text object queries.
+- The editor packages are tested in Neovim, Helix, Kakoune, nano, micro and Kate in CI (`editors/test/run.sh`).
 
 ### Fixed
 
