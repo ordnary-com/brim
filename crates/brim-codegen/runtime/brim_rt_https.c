@@ -113,7 +113,7 @@ BrimStr *brim_rt_http_request(const BrimStr *method, const BrimStr *url, const B
     if (body->len > 0 || strcmp(c_method, "POST") == 0 || strcmp(c_method, "PUT") == 0 ||
         strcmp(c_method, "PATCH") == 0) {
         curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)body->len);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body->data);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, (const char *)body->data);
     }
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, on_body);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &content);

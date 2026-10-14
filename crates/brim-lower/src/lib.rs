@@ -73,11 +73,9 @@ pub fn lower_tests(program: &CheckedProgram) -> (Module, Vec<FuncId>) {
         queue: VecDeque::new(),
         pairs: HashMap::new(),
     };
-    for (index, f) in program.functions.iter().enumerate() {
-        if f.type_params.is_empty() {
-            m.instance(index, Vec::new());
-        }
-    }
+    // Only functions reachable from `main` and the tests are lowered: an
+    // imported module's unused functions cost nothing (and need nothing,
+    // such as libcurl for `std.http`'s HTTPS client).
     m.module.entry = match program.entry {
         Some(entry) => m.instance(entry.0, Vec::new()),
         None => {
@@ -2101,14 +2099,6 @@ mod tests {
             module.to_string(),
             "; entry: main
 
-fn add(s0 a: i64, s1 b: i64) -> i64 {
-bb0:
-  v0 = load s0
-  v1 = load s1
-  v2 = iadd v0, v1
-  ret v2
-}
-
 fn main() {
   slot s0 result: i64
 bb0:
@@ -2119,6 +2109,14 @@ bb0:
   v3 = load s0
   call @brim_rt_print_i64(v3)
   ret
+}
+
+fn add(s0 a: i64, s1 b: i64) -> i64 {
+bb0:
+  v0 = load s0
+  v1 = load s1
+  v2 = iadd v0, v1
+  ret v2
 }
 "
         );
@@ -2197,13 +2195,26 @@ bb3:
     }
 
     #[test]
+    fn lowers_only_reachable_functions() {
+        let module = lower_src(
+            "fn used() -> i64 {\n    return 1\n}\nfn unused() -> i64 {\n    return 2\n}\nfn main() {\n    print(used())\n}",
+        );
+        let names: Vec<&str> = module.functions.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["main", "used"]);
+    }
+
+    #[test]
     fn lowers_branches_that_return() {
         // Both branches return, so the join block is left without
         // predecessors and nothing follows it.
         let module = lower_src(
             "fn sign(n: i64) -> i64 {\n    if n < 0 {\n        return -1\n    } else if n == 0 {\n        return 0\n    } else {\n        return 1\n    }\n}\nfn main() {\n    print(sign(-5))\n}",
         );
-        let sign = &module.functions[0];
+        let sign = module
+            .functions
+            .iter()
+            .find(|f| f.name == "sign")
+            .expect("sign is called, so it is lowered");
         assert!(matches!(
             sign.blocks.last().unwrap().term,
             Terminator::Unreachable
