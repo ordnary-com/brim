@@ -8,6 +8,7 @@
   "repository": { "type": "git", "url": "https://github.com/ordnary-com/brim" },
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Programming Languages", "Formatters"],
+  "icon": "icons/brim.png",
   "main": "./extension.js",
   "activationEvents": [],
   "contributes": {
@@ -16,7 +17,8 @@
         "id": "brim",
         "aliases": ["Brim", "brim"],
         "extensions": [".brim"],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": { "light": "./icons/brim-file.svg", "dark": "./icons/brim-file-dark.svg" }
       }
     ],
     "grammars": [
