@@ -46,9 +46,10 @@ jobs:
         run: |
           brew install llvm@22 zstd
           echo "LLVM_SYS_221_PREFIX=$(brew --prefix llvm@22)" >> "$GITHUB_ENV"
-          # Link zstd statically: without its dylib the linker takes
-          # libzstd.a, so the binary does not need Homebrew.
-          rm -f "$(brew --prefix zstd)"/lib/libzstd*.dylib
+          # Link zstd statically: without the unversioned libzstd.dylib,
+          # `-lzstd` finds libzstd.a, so the binary does not need Homebrew.
+          # llvm-config itself keeps using libzstd.1.dylib.
+          rm -f "$(brew --prefix zstd)/lib/libzstd.dylib"
       - name: Build
         shell: bash
         run: |
