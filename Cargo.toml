@@ -25,6 +25,7 @@ brim-parser = { path = "crates/brim-parser" }
 brim-runtime = { path = "crates/brim-runtime" }
 brim-semantic = { path = "crates/brim-semantic" }
 brim-stdlib = { path = "crates/brim-stdlib" }
+brim-tsgen = { path = "crates/brim-tsgen" }
 
 inkwell = { version = "=0.10.0", default-features = false, features = ["llvm22-1", "target-x86", "target-aarch64"] }
 serde = { version = "=1.0.229", features = ["derive"] }

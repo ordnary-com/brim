@@ -161,6 +161,12 @@ error[R0001]: integer overflow in `*`
   = note: call stack: main -> double
 ```
 
+### Code generation errors (`brim-tsgen`)
+
+| Code  | Meaning |
+|-------|---------|
+| G0001 | Two exported types have the same name |
+
 ## Exit codes of `brim`
 
 | Code | Meaning |

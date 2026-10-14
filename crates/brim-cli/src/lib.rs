@@ -85,6 +85,7 @@ pub fn run(args: &[String], ctx: &mut Context<'_>) -> i32 {
         Command::New { path } => new_project(&path, ctx),
         Command::Fmt { paths, check } => fmt(&paths, check, ctx),
         Command::Update { input } => update(input.as_deref(), ctx),
+        Command::GenTs { input, output } => gen_ts(input.as_deref(), output.as_deref(), ctx),
     };
     match result {
         Ok(()) => exit::SUCCESS,
@@ -271,6 +272,49 @@ fn new_project(path: &Path, ctx: &mut Context<'_>) -> CmdResult {
     }
     let _ = writeln!(ctx.stderr, "created project `{name}` in {shown}");
     Ok(())
+}
+
+fn gen_ts(input: Option<&Path>, output: Option<&Path>, ctx: &mut Context<'_>) -> CmdResult {
+    let input = load_input(input, ctx)?;
+    let (checked, map) = analyze(&input, None, true, ctx)?;
+    let dependencies: Vec<&str> = input
+        .packages
+        .iter()
+        .flat_map(|g| &g.packages[1..])
+        .map(brim_package::Package::name)
+        .collect();
+    let own = |m: usize| {
+        let name = &checked.modules[m];
+        let first = name.split('.').next().unwrap_or_default();
+        name.is_empty() || !dependencies.contains(&first)
+    };
+    let text = match brim_tsgen::generate(&checked, own, input.file.name()) {
+        Ok(text) => text,
+        Err(diags) => {
+            report(&diags, &map, ctx);
+            return Err(exit::COMPILE_ERROR);
+        }
+    };
+    match output {
+        None => write_out(ctx.stdout, &text),
+        Some(path) => {
+            let full = ctx.cwd.join(path);
+            let written = full
+                .parent()
+                .map_or(Ok(()), std::fs::create_dir_all)
+                .and_then(|()| std::fs::write(&full, text));
+            if let Err(e) = written {
+                let shown = path.display().to_string();
+                return Err(input_error(
+                    ctx,
+                    &shown,
+                    Diagnostic::error(format!("cannot write file: {e}")),
+                ));
+            }
+            let _ = writeln!(ctx.stderr, "wrote {}", path.display());
+            Ok(())
+        }
+    }
 }
 
 fn update(input: Option<&Path>, ctx: &mut Context<'_>) -> CmdResult {
@@ -527,6 +571,38 @@ fn compile(
     tests: bool,
     ctx: &mut Context<'_>,
 ) -> Result<(Module, SourceMap, Vec<brim_ir::FuncId>), i32> {
+    let (checked, map) = analyze(input, emit, tests, ctx)?;
+    let (module, test_fns) = brim_lower::lower_tests(&checked);
+
+    if let Err(errors) = brim_ir::validate(&module) {
+        let _ = writeln!(
+            ctx.stderr,
+            "error: internal compiler error: lowering produced invalid IR"
+        );
+        for e in errors {
+            let _ = writeln!(ctx.stderr, "  {e}");
+        }
+        let _ = writeln!(
+            ctx.stderr,
+            "  = note: this is a bug in the Brim compiler; please report it"
+        );
+        return Err(exit::INTERNAL);
+    }
+    if emit == Some(Emit::Ir) {
+        let _ = write!(ctx.stdout, "{module}");
+    }
+    let _ = ctx.stdout.flush();
+    Ok((module, map, test_fns))
+}
+
+/// Parses, loads the imported modules and checks the program. Prints
+/// diagnostics (and `--emit tokens|ast` output).
+fn analyze(
+    input: &Input,
+    emit: Option<Emit>,
+    tests: bool,
+    ctx: &mut Context<'_>,
+) -> Result<(brim_semantic::checked::CheckedProgram, SourceMap), i32> {
     let file = &input.file;
     if emit == Some(Emit::Tokens) {
         let (tokens, _) = brim_lexer::lex(file.text());
@@ -555,30 +631,10 @@ fn compile(
     };
     diags.extend(semantic_diags);
     report(&diags, &map, ctx);
-    let Some(checked) = checked else {
-        return Err(exit::COMPILE_ERROR);
-    };
-
-    let (module, test_fns) = brim_lower::lower_tests(&checked);
-    if let Err(errors) = brim_ir::validate(&module) {
-        let _ = writeln!(
-            ctx.stderr,
-            "error: internal compiler error: lowering produced invalid IR"
-        );
-        for e in errors {
-            let _ = writeln!(ctx.stderr, "  {e}");
-        }
-        let _ = writeln!(
-            ctx.stderr,
-            "  = note: this is a bug in the Brim compiler; please report it"
-        );
-        return Err(exit::INTERNAL);
+    match checked {
+        Some(checked) => Ok((checked, map)),
+        None => Err(exit::COMPILE_ERROR),
     }
-    if emit == Some(Emit::Ir) {
-        let _ = write!(ctx.stdout, "{module}");
-    }
-    let _ = ctx.stdout.flush();
-    Ok((module, map, test_fns))
 }
 
 /// Finds and parses the modules a program imports, directly or through

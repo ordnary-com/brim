@@ -45,6 +45,9 @@ pub struct CheckedProgram {
     pub functions: Vec<CheckedFn>,
     /// The `main` function. Only a test build can be without one.
     pub entry: Option<FnId>,
+    /// The names of the modules, indexed like [`ModuleAst`](crate::ModuleAst)s:
+    /// the root module (named `""`) first.
+    pub modules: Vec<String>,
     /// The test functions (`fn test_name()` outside `impl` blocks), in
     /// declaration order; only collected for a test build.
     pub tests: Vec<FnId>,
@@ -54,6 +57,10 @@ pub struct CheckedProgram {
 pub struct CheckedStruct {
     pub name: String,
     pub span: Span,
+    /// The declaring module, an index into [`CheckedProgram::modules`].
+    pub module: usize,
+    /// Declared with `pub`.
+    pub public: bool,
     /// Names of the type parameters; field types use `Type::Param(i)`.
     pub type_params: Vec<String>,
     /// In declaration order; field indices refer to this list.
@@ -69,6 +76,11 @@ pub struct CheckedField {
 #[derive(Clone, Debug)]
 pub struct CheckedEnum {
     pub name: String,
+    /// The declaring module, an index into [`CheckedProgram::modules`];
+    /// `None` for the built-in `Option` and `Result`.
+    pub module: Option<usize>,
+    /// Declared with `pub` (true for the built-in enums).
+    pub public: bool,
     pub type_params: Vec<String>,
     pub variants: Vec<CheckedVariant>,
 }

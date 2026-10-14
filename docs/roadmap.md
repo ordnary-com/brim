@@ -64,14 +64,15 @@ Still open from this phase: debug information, Windows, cross-compilation, and l
 - More of the standard library: formatting, time, processes, directories; later networking and HTTP for backend services.
 - Standard library modules: I/O, files, formatting, environment, processes; later networking and HTTP for backend services.
 
-## Phase 6: Package manager and project tooling (planned)
+## Phase 6: Package manager and project tooling (done, first version)
 
 - **Done:** multi-file programs: every file is a module, `import` with aliases and item lists, `pub` visibility, diagnostics across files.
 - **Done:** `brim new`, and `brim test` with `assert` and `assert_eq`.
 - **Done:** `brim fmt`, a token-based formatter that keeps comments and line breaks.
 - **Done:** `[dependencies]` from directories and git repositories, `brim.lock`, `brim update`.
 - A package registry with version requirements.
-- API contracts for web frontends: declare API types once in Brim and generate the matching TypeScript types (and later a client) for Angular, so frontend and backend cannot drift apart.
+- **Done:** API contracts for web frontends: `brim gen ts` writes TypeScript types for a program's `pub` types.
+- Later: a JSON encoder and decoder with the same mapping, and a generated TypeScript client for Angular.
 
 ## Phase 7: Editor support and production readiness (planned)
 

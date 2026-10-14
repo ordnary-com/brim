@@ -37,6 +37,7 @@ dependencies = [
  "brim-package",
  "brim-parser",
  "brim-semantic",
+ "brim-tsgen",
 ]
 
 [[package]]
@@ -147,6 +148,15 @@ name = "brim-stdlib"
 version = "0.1.0"
 dependencies = [
  "brim-runtime",
+]
+
+[[package]]
+name = "brim-tsgen"
+version = "0.1.0"
+dependencies = [
+ "brim-diagnostics",
+ "brim-parser",
+ "brim-semantic",
 ]
 
 [[package]]

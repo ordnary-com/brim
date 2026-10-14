@@ -660,3 +660,31 @@ fn git_dependencies_and_update() {
     let out = brim_with_home(&app, &home, &["run"]);
     assert_eq!(stdout(&out), "hello v2\n");
 }
+
+#[test]
+fn gen_ts_matches_the_example() {
+    let out = brim(&["gen", "ts", "examples/api.brim"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let expected = fs::read_to_string(root().join("examples/api.ts")).unwrap();
+    assert_eq!(
+        stdout(&out),
+        expected.replace("\r\n", "\n"),
+        "regenerate with `brim gen ts examples/api.brim -o examples/api.ts`"
+    );
+
+    let dir = scratch("gen_ts");
+    fs::write(
+        dir.join("a.brim"),
+        "import b\n\npub struct Item {\n    x: i64,\n}\n\npub struct Pair {\n    first: b.Item,\n}\n",
+    )
+    .unwrap();
+    fs::write(dir.join("b.brim"), "pub struct Item {\n    y: i64,\n}\n").unwrap();
+    let out = brim_in(&dir, &["gen", "ts", "a.brim", "-o", "out/api.ts"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out)
+            .contains("error[G0001]: two exported types are named `Item`: `Item` and `b.Item`"),
+        "{}",
+        stderr(&out)
+    );
+}

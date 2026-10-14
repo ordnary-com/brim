@@ -1,0 +1,19 @@
+[package]
+name = "brim-tsgen"
+description = "TypeScript types for the API contracts of Brim programs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+brim-diagnostics.workspace = true
+brim-semantic.workspace = true
+
+[dev-dependencies]
+brim-parser.workspace = true
+
+[lints]
+workspace = true

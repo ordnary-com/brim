@@ -574,6 +574,23 @@ fn test_add() {
 
 `brim test` runs the program's tests: the functions whose names start with `test_`, declared outside `impl` blocks, in any module. A test takes no parameters and returns nothing (`E0244` otherwise). It passes when it returns and fails when it stops with a run-time error, such as a failed `assert_eq`, or calls `exit`. For `brim test`, `main` is optional; it is never run. Other commands ignore tests, so a program still needs `main`.
 
+### 9.4 API types for TypeScript
+
+`brim gen ts` writes TypeScript declarations for the `pub` structs and enums of a program's own modules and the types they use, so a web frontend and a Brim backend share one definition of their API. The declarations describe values as JSON:
+
+| Brim | TypeScript |
+|------|------------|
+| `i64`, `bool`, `string` | `number`, `boolean`, `string` |
+| `List[T]` | `T[]` |
+| `Map[string, V]`, `Map[i64, V]`, `Map[bool, V]` | `Record<string, V>`, `Record<number, V>`, `Partial<Record<"true" \| "false", V>>` |
+| `Option[T]` | `T \| null` |
+| `Result[T, E]` | `{ kind: "Ok"; value: T } \| { kind: "Err"; value: E }` |
+| `struct P { x: i64 }` | `interface P { x: number }` |
+| enum without payloads | a union of the variant names: `"Low" \| "High"` |
+| enum with payloads | `{ kind: "Name" }`, `{ kind: "Name"; value: T }` or `{ kind: "Name"; value: [T, U] }` per variant |
+
+Generic types stay generic (`Page[T]` becomes `Page<T>`). Exported types need different names, even when they come from different modules (`G0001`). `examples/api.brim` and `examples/api.ts` show the result. A JSON encoder and decoder in the standard library will use the same mapping.
+
 ## 10. Builtins
 
 Builtins are always in scope and cannot be redefined.

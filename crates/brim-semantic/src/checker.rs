@@ -299,6 +299,8 @@ impl<'a> Checker<'a> {
             .map(|s| CheckedStruct {
                 name: s.name,
                 span: s.span,
+                module: s.module,
+                public: s.public,
                 type_params: s.type_params,
                 fields: s
                     .fields
@@ -315,6 +317,8 @@ impl<'a> Checker<'a> {
             .into_iter()
             .map(|e| CheckedEnum {
                 name: e.name,
+                module: (e.module != usize::MAX).then_some(e.module),
+                public: e.public,
                 type_params: e.type_params,
                 variants: e
                     .variants
@@ -333,6 +337,7 @@ impl<'a> Checker<'a> {
                 enums,
                 functions,
                 entry,
+                modules: checker.module_names,
                 tests,
             }),
             diags,

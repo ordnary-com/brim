@@ -1,0 +1,56 @@
+// The API types of a small task service. `brim gen ts examples/api.brim`
+// writes the matching TypeScript types (see examples/api.ts) for a web
+// frontend.
+
+pub struct Task {
+    id: i64,
+    title: string,
+    done: bool,
+    tags: List[string],
+    assignee: Option[string],
+    priority: Priority,
+}
+
+pub enum Priority {
+    Low,
+    Normal,
+    High,
+}
+
+pub struct Page[T] {
+    items: List[T],
+    total: i64,
+}
+
+pub enum TaskEvent {
+    Created(Task),
+    Renamed(i64, string),
+    Deleted(i64),
+}
+
+pub struct CreateTask {
+    title: string,
+    priority: Priority,
+}
+
+pub struct ApiError {
+    code: i64,
+    message: string,
+}
+
+pub struct Response {
+    tasks: Page[Task],
+    result: Result[i64, ApiError],
+}
+
+fn main() {
+    let task: Task = Task {
+        id: 1,
+        title: "Write the API",
+        done: false,
+        tags: ["backend"],
+        assignee: None,
+        priority: Priority.High,
+    }
+    print(task.title)
+}

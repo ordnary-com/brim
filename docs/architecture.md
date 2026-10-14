@@ -43,6 +43,7 @@ Every stage reports problems as `brim_diagnostics::Diagnostic`s. A stage only ru
 | `brim-codegen` | `Backend` trait; `LlvmBackend` (IR to LLVM IR, object emission, linking with the C runtime in `runtime/brim_rt.c`). LLVM code is only compiled with the `llvm` feature | diagnostics, ir, runtime; `inkwell` (optional) |
 | `brim-manifest` | `brim.toml` parsing and validation (`M0xxx`) | diagnostics, serde, toml |
 | `brim-package` | Dependency graphs: path and git dependencies, the git cache, `brim.lock` | diagnostics, manifest, serde, toml |
+| `brim-tsgen` | TypeScript declarations for a checked program's `pub` types (`brim gen ts`) | diagnostics, semantic |
 | `brim-fmt` | The formatter (`brim fmt`): works on tokens so comments and line breaks survive, and checks that the tokens are unchanged | diagnostics, lexer, parser |
 | `brim-cli` | The `brim` binary: argument parsing, commands, exit codes | everything above |
 

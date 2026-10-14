@@ -45,6 +45,12 @@ pub enum Command {
         /// The directory to create; its name is the package name.
         path: PathBuf,
     },
+    /// `brim gen ts [PATH]`: TypeScript types for the program's API.
+    GenTs {
+        input: Option<PathBuf>,
+        /// `-o`/`--output`: the file to write instead of standard output.
+        output: Option<PathBuf>,
+    },
     /// `brim update [PATH]`: newest commits for git dependencies.
     Update {
         input: Option<PathBuf>,
@@ -72,7 +78,7 @@ impl fmt::Display for UsageError {
 }
 
 const COMMANDS: &[&str] = &[
-    "check", "run", "build", "test", "new", "fmt", "update", "help", "version",
+    "check", "run", "build", "test", "new", "fmt", "update", "gen", "help", "version",
 ];
 
 /// Parses the arguments after the program name.
@@ -139,6 +145,26 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
                 }),
             }
         }
+        "gen" => match rest.split_first() {
+            None => Err(UsageError {
+                message: "`brim gen` needs a target: ts".into(),
+                command: Some("gen"),
+            }),
+            Some((flag, _)) if flag == "-h" || flag == "--help" => {
+                Ok(Command::Help(Some("gen".into())))
+            }
+            Some((target, rest)) if target == "ts" => {
+                let parsed = CommandArgs::parse("gen", rest)?;
+                Ok(parsed.help.unwrap_or(Command::GenTs {
+                    input: parsed.input,
+                    output: parsed.output,
+                }))
+            }
+            Some((target, _)) => Err(UsageError {
+                message: format!("unknown target `{target}` for `brim gen` (available: ts)"),
+                command: Some("gen"),
+            }),
+        },
         "update" => {
             let parsed = CommandArgs::parse("update", rest)?;
             Ok(parsed.help.unwrap_or(Command::Update {
@@ -209,6 +235,7 @@ impl CommandArgs {
     fn parse(command: &'static str, args: &[String]) -> Result<Self, UsageError> {
         let allow_emit = command == "check";
         let is_build = command == "build";
+        let has_output = is_build || command == "gen";
         let mut parsed = CommandArgs {
             input: None,
             emit: None,
@@ -234,14 +261,18 @@ impl CommandArgs {
                     a if allow_emit && a.starts_with("--emit=") => {
                         parsed.emit = Some(parse_emit(&a["--emit=".len()..], command)?);
                     }
-                    "-o" | "--output" if is_build => {
+                    "-o" | "--output" if has_output => {
                         let value = iter.next().ok_or_else(|| UsageError {
-                            message: format!("`{arg}` needs a value: the executable's path"),
+                            message: if is_build {
+                                format!("`{arg}` needs a value: the executable's path")
+                            } else {
+                                format!("`{arg}` needs a value: the file to write")
+                            },
                             command: Some(command),
                         })?;
                         parsed.output = Some(PathBuf::from(value));
                     }
-                    a if is_build && a.starts_with("--output=") => {
+                    a if has_output && a.starts_with("--output=") => {
                         parsed.output = Some(PathBuf::from(&a["--output=".len()..]));
                     }
                     "--release" if is_build => parsed.release = true,
@@ -294,6 +325,7 @@ Commands:
   new <PATH>     Create a new project
   fmt [PATH...]  Format source files
   update [PATH]  Update the git dependencies in brim.lock
+  gen ts [PATH]  Generate TypeScript types for the program's API
   help [COMMAND] Show help for a command
   version        Show the compiler version
 
@@ -385,6 +417,24 @@ Usage: brim new <PATH>
 
 Options:
   -h, --help  Show help
+"
+        }
+        "gen" => {
+            "\
+Generate TypeScript types for the program's API
+
+Writes a TypeScript declaration for every `pub` struct and enum of the
+program's own modules (not those of dependencies), and for the types they
+use. The declarations describe the values as JSON, for a web frontend that
+talks to a Brim backend. See the language specification for the mapping.
+
+`main` is not needed: a package with only API types works.
+
+Usage: brim gen ts [OPTIONS] [PATH]
+
+Options:
+  -o, --output <FILE>  Write to FILE instead of standard output
+  -h, --help           Show help
 "
         }
         "update" => {
@@ -519,6 +569,13 @@ mod tests {
             })
         );
         assert_eq!(
+            p(&["gen", "ts", "-o", "api.ts", "app"]),
+            Ok(Command::GenTs {
+                input: Some("app".into()),
+                output: Some("api.ts".into()),
+            })
+        );
+        assert_eq!(
             p(&["new", "hello"]),
             Ok(Command::New {
                 path: "hello".into()
@@ -547,7 +604,7 @@ mod tests {
         let msg = |args: &[&str]| p(args).unwrap_err().message;
         assert_eq!(
             msg(&["frobnicate"]),
-            "unknown command `frobnicate` (available: check, run, build, test, new, fmt, update, help, version)"
+            "unknown command `frobnicate` (available: check, run, build, test, new, fmt, update, gen, help, version)"
         );
         assert_eq!(
             msg(&["check", "a.brim", "b.brim"]),
@@ -579,6 +636,15 @@ mod tests {
             "`brim new` needs the path of the project to create"
         );
         assert_eq!(msg(&["new", "a", "b"]), "unexpected argument `b`");
+        assert_eq!(msg(&["gen"]), "`brim gen` needs a target: ts");
+        assert_eq!(
+            msg(&["gen", "rust"]),
+            "unknown target `rust` for `brim gen` (available: ts)"
+        );
+        assert_eq!(
+            msg(&["gen", "ts", "--release"]),
+            "unknown option `--release` for `brim gen`"
+        );
         assert_eq!(
             msg(&["fmt", "--emit"]),
             "unknown option `--emit` for `brim fmt`"
