@@ -33,11 +33,12 @@ cp -R "$root/editors/helix/runtime/queries" "$tmp/helix/helix/runtime/"
 export XDG_CONFIG_HOME="$tmp/helix"
 hx --grammar fetch
 hx --grammar build
-health=$(hx --health brim)
-echo "$health" | grep -q "Highlight queries: ✓" || { echo "$health"; echo "helix: highlight queries missing" >&2; exit 1; }
-echo "$health" | grep -q "brim: $BRIM" || echo "$health" | grep -q "Binary for language server: ✓" \
-    || { echo "$health"; echo "helix: language server not found" >&2; exit 1; }
-hx --health brim | grep -q "✘" && { hx --health brim; echo "helix: a health check failed" >&2; exit 1; }
+# Without colors, so the output can be searched.
+health=$(hx --health brim 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
+for check in "Tree-sitter parser: ✓" "Highlight queries: ✓" "Textobject queries: ✓" "Indent queries: ✓" "✓ brim: "; do
+    echo "$health" | grep -q "$check" || { echo "$health"; echo "helix: missing \"$check\"" >&2; exit 1; }
+done
+if echo "$health" | grep -q "✘"; then echo "$health"; echo "helix: a health check failed" >&2; exit 1; fi
 unset XDG_CONFIG_HOME
 echo "helix: ok"
 
