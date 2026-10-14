@@ -127,7 +127,7 @@ Brim is at **version 0.1**. It is a working foundation, **not ready for producti
 
 **Not yet**
 
-- Memory management in native executables (strings are not freed yet), debug information, Windows builds
+- Debug information and Windows builds for native executables
 - Structs, enums and `match`, lists and maps, generics, modules and imports, error handling, closures, concurrency
 - Standard library beyond `print` and `to_string`; dependencies and a package registry; formatter and language server
 

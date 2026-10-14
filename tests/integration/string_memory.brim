@@ -1,0 +1,79 @@
+// Exercises every way a string changes hands: parameters, returns, slot
+// reassignment, compound assignment, loops, early returns and recursion.
+// Native builds run with BRIM_RT_CHECK=1 in the tests, so a leak, a double
+// release or a use after free fails the test.
+
+fn identity(s: string) -> string {
+    return s
+}
+
+fn shout(s: string) -> string {
+    let loud: string = s + "!"
+    return loud
+}
+
+fn repeat(s: string, n: i64) -> string {
+    let mut out: string = ""
+    let mut i: i64 = 0
+    while i < n {
+        out += s
+        i += 1
+    }
+    return out
+}
+
+fn first_long(limit: i64) -> string {
+    let mut word: string = "a"
+    while true {
+        word = word + "a"
+        if i64_len(word) >= limit {
+            return word
+        }
+    }
+}
+
+fn i64_len(s: string) -> i64 {
+    let mut n: i64 = 0
+    let mut probe: string = ""
+    while probe != s {
+        probe += "a"
+        n += 1
+    }
+    return n
+}
+
+fn countdown(n: i64) -> string {
+    if n == 0 {
+        return "liftoff"
+    }
+    return to_string(n) + " " + countdown(n - 1)
+}
+
+fn main() {
+    let greeting: string = "hello"
+    print(identity(greeting))
+    print(identity("literal"))
+    print(shout(identity(greeting + " world")))
+    print(repeat("ab", 3))
+    print(first_long(5))
+    print(countdown(5))
+
+    let mut s: string = "x"
+    s = s
+    s = identity(s)
+    s += to_string(42)
+    s += to_string(true)
+    print(s)
+
+    let mut kept: string = ""
+    let mut i: i64 = 0
+    while i < 100 {
+        let tmp: string = to_string(i)
+        if i % 25 == 0 {
+            kept = kept + tmp + ","
+        }
+        i += 1
+    }
+    print(kept)
+    print(kept == "0,25,50,75,")
+}

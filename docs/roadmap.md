@@ -47,11 +47,11 @@ Status legend: **done**, **in progress**, **planned**. Only items marked done ex
 
 Still open from this phase: debug information, Windows, cross-compilation, and linking without a C compiler.
 
-**Next milestone: runtime and standard library (Phase 5).** Native executables exist, so memory management (strings are not freed yet) and the first real language data types come next.
+**Current milestone: runtime and standard library (Phase 5).**
 
-## Phase 5: Runtime and standard library (planned)
+## Phase 5: Runtime and standard library (in progress)
 
-- Memory management for heap values (ARC, as recommended in `architecture.md`).
+- **Done:** memory management for strings in native executables (ARC, as recommended in `architecture.md`), with a runtime check mode used by the tests.
 - Recoverable error handling in the language: errors as values the compiler makes you handle, with short propagation syntax (see `error-handling.md`).
 - Structs, enums (sum types) with exhaustive `match`, collections, and string operations.
 - An explicit optional type for "no value", instead of a null value.

@@ -13,6 +13,10 @@
 //!   String literals are constant `BrimStr` objects with reference count -1.
 //! - Checked arithmetic uses `llvm.s*.with.overflow` and explicit comparisons
 //!   for division, branching to a block that calls `brim_rt_trap`.
+//! - Strings are reference counted (`brim_rt_retain` / `brim_rt_release`):
+//!   every string slot owns a reference, every non-constant string value is
+//!   owned by its block and released at the block's end, parameters are
+//!   borrowed, and functions return strings at +1.
 //! - Every call to a Brim function is bracketed by `brim_rt_enter` and
 //!   `brim_rt_leave`, which maintain the call stack shown in run-time errors
 //!   and enforce the same call-depth limit as the interpreter.
@@ -123,6 +127,8 @@ struct Lowerer<'ctx, 'a> {
     enter: FunctionValue<'ctx>,
     leave: FunctionValue<'ctx>,
     trap: FunctionValue<'ctx>,
+    retain: FunctionValue<'ctx>,
+    release: FunctionValue<'ctx>,
 }
 
 impl<'ctx, 'a> Lowerer<'ctx, 'a> {
@@ -149,6 +155,16 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             void.fn_type(&[ptr.into(), ptr.into(), ptr.into()], false),
             Some(Linkage::External),
         );
+        let retain = module.add_function(
+            "brim_rt_retain",
+            void.fn_type(&[ptr.into()], false),
+            Some(Linkage::External),
+        );
+        let release = module.add_function(
+            "brim_rt_release",
+            void.fn_type(&[ptr.into()], false),
+            Some(Linkage::External),
+        );
         for attr in ["noreturn", "cold", "nounwind"] {
             let kind = Attribute::get_named_enum_kind_id(attr);
             trap.add_attribute(
@@ -169,6 +185,8 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             enter,
             leave,
             trap,
+            retain,
+            release,
         }
     }
 
@@ -238,14 +256,41 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                     .build_alloca(self.basic_type(slot.ty), &slot.name)?,
             );
         }
+        // String slots own a reference. Parameters are borrowed from the
+        // caller, so the callee takes its own; other slots start out empty.
+        let null = self.context.ptr_type(AddressSpace::default()).const_null();
+        for (index, slot) in f.slots.iter().enumerate() {
+            if slot.ty != Type::Str {
+                continue;
+            }
+            match function.get_nth_param(index as u32) {
+                Some(param) => {
+                    self.builder.build_store(slots[index], param)?;
+                    self.builder.build_call(self.retain, &[param.into()], "")?;
+                }
+                None => {
+                    self.builder.build_store(slots[index], null)?;
+                }
+            }
+        }
         for (param, slot) in function.get_param_iter().zip(&slots) {
-            self.builder.build_store(*slot, param)?;
+            if !param.get_type().is_pointer_type() {
+                self.builder.build_store(*slot, param)?;
+            }
         }
         self.builder.build_unconditional_branch(blocks[0])?;
 
+        let str_slots: Vec<(PointerValue<'ctx>, bool)> = slots
+            .iter()
+            .zip(&f.slots)
+            .map(|(ptr, slot)| (*ptr, slot.ty == Type::Str))
+            .collect();
         let mut values: Vec<Option<BasicValueEnum<'ctx>>> = vec![None; f.values.len()];
         for (block, &llvm_block) in f.blocks.iter().zip(&blocks) {
             self.builder.position_at_end(llvm_block);
+            // Strings this block holds a reference to, released at its end.
+            // Values never outlive their block, so that is always late enough.
+            let mut owned: Vec<BasicValueEnum<'ctx>> = Vec::new();
             for inst in &block.insts {
                 let get = |v: brim_ir::ValueId| {
                     values[v.index()].expect("validated IR: values are defined before use")
@@ -254,10 +299,24 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                     InstKind::Const(c) => Some(self.constant(c)),
                     InstKind::Load(slot) => {
                         let ty = self.basic_type(f.slots[slot.index()].ty);
-                        Some(self.builder.build_load(ty, slots[slot.index()], "")?)
+                        let value = self.builder.build_load(ty, slots[slot.index()], "")?;
+                        if f.slots[slot.index()].ty == Type::Str {
+                            self.builder.build_call(self.retain, &[value.into()], "")?;
+                            owned.push(value);
+                        }
+                        Some(value)
                     }
                     InstKind::Store(slot, v) => {
-                        self.builder.build_store(slots[slot.index()], get(*v))?;
+                        let ptr = slots[slot.index()];
+                        let value = get(*v);
+                        if f.slots[slot.index()].ty == Type::Str {
+                            // Retain first: the old and new value may be the
+                            // same object.
+                            self.builder.build_call(self.retain, &[value.into()], "")?;
+                            let old = self.builder.build_load(value.get_type(), ptr, "")?;
+                            self.builder.build_call(self.release, &[old.into()], "")?;
+                        }
+                        self.builder.build_store(ptr, value)?;
                         None
                     }
                     InstKind::Unary(op, v) => {
@@ -286,15 +345,45 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                     }
                 };
                 if let (Some(dest), Some(value)) = (inst.result, result) {
+                    // Calls return strings at +1.
+                    let call = matches!(inst.kind, InstKind::Call(..) | InstKind::CallRuntime(..));
+                    if call && f.values[dest.index()] == Type::Str {
+                        owned.push(value);
+                    }
                     values[dest.index()] = Some(value);
+                }
+            }
+            let returned = match &block.term {
+                Terminator::Return(Some(v)) => {
+                    Some(values[v.index()].expect("validated IR: returned value is defined"))
+                }
+                _ => None,
+            };
+            // The caller receives a returned string at +1.
+            if let Some(v) = returned
+                && v.is_pointer_value()
+            {
+                self.builder.build_call(self.retain, &[v.into()], "")?;
+            }
+            if !matches!(block.term, Terminator::Unreachable) {
+                for value in owned {
+                    self.builder.build_call(self.release, &[value.into()], "")?;
+                }
+            }
+            if matches!(block.term, Terminator::Return(_)) {
+                for &(ptr, is_str) in &str_slots {
+                    if is_str {
+                        let value = self.builder.build_load(ptr.get_type(), ptr, "")?;
+                        self.builder.build_call(self.release, &[value.into()], "")?;
+                    }
                 }
             }
             match &block.term {
                 Terminator::Return(None) => {
                     self.builder.build_return(None)?;
                 }
-                Terminator::Return(Some(v)) => {
-                    let v = values[v.index()].expect("validated IR: returned value is defined");
+                Terminator::Return(Some(_)) => {
+                    let v = returned.expect("set above");
                     self.builder.build_return(Some(&v))?;
                 }
                 Terminator::Jump(target) => {
@@ -703,6 +792,66 @@ mod tests {
         ] {
             assert!(ir.contains(expected), "missing `{expected}` in:\n{ir}");
         }
+    }
+
+    #[test]
+    fn strings_are_reference_counted() {
+        // fn echo(s: string) -> string { let t: string = s; return t }
+        let echo = Function {
+            name: "echo".into(),
+            param_count: 1,
+            ret: Type::Str,
+            slots: vec![
+                Slot {
+                    name: "s".into(),
+                    ty: Type::Str,
+                },
+                Slot {
+                    name: "t".into(),
+                    ty: Type::Str,
+                },
+            ],
+            values: vec![Type::Str, Type::Str],
+            blocks: vec![Block {
+                insts: vec![
+                    inst(Some(0), InstKind::Load(SlotId(0))),
+                    inst(None, InstKind::Store(SlotId(1), ValueId(0))),
+                    inst(Some(1), InstKind::Load(SlotId(1))),
+                ],
+                term: Terminator::Return(Some(ValueId(1))),
+            }],
+        };
+        let main = Function {
+            name: "main".into(),
+            param_count: 0,
+            ret: Type::Void,
+            slots: vec![],
+            values: vec![],
+            blocks: vec![Block {
+                insts: vec![],
+                term: Terminator::Return(None),
+            }],
+        };
+        let module = IrModule {
+            functions: vec![echo, main],
+            entry: FuncId(1),
+        };
+        let ir = emit_ir(&module, &SourceFile::new("t.brim", "x\n")).unwrap();
+        let body = &ir[ir.find("@brim.echo(").unwrap()..];
+        let body = &body[..body.find("\n}").unwrap()];
+        // Parameter slot (1), two loads (2), the store (1) and the return (1).
+        assert_eq!(
+            body.matches("call void @brim_rt_retain").count(),
+            5,
+            "{body}"
+        );
+        // The store's old value (1), two loads (2) and both slots at return (2).
+        assert_eq!(
+            body.matches("call void @brim_rt_release").count(),
+            5,
+            "{body}"
+        );
+        assert!(body.contains("store ptr null"), "{body}");
     }
 
     #[test]

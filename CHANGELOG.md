@@ -11,6 +11,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - Native executables report run-time errors exactly like `brim run`, including the call stack and the 10,000-call depth limit.
 - Differential tests that build every integration program and example natively (debug and release) and compare stdout, stderr and exit code with the interpreter; a CI job with LLVM 22 on Linux and macOS.
 - Integration programs for `i64::MIN / -1` and negation overflow.
+- Reference counting for strings in native executables: strings are freed when their last reference goes away (a loop building 5 million strings now peaks at under 2 MB instead of over 300 MB).
+- `BRIM_RT_CHECK=1` runtime check mode for native executables: use after free aborts and leaks are reported. The differential tests run every program with it.
 - Control flow: `if` / `else` / `else if`, `while` loops, `break` and `continue`.
 - Mutable variables with `let mut`, assignment and compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`).
 - `to_string` builtin for `i64` and `bool`.

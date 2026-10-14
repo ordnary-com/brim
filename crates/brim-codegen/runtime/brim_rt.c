@@ -8,16 +8,22 @@
  *   string operations), with the same behaviour as the reference interpreter;
  * - the backend-internal entry points `brim_rt_enter`, `brim_rt_leave` and
  *   `brim_rt_trap`, which track the Brim call stack and report run-time
- *   errors exactly as `brim run` does;
+ *   errors exactly as `brim run` does, and `brim_rt_retain` /
+ *   `brim_rt_release`, which manage string memory;
  * - the process entry point `main`, which calls the generated `brim_entry`.
  *
  * Strings are `BrimStr` objects. Their layout must match the constants the
  * backend emits for string literals: a reference count (-1 for static
  * objects), a byte length, then the UTF-8 bytes (not NUL-terminated).
  *
- * Memory management: heap strings are never freed yet. Reference counting is
- * planned (docs/architecture.md, "Memory management"); the `rc` field already
- * reserves room for it.
+ * Memory management: heap strings are reference counted and freed when the
+ * count drops to zero. Static strings (rc -1) are never counted. Brim has no
+ * threads yet, so the counts are not atomic.
+ *
+ * With the environment variable BRIM_RT_CHECK=1, memory is checked instead
+ * of freed: a retain or release of a freed string aborts the program, and
+ * strings still allocated when `main` returns are reported as a leak. The
+ * compiler's tests run every native program this way.
  */
 
 #include <errno.h>
@@ -39,6 +45,11 @@ extern void brim_entry(void);
 
 static const char **frames;
 static int64_t depth;
+
+/* Memory checking (BRIM_RT_CHECK=1). */
+static int checking;
+static int64_t live_strings;
+#define FREED INT64_MIN
 
 static void fatal(const char *message) {
     fflush(stdout);
@@ -118,7 +129,7 @@ void brim_rt_print_str(const BrimStr *s) {
     fputc('\n', stdout);
 }
 
-/* ---- strings ------------------------------------------------------------- */
+/* ---- memory -------------------------------------------------------------- */
 
 static BrimStr *str_alloc(int64_t len) {
     BrimStr *s = malloc(sizeof(BrimStr) + (size_t)len);
@@ -127,8 +138,51 @@ static BrimStr *str_alloc(int64_t len) {
     }
     s->rc = 1;
     s->len = len;
+    live_strings++;
     return s;
 }
+
+static void check_live(const BrimStr *s, const char *operation) {
+    if (s->rc == FREED) {
+        fflush(stdout);
+        fprintf(stderr, "error: brim runtime check: %s of a freed string\n", operation);
+        abort();
+    }
+}
+
+/* Takes a reference. Null (an unset slot) and static strings are ignored. */
+void brim_rt_retain(BrimStr *s) {
+    if (s == NULL) {
+        return;
+    }
+    if (checking) {
+        check_live(s, "retain");
+    }
+    if (s->rc >= 0) {
+        s->rc++;
+    }
+}
+
+/* Drops a reference, freeing the string when it was the last one. */
+void brim_rt_release(BrimStr *s) {
+    if (s == NULL) {
+        return;
+    }
+    if (checking) {
+        check_live(s, "release");
+    }
+    if (s->rc < 0 || --s->rc > 0) {
+        return;
+    }
+    live_strings--;
+    if (checking) {
+        s->rc = FREED; /* keep the memory to detect later use */
+    } else {
+        free(s);
+    }
+}
+
+/* ---- strings ------------------------------------------------------------- */
 
 BrimStr *brim_rt_str_concat(const BrimStr *a, const BrimStr *b) {
     BrimStr *s = str_alloc(a->len + b->len);
@@ -160,6 +214,8 @@ BrimStr *brim_rt_bool_to_str(uint8_t value) {
 /* ---- process entry ------------------------------------------------------- */
 
 int main(void) {
+    const char *check = getenv("BRIM_RT_CHECK");
+    checking = check != NULL && strcmp(check, "1") == 0;
     frames = malloc(sizeof(const char *) * (size_t)brim_max_call_depth);
     if (frames == NULL) {
         fatal("out of memory");
@@ -168,6 +224,10 @@ int main(void) {
     if (fflush(stdout) != 0 || ferror(stdout)) {
         fprintf(stderr, "error[R0004]: failed to write output: %s\n", strerror(errno));
         return 101;
+    }
+    if (checking && live_strings != 0) {
+        fprintf(stderr, "error: brim runtime check: %" PRId64 " string(s) leaked\n", live_strings);
+        return 102;
     }
     return 0;
 }
