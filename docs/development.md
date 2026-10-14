@@ -60,7 +60,9 @@ To debug memory management in a native executable, run it with `BRIM_RT_CHECK=1`
 | `tests/lexer`, `tests/parser`, `tests/diagnostics` | Programs that must fail `brim check`, with the exact expected stderr in a `.stderr` file next to each program |
 | `tests/integration` | Programs run with `brim run`. Expected stdout in `.stdout`, expected stderr (if any) in `.stderr` |
 | `crates/brim-cli/tests/fixtures.rs` | The harness for the four directories above, plus a check that every program in `examples/` runs. With the `llvm` feature it also builds every integration program and example natively (debug and release) and requires output identical to the interpreter's |
-| `crates/brim-cli/tests/cli.rs` | Runs the real `brim` executable: exit codes, help, manifests |
+| `crates/brim-cli/tests/cli.rs` | Runs the real `brim` executable: exit codes, help, manifests, dependencies, `test`, `fmt`, `gen ts` |
+| `crates/brim-cli/tests/fuzz_smoke.rs` | A deterministic mutation fuzzer: mutants of every example and test program go through the whole frontend, the formatter and the interpreter (with a step limit); nothing may panic and checked programs must lower to valid IR |
+| `fuzz/` | Coverage-guided cargo-fuzz targets (nightly), run weekly by `.github/workflows/fuzz.yml`; see `fuzz/README.md` |
 
 Fixture conventions:
 
@@ -76,6 +78,16 @@ After an intentional change to diagnostics or program output:
 BLESS=1 cargo test -p brim-cli --test fixtures
 git diff tests/          # review every change
 ```
+
+### Fuzzing
+
+The mutation fuzzer runs 3000 mutants with every `cargo test`. For a longer run, or another seed:
+
+```sh
+BRIM_FUZZ_ITERATIONS=500000 BRIM_FUZZ_SEED=7 cargo test --release -p brim-cli --test fuzz_smoke -- --nocapture
+```
+
+It prints how many mutants parsed, passed semantic analysis and ran. A failure shows the smallest failing input; turn it into a fixture in `tests/` once it is fixed.
 
 ## Adding a language feature
 

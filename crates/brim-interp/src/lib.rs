@@ -26,12 +26,17 @@ use brim_runtime::{BrimStr, RuntimeError, ops};
 pub struct Limits {
     /// Maximum number of simultaneously active calls, including `main`.
     pub max_call_depth: usize,
+    /// Maximum number of instructions and terminators to execute, for
+    /// embedders that run untrusted programs; `None` (the default) for no
+    /// limit. Exceeding it is the run-time error `R0009`.
+    pub max_steps: Option<u64>,
 }
 
 impl Default for Limits {
     fn default() -> Self {
         Limits {
             max_call_depth: brim_runtime::MAX_CALL_DEPTH,
+            max_steps: None,
         }
     }
 }
@@ -347,7 +352,17 @@ fn execute(
     stack: &mut Vec<Frame>,
     cache: &mut [Option<Rc<LastUses>>],
 ) -> Result<i32, Failure> {
+    let mut steps: u64 = 0;
     loop {
+        if let Some(limit) = limits.max_steps {
+            steps += 1;
+            if steps > limit {
+                let frame = stack.last().expect("the stack is never empty here");
+                let block = &module.function(frame.func).blocks[frame.block.index()];
+                let span = block.insts.get(frame.ip).and_then(|i| i.span);
+                return Err((RuntimeError::StepLimit { limit }, span));
+            }
+        }
         let frame = stack.last_mut().expect("the stack is never empty here");
         if let Some((block, ip)) = frame.pending.take() {
             let last_uses = Rc::clone(&frame.last_uses);

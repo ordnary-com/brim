@@ -1,0 +1,51 @@
+[package]
+name = "brim-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+# A workspace of its own: the targets need nightly Rust and libFuzzer.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+brim-diagnostics = { path = "../crates/brim-diagnostics" }
+brim-fmt = { path = "../crates/brim-fmt" }
+brim-interp = { path = "../crates/brim-interp" }
+brim-ir = { path = "../crates/brim-ir" }
+brim-lexer = { path = "../crates/brim-lexer" }
+brim-lower = { path = "../crates/brim-lower" }
+brim-manifest = { path = "../crates/brim-manifest" }
+brim-parser = { path = "../crates/brim-parser" }
+brim-semantic = { path = "../crates/brim-semantic" }
+
+[[bin]]
+name = "frontend"
+path = "fuzz_targets/frontend.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fmt"
+path = "fuzz_targets/fmt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "run"
+path = "fuzz_targets/run.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "manifest"
+path = "fuzz_targets/manifest.rs"
+test = false
+doc = false
+bench = false

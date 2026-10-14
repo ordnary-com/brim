@@ -58,6 +58,10 @@ pub enum RuntimeError {
     /// `assert` or `assert_eq` failed; `assert_eq` reports both values (as
     /// Brim would write them).
     AssertionFailed { values: Option<(String, String)> },
+    /// The program ran more instructions than an embedder allowed (see
+    /// `brim_interp::Limits::max_steps`). Not used by `brim run` or native
+    /// executables.
+    StepLimit { limit: u64 },
 }
 
 impl RuntimeError {
@@ -72,6 +76,7 @@ impl RuntimeError {
             RuntimeError::KeyNotFound => "R0006",
             RuntimeError::InvalidSlice => "R0007",
             RuntimeError::AssertionFailed { .. } => "R0008",
+            RuntimeError::StepLimit { .. } => "R0009",
         }
     }
 }
@@ -103,6 +108,9 @@ impl fmt::Display for RuntimeError {
                 f,
                 "invalid string slice: outside the string or not on a character boundary"
             ),
+            RuntimeError::StepLimit { limit } => {
+                write!(f, "step limit exceeded: more than {limit} instructions")
+            }
         }
     }
 }

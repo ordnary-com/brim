@@ -34,5 +34,8 @@ brim-parser.workspace = true
 brim-semantic.workspace = true
 brim-tsgen.workspace = true
 
+[dev-dependencies]
+brim-fmt.workspace = true
+
 [lints]
 workspace = true

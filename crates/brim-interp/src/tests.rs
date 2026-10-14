@@ -247,3 +247,27 @@ fn compound_assignment_traps_on_overflow() {
     assert_eq!(out.lines().count(), 18);
     assert_eq!(trap.error, RuntimeError::IntegerOverflow { op: "*" });
 }
+
+#[test]
+fn step_limit() {
+    let src = "fn main() {\n    let mut n: i64 = 0\n    while true {\n        n += 1\n    }\n}\n";
+    let limits = Limits {
+        max_steps: Some(1000),
+        ..Limits::default()
+    };
+    let (result, _) = run_with(src, limits);
+    let trap = result.expect_err("the loop is stopped");
+    assert_eq!(trap.error, RuntimeError::StepLimit { limit: 1000 });
+    assert_eq!(trap.error.code(), "R0009");
+    assert!(trap.span.is_some());
+    // A program that finishes in time is not affected.
+    let (result, out) = run_with(
+        "fn main() {\n    print(1)\n}\n",
+        Limits {
+            max_steps: Some(1000),
+            ..Limits::default()
+        },
+    );
+    assert_eq!(result, Ok(0));
+    assert_eq!(out, "1\n");
+}

@@ -148,6 +148,7 @@ Guidelines for writing diagnostics:
 | R0006 | Map key not found |
 | R0007 | Invalid string slice |
 | R0008 | Failed `assert` or `assert_eq` (with the two values as notes) |
+| R0009 | Step limit exceeded; only for embedders that set `brim_interp::Limits::max_steps`, never in `brim run` or native executables |
 
 Run-time errors are reported like compile-time diagnostics, with the source location of the failing operation and the call stack:
 
