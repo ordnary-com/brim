@@ -32,8 +32,8 @@ pub fn type_name(name: &str) -> Option<&'static str> {
     Some(match name {
         "int" | "i8" | "i16" | "i32" | "i128" | "u8" | "u16" | "u32" | "u64" | "u128" | "isize"
         | "usize" | "long" | "integer" | "Int" | "number" => "i64",
-        "str" | "String" | "text" | "char" => "string",
-        "boolean" | "Bool" | "Boolean" => "bool",
+        "str" | "String" | "text" | "char" | "varchar" => "string",
+        "boolean" | "Bool" | "Boolean" | "flag" => "bool",
         "unit" | "()" | "None" | "nil" | "null" => "void",
         _ => return None,
     })
