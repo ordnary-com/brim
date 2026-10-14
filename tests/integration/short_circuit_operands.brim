@@ -1,0 +1,18 @@
+// `&&` and `||` inside an operand or argument start new blocks in the IR;
+// values computed before them must survive that.
+fn pick(a: i64, ok: bool, b: i64) -> i64 {
+    if ok {
+        return a
+    }
+    return b
+}
+
+fn main() {
+    let t: bool = true
+    let f: bool = false
+    print(to_string(1) + to_string(t && f))
+    print(pick(10, f || t, 20))
+    print(pick(1 + 2, t && (f || t), 3 * 4) + pick(5, f, 6))
+    print((t || f) == (f && t))
+    print("a" + to_string(t && t) + to_string(f || f) + "b")
+}

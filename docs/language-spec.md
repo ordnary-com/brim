@@ -59,14 +59,14 @@ Identifiers are ASCII-only in 0.1. Identifiers are case-sensitive. A word that i
 Keywords with meaning in 0.1:
 
 ```
-fn  let  mut  return  if  else  while  break  continue  true  false
+fn  let  mut  return  if  else  while  break  continue  true  false  struct
 ```
 
 Reserved words for planned features. They cannot be used as identifiers, and using one produces error `E0101`:
 
 ```
 as  async  await  const  enum  for  impl  import  in  loop  match  pub  self
-struct  trait  type  use
+trait  type  use
 ```
 
 The type names `i64`, `bool`, `string` and `void` are **not** keywords. They are predeclared type names, resolved during semantic analysis.
@@ -80,6 +80,7 @@ integer_literal = digit { digit | "_" } ;
 - Decimal only. `_` may be used as a separator (`1_000_000`) and is ignored.
 - A literal with more than one digit may not start with `0` (`007` is error `E0005`), to avoid confusion with octal notation in other languages.
 - Letters directly after a literal (`10px`, `0xFF`) are error `E0006`. Hexadecimal, octal and binary literals are not supported yet.
+- A fraction directly after a literal (`9.99`) is error `E0007`: there are no floating-point numbers yet.
 - The value must fit in `i64`, i.e. be at most 9223372036854775807. The single exception is `9223372036854775808` written directly after unary `-`, which denotes `i64::MIN`. Out-of-range literals are error `E0215`. Literals that do not even fit in 64 bits are error `E0004`.
 
 ### 3.5 String literals
@@ -100,7 +101,7 @@ escape         = '\' ( 'n' | 'r' | 't' | '0' | '\' | '"' )
 ```
 +  -  *  /  %  ==  !=  <  <=  >  >=  &&  ||  !
 =  +=  -=  *=  /=  %=
-(  )  {  }  ,  :  ;  ->
+(  )  {  }  ,  :  ;  ->  .
 ```
 
 Any other character outside a string or comment is error `E0001`. Single `&` and `|` are errors too, with a hint to use `&&` and `||`.
@@ -110,8 +111,13 @@ Any other character outside a string or comment is error `E0001`. Single `&` and
 The grammar below uses EBNF. `NEWLINE` is a newline token; `EOF` is the end of input.
 
 ```ebnf
-program     = { separator } { function { separator } } EOF ;
+program     = { separator } { item { separator } } EOF ;
+item        = function | struct ;
 separator   = NEWLINE | ";" ;
+
+struct      = "struct" identifier "{" { field_sep } [ field { field_sep { field_sep } field } ] { field_sep } "}" ;
+field       = identifier ":" type ;
+field_sep   = NEWLINE | ";" | "," ;
 
 function    = "fn" identifier "(" [ params ] ")" [ "->" type ] block ;
 params      = param { "," param } [ "," ] ;
@@ -124,7 +130,8 @@ terminator  = separator { separator } ;     (* see 6.1; "}" also ends a statemen
 statement   = let_stmt | assign_stmt | if_stmt | while_stmt
             | "break" | "continue" | return_stmt | block | expr_stmt ;
 let_stmt    = "let" [ "mut" ] identifier ":" type "=" expression ;
-assign_stmt = identifier assign_op expression ;
+assign_stmt = place assign_op expression ;
+place       = identifier { "." identifier } ;
 assign_op   = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
 if_stmt     = "if" expression block [ "else" ( if_stmt | block ) ] ;
 while_stmt  = "while" expression block ;
@@ -139,7 +146,10 @@ cmp_expr    = add_expr [ ( "<" | "<=" | ">" | ">=" ) add_expr ] ;
 add_expr    = mul_expr { ( "+" | "-" ) mul_expr } ;
 mul_expr    = unary { ( "*" | "/" | "%" ) unary } ;
 unary       = ( "-" | "!" ) unary | postfix ;
-postfix     = primary [ "(" [ args ] ")" ] ;    (* call: primary must be a name *)
+postfix     = primary { call | "." identifier | struct_lit } ;
+call        = "(" [ args ] ")" ;                 (* only directly after a name *)
+struct_lit  = "{" [ field_init { "," field_init } [ "," ] ] "}" ;   (* only directly after a name *)
+field_init  = identifier ":" expression ;
 args        = expression { "," expression } [ "," ] ;
 primary     = integer_literal | string_literal | "true" | "false"
             | identifier | "(" expression ")" ;
@@ -158,15 +168,17 @@ From loosest to tightest binding:
 | 5     | `+` `-`                | left               |
 | 6     | `*` `/` `%`            | left               |
 | 7     | unary `-` `!`          | prefix             |
-| 8     | call `f(...)`          | postfix            |
+| 8     | call `f(...)`, field `.x`, struct literal `S { ... }` | postfix |
 
 Comparison operators at the same level cannot be chained: `a < b < c` and `a == b == c` are error `E0106`. Comparisons at different levels compose: `a < b == c > d` means `(a < b) == (c > d)`.
 
 ### 4.2 Restrictions enforced by the parser
 
-- Only function declarations may appear at the top level (`E0103`).
+- Only function and struct declarations may appear at the top level, and structs cannot be declared inside functions (`E0103`).
+- In the condition of an `if` or `while`, `Name {` starts the body, not a struct literal: write `if p == (Point { x: 0, y: 0 }) {`, with parentheses, to use a literal there.
+- A field access must start on the same line as the expression it applies to.
 - `let` requires a type annotation (`E0102`) and an initializer.
-- Only a variable name can be assigned to: `f() = 1` is error `E0104`.
+- Only a variable or a field path starting at a variable (`p.from.x`) can be assigned to: `f() = 1` is error `E0104`.
 - The body of `if`, `else` and `while` must be a block in braces. `else` must be followed by `{` or `if`.
 - Only names can be called: `f(1)` is valid, `f()(1)` and `1(2)` are not (`E0107`). A parenthesized name, as in `(f)(1)`, counts as a name.
 - Blocks and expressions may nest at most 128 levels deep, counting long operator chains and `else if` chains (`E0105`). This is an implementation limit that protects the compiler's stack.
@@ -179,13 +191,36 @@ Comparison operators at the same level cannot be chained: `a < b < c` and `a == 
 | `bool`   | `true`, `false`                           |
 | `string` | immutable sequences of Unicode text (UTF-8) |
 | `void`   | no values                                 |
+| structs  | declared with `struct` (section 5.1)      |
 
 - `void` may only appear as a function return type. Variables and parameters of type `void` are error `E0213`.
 - Unknown type names are error `E0212`.
 - There are **no implicit conversions** between types, ever.
 - Two types are compatible only if they are identical.
 
-### 5.1 Function types
+### 5.1 Structs
+
+```brim
+struct Point {
+    x: i64
+    y: i64
+}
+```
+
+A struct declaration introduces a new type with named, typed **fields**. Fields are separated by newlines or commas. Struct names share the type namespace with the built-in types (`struct string {}` is `E0219`) and may not be used by a function as well (`E0219`). A struct can be used before its declaration.
+
+- Field names within a struct must be unique (`E0220`). A field cannot have type `void` (`E0213`).
+- A struct cannot contain itself, directly or through other structs (`E0221`): structs are values, so that would make it infinitely large.
+
+**Values.** `Point { x: 1, y: 2 }` creates a struct value. Every field must be given exactly once (`E0222` for a missing field, `E0223` for a repeated one, `E0224` for an unknown one), in any order. The field values are evaluated in the order they are written. `p.x` reads a field; reading a field of a non-struct is `E0224`.
+
+**Value semantics.** Structs are values, like integers: assignment, passing an argument and returning copy the whole struct, and changing a copy never changes the original. There are no references to structs.
+
+**Field assignment.** `p.x = 3`, `p.from.y += 1` change one field of a variable. The variable must be declared with `let mut` (`E0218`); its fields are as mutable as the variable itself.
+
+**Operations.** Structs cannot be compared with `==` or `!=` yet (`E0209`), cannot be printed, and have no methods. Two struct types are compatible only if they are the same declaration.
+
+### 5.2 Function types
 
 A function's type is its parameter type list and its return type, written informally as `fn(i64, i64) -> i64`. Function types cannot be written in source yet, and functions are not values: they can only be called by name (`E0214`).
 
@@ -267,6 +302,7 @@ A function with a return type other than `void` must not be able to reach the en
 
 ## 7. Names and scopes
 
+- **Types**: the built-in types and all structs in the file. Structs are visible everywhere in the file.
 - **Functions** form one global namespace. All functions in the file are visible everywhere, including before their declaration, so mutual recursion works. Defining two functions with the same name is `E0202`. Defining a function with a builtin's name is `E0216`.
 - **Variables** live in lexical scopes. A function's parameters and its body's top-level statements share one scope. Each nested block opens a new scope.
 - Declaring a variable twice in the same scope is `E0203`, and duplicate parameter names are `E0204`. A nested block may **shadow** an outer variable.
@@ -343,10 +379,11 @@ These questions are not settled. The current behavior is a reversible default.
 9. **Unicode identifiers.** Identifiers are ASCII-only. Allowing Unicode (UAX #31) is possible later.
 10. **Entry point and modules.** The module system, visibility (`pub` is reserved) and how `brim.toml` maps packages to modules are undesigned.
 11. **Loop forms.** Only `while` exists. A `for` loop over ranges and collections (with `for` and `in` reserved), a dedicated `loop` keyword, and labeled `break` for nested loops are candidates.
+12. **Struct equality and printing.** Comparing structs field by field with `==` and printing them are natural next steps. Field-shorthand literals (`Point { x, y }`) and default values are also undecided.
 
 ## 12. Possible future features
 
-These are explicitly **not** part of 0.1. Their keywords are reserved where applicable, and none of them should be assumed to work: `for` loops, `loop`, `match`, structs and enums, methods, traits, generics, modules and imports, closures and first-class functions, collections, error handling, async/await, macros, reflection, an ownership or borrowing system, and FFI.
+These are explicitly **not** part of 0.1. Their keywords are reserved where applicable, and none of them should be assumed to work: `for` loops, `loop`, `match`, enums, methods, traits, generics, modules and imports, closures and first-class functions, collections, error handling, async/await, macros, reflection, an ownership or borrowing system, and FFI.
 
 See `docs/roadmap.md` for the order in which these are planned.
 

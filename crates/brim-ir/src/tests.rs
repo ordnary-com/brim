@@ -67,6 +67,7 @@ fn main_fn() -> Function {
 
 fn module() -> Module {
     Module {
+        structs: vec![],
         functions: vec![add_fn(), main_fn()],
         entry: FuncId(1),
     }
@@ -204,4 +205,91 @@ fn rejects_bad_entry_and_slots() {
     let mut m = module();
     m.functions[0].slots[1].ty = Type::Void;
     assert!(errors(&m).contains(&"in `add`: slot s1 has type void".into()));
+}
+
+/// `struct %0 Pair { a: i64, b: str }` and a `main` that builds, reads and
+/// updates one.
+fn struct_module(insts: Vec<InstKind>, values: Vec<Type>) -> Module {
+    Module {
+        structs: vec![StructDef {
+            name: "Pair".into(),
+            fields: vec![
+                Field {
+                    name: "a".into(),
+                    ty: Type::I64,
+                },
+                Field {
+                    name: "b".into(),
+                    ty: Type::Str,
+                },
+            ],
+        }],
+        functions: vec![Function {
+            name: "main".into(),
+            param_count: 0,
+            ret: Type::Void,
+            slots: vec![],
+            blocks: vec![Block {
+                insts: insts
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, kind)| Inst {
+                        result: Some(ValueId(i as u32)),
+                        kind,
+                        span: None,
+                    })
+                    .collect(),
+                term: Terminator::Return(None),
+            }],
+            values,
+        }],
+        entry: FuncId(0),
+    }
+}
+
+#[test]
+fn struct_instructions() {
+    let pair = Type::Struct(StructId(0));
+    let valid = struct_module(
+        vec![
+            InstKind::Const(Const::I64(1)),
+            InstKind::Const(Const::Str("x".into())),
+            InstKind::MakeStruct(StructId(0), vec![ValueId(0), ValueId(1)]),
+            InstKind::Extract(ValueId(2), 1),
+            InstKind::Insert(ValueId(2), 0, ValueId(0)),
+        ],
+        vec![Type::I64, Type::Str, pair, Type::Str, pair],
+    );
+    assert_eq!(validate(&valid), Ok(()));
+    assert!(valid.to_string().contains(
+        "struct %0 Pair { a: i64, b: str }\n\nfn main() {\nbb0:\n  v0 = const i64 1\n  v1 = const str \"x\"\n  v2 = make %0(v0, v1)\n  v3 = extract v2.1\n  v4 = insert v2.0, v0\n"
+    ));
+
+    let wrong = struct_module(
+        vec![
+            InstKind::Const(Const::I64(1)),
+            InstKind::MakeStruct(StructId(0), vec![ValueId(0), ValueId(0)]),
+            InstKind::Extract(ValueId(1), 5),
+            InstKind::Extract(ValueId(0), 0),
+        ],
+        vec![Type::I64, pair, Type::I64, Type::I64],
+    );
+    assert_eq!(
+        errors(&wrong),
+        [
+            "in `main` bb0: v0 has type i64, expected str",
+            "in `main` bb0: %0 has no field 5",
+            "in `main` bb0: v0 has type i64, expected a struct",
+        ]
+    );
+}
+
+#[test]
+fn structs_must_not_contain_themselves() {
+    let mut module = struct_module(vec![], vec![]);
+    module.structs[0].fields[1].ty = Type::Struct(StructId(0));
+    assert_eq!(
+        errors(&module),
+        ["in `struct Pair`: struct contains itself"]
+    );
 }

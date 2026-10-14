@@ -27,12 +27,19 @@ use brim_stdlib::Prim;
 
 pub use checked::CheckedProgram;
 
+/// Index into [`CheckedProgram::structs`] (and the checker's struct table).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct StructId(pub usize);
+
 /// A Brim type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
     I64,
     Bool,
     String,
+    /// A struct declared in the program. Its name and fields are in the
+    /// struct table; `Display` can only show its index.
+    Struct(StructId),
     /// The type of functions that return nothing. It has no values: it cannot
     /// be stored in a variable or passed as an argument.
     Void,
@@ -58,7 +65,7 @@ impl Type {
             Type::Bool => Prim::Bool,
             Type::String => Prim::String,
             Type::Void => Prim::Void,
-            Type::Error => return None,
+            Type::Struct(_) | Type::Error => return None,
         })
     }
 
@@ -79,6 +86,7 @@ impl fmt::Display for Type {
             Type::Bool => "bool",
             Type::String => "string",
             Type::Void => "void",
+            Type::Struct(id) => return write!(f, "struct#{}", id.0),
             Type::Error => "{error}",
         })
     }

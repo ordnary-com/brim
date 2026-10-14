@@ -52,8 +52,9 @@ Still open from this phase: debug information, Windows, cross-compilation, and l
 ## Phase 5: Runtime and standard library (in progress)
 
 - **Done:** memory management for strings in native executables (ARC, as recommended in `architecture.md`), with a runtime check mode used by the tests.
+- **Done:** structs: declarations, literals, field access and field assignment, with value semantics. Struct equality and printing are still open.
 - Recoverable error handling in the language: errors as values the compiler makes you handle, with short propagation syntax (see `error-handling.md`).
-- Structs, enums (sum types) with exhaustive `match`, collections, and string operations.
+- Enums (sum types) with exhaustive `match`, collections, and string operations.
 - An explicit optional type for "no value", instead of a null value.
 - Standard library modules: I/O, files, formatting, environment, processes; later networking and HTTP for backend services.
 

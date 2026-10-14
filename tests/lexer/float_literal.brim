@@ -1,0 +1,3 @@
+fn main() {
+    let price: i64 = 9.99
+}

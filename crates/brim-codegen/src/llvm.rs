@@ -13,10 +13,13 @@
 //!   String literals are constant `BrimStr` objects with reference count -1.
 //! - Checked arithmetic uses `llvm.s*.with.overflow` and explicit comparisons
 //!   for division, branching to a block that calls `brim_rt_trap`.
-//! - Strings are reference counted (`brim_rt_retain` / `brim_rt_release`):
-//!   every string slot owns a reference, every non-constant string value is
-//!   owned by its block and released at the block's end, parameters are
-//!   borrowed, and functions return strings at +1.
+//! - Structs become named LLVM struct types (`brim.<name>`), built and read
+//!   with `insertvalue` / `extractvalue`.
+//! - Strings are reference counted (`brim_rt_retain` / `brim_rt_release`),
+//!   including strings inside structs: every slot owns the strings it
+//!   holds, every non-constant value holding strings is owned by its block
+//!   and released at the block's end, parameters are borrowed, and functions
+//!   return values at +1.
 //! - Every call to a Brim function is bracketed by `brim_rt_enter` and
 //!   `brim_rt_leave`, which maintain the call stack shown in run-time errors
 //!   and enforce the same call-depth limit as the interpreter.
@@ -38,7 +41,7 @@ use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{
     CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine,
 };
-use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType};
+use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType};
 use inkwell::values::{
     BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue,
 };
@@ -129,6 +132,10 @@ struct Lowerer<'ctx, 'a> {
     trap: FunctionValue<'ctx>,
     retain: FunctionValue<'ctx>,
     release: FunctionValue<'ctx>,
+    /// `brim.<name>` for every IR struct, indexed by `StructId`.
+    struct_types: Vec<StructType<'ctx>>,
+    /// Whether each struct contains strings, directly or in nested structs.
+    managed_structs: Vec<bool>,
 }
 
 impl<'ctx, 'a> Lowerer<'ctx, 'a> {
@@ -187,10 +194,39 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             trap,
             retain,
             release,
+            struct_types: Vec::new(),
+            managed_structs: Vec::new(),
         }
     }
 
     fn lower_module(&mut self) -> Result<(), BuilderError> {
+        // Named types first, so fields can refer to any struct.
+        for def in &self.ir.structs {
+            let ty = self
+                .context
+                .opaque_struct_type(&format!("brim.{}", def.name));
+            self.struct_types.push(ty);
+        }
+        for (index, def) in self.ir.structs.iter().enumerate() {
+            let fields: Vec<BasicTypeEnum<'ctx>> =
+                def.fields.iter().map(|f| self.basic_type(f.ty)).collect();
+            self.struct_types[index].set_body(&fields, false);
+        }
+        // Structs never contain themselves, so this fixpoint terminates.
+        self.managed_structs = vec![false; self.ir.structs.len()];
+        loop {
+            let mut changed = false;
+            for (index, def) in self.ir.structs.iter().enumerate() {
+                let managed = def.fields.iter().any(|f| self.managed(f.ty));
+                if managed && !self.managed_structs[index] {
+                    self.managed_structs[index] = true;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
         for f in &self.ir.functions {
             let params: Vec<Type> = f.param_types().collect();
             let fn_type = self.fn_type(f.ret, &params);
@@ -256,41 +292,37 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                     .build_alloca(self.basic_type(slot.ty), &slot.name)?,
             );
         }
-        // String slots own a reference. Parameters are borrowed from the
-        // caller, so the callee takes its own; other slots start out empty.
-        let null = self.context.ptr_type(AddressSpace::default()).const_null();
+        // Slots holding strings own their references. Parameters are
+        // borrowed from the caller, so the callee takes its own; other slots
+        // start out empty (null strings, which retain and release ignore).
         for (index, slot) in f.slots.iter().enumerate() {
-            if slot.ty != Type::Str {
-                continue;
-            }
             match function.get_nth_param(index as u32) {
                 Some(param) => {
                     self.builder.build_store(slots[index], param)?;
-                    self.builder.build_call(self.retain, &[param.into()], "")?;
+                    self.retain_value(param, slot.ty)?;
                 }
-                None => {
-                    self.builder.build_store(slots[index], null)?;
+                None if self.managed(slot.ty) => {
+                    let zero = self.basic_type(slot.ty).const_zero();
+                    self.builder.build_store(slots[index], zero)?;
                 }
-            }
-        }
-        for (param, slot) in function.get_param_iter().zip(&slots) {
-            if !param.get_type().is_pointer_type() {
-                self.builder.build_store(*slot, param)?;
+                None => {}
             }
         }
         self.builder.build_unconditional_branch(blocks[0])?;
 
-        let str_slots: Vec<(PointerValue<'ctx>, bool)> = slots
+        let managed_slots: Vec<(PointerValue<'ctx>, Type)> = slots
             .iter()
             .zip(&f.slots)
-            .map(|(ptr, slot)| (*ptr, slot.ty == Type::Str))
+            .filter(|(_, slot)| self.managed(slot.ty))
+            .map(|(ptr, slot)| (*ptr, slot.ty))
             .collect();
         let mut values: Vec<Option<BasicValueEnum<'ctx>>> = vec![None; f.values.len()];
         for (block, &llvm_block) in f.blocks.iter().zip(&blocks) {
             self.builder.position_at_end(llvm_block);
-            // Strings this block holds a reference to, released at its end.
-            // Values never outlive their block, so that is always late enough.
-            let mut owned: Vec<BasicValueEnum<'ctx>> = Vec::new();
+            // Values holding strings that this block owns a reference to,
+            // released at its end. Values never outlive their block, so that
+            // is always late enough.
+            let mut owned: Vec<(BasicValueEnum<'ctx>, Type)> = Vec::new();
             for inst in &block.insts {
                 let get = |v: brim_ir::ValueId| {
                     values[v.index()].expect("validated IR: values are defined before use")
@@ -299,22 +331,18 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                     InstKind::Const(c) => Some(self.constant(c)),
                     InstKind::Load(slot) => {
                         let ty = self.basic_type(f.slots[slot.index()].ty);
-                        let value = self.builder.build_load(ty, slots[slot.index()], "")?;
-                        if f.slots[slot.index()].ty == Type::Str {
-                            self.builder.build_call(self.retain, &[value.into()], "")?;
-                            owned.push(value);
-                        }
-                        Some(value)
+                        Some(self.builder.build_load(ty, slots[slot.index()], "")?)
                     }
                     InstKind::Store(slot, v) => {
                         let ptr = slots[slot.index()];
                         let value = get(*v);
-                        if f.slots[slot.index()].ty == Type::Str {
-                            // Retain first: the old and new value may be the
-                            // same object.
-                            self.builder.build_call(self.retain, &[value.into()], "")?;
+                        let ty = f.slots[slot.index()].ty;
+                        if self.managed(ty) {
+                            // Retain first: the old and new value may share
+                            // strings.
+                            self.retain_value(value, ty)?;
                             let old = self.builder.build_load(value.get_type(), ptr, "")?;
-                            self.builder.build_call(self.release, &[old.into()], "")?;
+                            self.release_value(old, ty)?;
                         }
                         self.builder.build_store(ptr, value)?;
                         None
@@ -343,12 +371,33 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                             args.iter().map(|a| get(*a)).collect();
                         self.call_runtime(*rt, &args)?
                     }
+                    InstKind::MakeStruct(id, args) => {
+                        let mut value = self.struct_types[id.index()].get_undef().into();
+                        for (index, arg) in args.iter().enumerate() {
+                            value = self.insert(value, index, get(*arg))?;
+                        }
+                        Some(value)
+                    }
+                    InstKind::Extract(v, index) => {
+                        let value = get(*v).into_struct_value();
+                        Some(self.builder.build_extract_value(value, *index as u32, "")?)
+                    }
+                    InstKind::Insert(v, index, x) => Some(self.insert(get(*v), *index, get(*x))?),
                 };
                 if let (Some(dest), Some(value)) = (inst.result, result) {
-                    // Calls return strings at +1.
-                    let call = matches!(inst.kind, InstKind::Call(..) | InstKind::CallRuntime(..));
-                    if call && f.values[dest.index()] == Type::Str {
-                        owned.push(value);
+                    let ty = f.values[dest.index()];
+                    if self.managed(ty) {
+                        // Calls return their result at +1; everything else
+                        // takes its own reference.
+                        let call =
+                            matches!(inst.kind, InstKind::Call(..) | InstKind::CallRuntime(..));
+                        let constant = matches!(inst.kind, InstKind::Const(_));
+                        if !call && !constant {
+                            self.retain_value(value, ty)?;
+                        }
+                        if !constant {
+                            owned.push((value, ty));
+                        }
                     }
                     values[dest.index()] = Some(value);
                 }
@@ -359,23 +408,19 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                 }
                 _ => None,
             };
-            // The caller receives a returned string at +1.
-            if let Some(v) = returned
-                && v.is_pointer_value()
-            {
-                self.builder.build_call(self.retain, &[v.into()], "")?;
+            // The caller receives a returned value at +1.
+            if let Some(v) = returned {
+                self.retain_value(v, f.ret)?;
             }
             if !matches!(block.term, Terminator::Unreachable) {
-                for value in owned {
-                    self.builder.build_call(self.release, &[value.into()], "")?;
+                for (value, ty) in owned {
+                    self.release_value(value, ty)?;
                 }
             }
             if matches!(block.term, Terminator::Return(_)) {
-                for &(ptr, is_str) in &str_slots {
-                    if is_str {
-                        let value = self.builder.build_load(ptr.get_type(), ptr, "")?;
-                        self.builder.build_call(self.release, &[value.into()], "")?;
-                    }
+                for &(ptr, ty) in &managed_slots {
+                    let value = self.builder.build_load(self.basic_type(ty), ptr, "")?;
+                    self.release_value(value, ty)?;
                 }
             }
             match &block.term {
@@ -599,6 +644,70 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
         Ok(())
     }
 
+    fn insert(
+        &mut self,
+        aggregate: BasicValueEnum<'ctx>,
+        index: usize,
+        value: BasicValueEnum<'ctx>,
+    ) -> Result<BasicValueEnum<'ctx>, BuilderError> {
+        let aggregate = aggregate.into_struct_value();
+        Ok(self
+            .builder
+            .build_insert_value(aggregate, value, index as u32, "")?
+            .into_struct_value()
+            .into())
+    }
+
+    // ---- reference counting ---------------------------------------------
+
+    /// Whether values of `ty` contain strings, and so need reference counting.
+    fn managed(&self, ty: Type) -> bool {
+        match ty {
+            Type::Str => true,
+            Type::Struct(id) => self.managed_structs[id.index()],
+            Type::I64 | Type::Bool | Type::Void => false,
+        }
+    }
+
+    /// Takes a reference to every string in `value`.
+    fn retain_value(&mut self, value: BasicValueEnum<'ctx>, ty: Type) -> Result<(), BuilderError> {
+        self.count_value(value, ty, self.retain)
+    }
+
+    /// Drops a reference to every string in `value`.
+    fn release_value(&mut self, value: BasicValueEnum<'ctx>, ty: Type) -> Result<(), BuilderError> {
+        self.count_value(value, ty, self.release)
+    }
+
+    fn count_value(
+        &mut self,
+        value: BasicValueEnum<'ctx>,
+        ty: Type,
+        function: FunctionValue<'ctx>,
+    ) -> Result<(), BuilderError> {
+        match ty {
+            Type::Str => {
+                self.builder.build_call(function, &[value.into()], "")?;
+            }
+            Type::Struct(id) if self.managed(ty) => {
+                let fields: Vec<Type> =
+                    self.ir.struct_def(id).fields.iter().map(|f| f.ty).collect();
+                for (index, field_ty) in fields.into_iter().enumerate() {
+                    if self.managed(field_ty) {
+                        let field = self.builder.build_extract_value(
+                            value.into_struct_value(),
+                            index as u32,
+                            "",
+                        )?;
+                        self.count_value(field, field_ty, function)?;
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     // ---- declarations and constants -------------------------------------
 
     fn basic_type(&self, ty: Type) -> BasicTypeEnum<'ctx> {
@@ -606,6 +715,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             Type::I64 => self.context.i64_type().into(),
             Type::Bool => self.context.bool_type().into(),
             Type::Str => self.context.ptr_type(AddressSpace::default()).into(),
+            Type::Struct(id) => self.struct_types[id.index()].into(),
             Type::Void => unreachable!("validated IR: `void` is only a return type"),
         }
     }
@@ -768,6 +878,7 @@ mod tests {
             }],
         };
         IrModule {
+            structs: vec![],
             functions: vec![div, main],
             entry: FuncId(1),
         }
@@ -833,6 +944,7 @@ mod tests {
             }],
         };
         let module = IrModule {
+            structs: vec![],
             functions: vec![echo, main],
             entry: FuncId(1),
         };

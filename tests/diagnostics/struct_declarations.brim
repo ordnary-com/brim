@@ -1,0 +1,29 @@
+struct Node {
+    value: i64
+    next: Node
+}
+
+struct Tree {
+    left: Branch
+}
+
+struct Branch {
+    tree: Tree
+}
+
+struct Pair {
+    a: i64
+    a: string
+}
+
+struct Pair {}
+
+struct string {}
+
+struct Empty {
+    nothing: void
+}
+
+fn Empty() {}
+
+fn main() {}

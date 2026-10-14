@@ -1,0 +1,47 @@
+// Structs group related values. They are values themselves: assigning,
+// passing or returning a struct copies it.
+
+struct Money {
+    cents: i64
+    currency: string
+}
+
+struct LineItem {
+    name: string
+    price: Money
+    quantity: i64
+}
+
+fn total(item: LineItem) -> Money {
+    return Money {
+        cents: item.price.cents * item.quantity,
+        currency: item.price.currency,
+    }
+}
+
+fn format(m: Money) -> string {
+    let mut cents: string = to_string(m.cents % 100)
+    if m.cents % 100 < 10 {
+        cents = "0" + cents
+    }
+    return m.currency + " " + to_string(m.cents / 100) + "." + cents
+}
+
+fn main() {
+    let mut coffee: LineItem = LineItem {
+        name: "Coffee",
+        price: Money { cents: 350, currency: "EUR" },
+        quantity: 2,
+    }
+    print(coffee.name + ": " + format(total(coffee)))
+
+    // Changing a field of a mutable variable.
+    coffee.quantity += 1
+    coffee.price.cents = 325
+    print(coffee.name + ": " + format(total(coffee)))
+
+    // A copy is independent of the original.
+    let receipt: LineItem = coffee
+    coffee.quantity = 0
+    print(to_string(receipt.quantity) + " on the receipt, " + to_string(coffee.quantity) + " left")
+}

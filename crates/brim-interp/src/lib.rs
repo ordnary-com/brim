@@ -13,6 +13,7 @@
 //! error instead of crashing the host process.
 
 use std::io::Write;
+use std::rc::Rc;
 
 use brim_diagnostics::Span;
 use brim_ir::{
@@ -50,6 +51,9 @@ enum Value {
     I64(i64),
     Bool(bool),
     Str(BrimStr),
+    /// Field values in field order. Structs are immutable values: `insert`
+    /// builds a new one, so sharing the fields is safe.
+    Struct(Rc<[Value]>),
 }
 
 impl Value {
@@ -64,6 +68,13 @@ impl Value {
         match self {
             Value::Bool(v) => *v,
             other => unreachable!("validated IR: expected bool, found {other:?}"),
+        }
+    }
+
+    fn fields(&self) -> &Rc<[Value]> {
+        match self {
+            Value::Struct(v) => v,
+            other => unreachable!("validated IR: expected a struct, found {other:?}"),
         }
     }
 
@@ -206,6 +217,15 @@ fn execute(
             }
             InstKind::Binary(op, a, b) => {
                 binary(*op, frame.get(*a), frame.get(*b)).map_err(fail)?
+            }
+            InstKind::MakeStruct(_, args) => {
+                Value::Struct(args.iter().map(|a| frame.get(*a).clone()).collect())
+            }
+            InstKind::Extract(v, index) => frame.get(*v).fields()[*index].clone(),
+            InstKind::Insert(v, index, x) => {
+                let mut fields = frame.get(*v).fields().to_vec();
+                fields[*index] = frame.get(*x).clone();
+                Value::Struct(fields.into())
             }
             InstKind::CallRuntime(rt, args) => {
                 let args: Vec<&Value> = args.iter().map(|a| frame.get(*a)).collect();
