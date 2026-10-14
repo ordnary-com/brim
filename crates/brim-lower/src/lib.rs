@@ -50,6 +50,13 @@ use brim_semantic::{Def, Type, TypeTable};
 
 /// Lowers a checked program to IR.
 pub fn lower(program: &CheckedProgram) -> Module {
+    lower_tests(program).0
+}
+
+/// Lowers a checked program to IR, together with the IR functions of its
+/// tests ([`CheckedProgram::tests`]). Without `main`, the module's entry is
+/// an empty function.
+pub fn lower_tests(program: &CheckedProgram) -> (Module, Vec<FuncId>) {
     let mut m = ModuleLowerer {
         program,
         types: program.types.clone(),
@@ -71,13 +78,35 @@ pub fn lower(program: &CheckedProgram) -> Module {
             m.instance(index, Vec::new());
         }
     }
-    m.module.entry = m.instance(program.entry.0, Vec::new());
+    m.module.entry = match program.entry {
+        Some(entry) => m.instance(entry.0, Vec::new()),
+        None => {
+            m.module.functions.push(Function {
+                name: "<tests>".into(),
+                consumes_self: false,
+                param_count: 0,
+                ret: IrType::Void,
+                slots: Vec::new(),
+                values: Vec::new(),
+                blocks: vec![Block {
+                    insts: Vec::new(),
+                    term: Terminator::Return(None),
+                }],
+            });
+            func_id(m.module.functions.len() - 1)
+        }
+    };
+    let tests = program
+        .tests
+        .iter()
+        .map(|t| m.instance(t.0, Vec::new()))
+        .collect();
     while let Some((id, index, type_args)) = m.queue.pop_front() {
         let mut function = FnLowerer::lower(&mut m, &program.functions[index], type_args);
         function.name = std::mem::take(&mut m.module.functions[id.index()].name);
         m.module.functions[id.index()] = function;
     }
-    m.module
+    (m.module, tests)
 }
 
 fn func_id(index: usize) -> FuncId {

@@ -1,0 +1,10 @@
+// exit: 101
+fn shout(s: string) -> string {
+    return s.to_upper() + "!"
+}
+
+fn main() {
+    assert_eq(shout("hi"), "HI!")
+    print("first check passed")
+    assert_eq(shout("brim"), "Brim!")
+}

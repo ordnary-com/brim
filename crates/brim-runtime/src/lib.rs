@@ -55,6 +55,9 @@ pub enum RuntimeError {
     KeyNotFound,
     /// A string slice outside the string or not on character boundaries.
     InvalidSlice,
+    /// `assert` or `assert_eq` failed; `assert_eq` reports both values (as
+    /// Brim would write them).
+    AssertionFailed { values: Option<(String, String)> },
 }
 
 impl RuntimeError {
@@ -68,6 +71,7 @@ impl RuntimeError {
             RuntimeError::IndexOutOfBounds { .. } => "R0005",
             RuntimeError::KeyNotFound => "R0006",
             RuntimeError::InvalidSlice => "R0007",
+            RuntimeError::AssertionFailed { .. } => "R0008",
         }
     }
 }
@@ -91,6 +95,10 @@ impl fmt::Display for RuntimeError {
                 "index out of bounds: the index is {index} but the length is {len}"
             ),
             RuntimeError::KeyNotFound => write!(f, "key not found in map"),
+            RuntimeError::AssertionFailed { values: None } => write!(f, "assertion failed"),
+            RuntimeError::AssertionFailed { values: Some(_) } => {
+                write!(f, "assertion failed: the values are not equal")
+            }
             RuntimeError::InvalidSlice => write!(
                 f,
                 "invalid string slice: outside the string or not on a character boundary"
@@ -100,6 +108,23 @@ impl fmt::Display for RuntimeError {
 }
 
 impl std::error::Error for RuntimeError {}
+
+impl RuntimeError {
+    /// Notes shown with the error, before the call stack.
+    pub fn notes(&self) -> Vec<String> {
+        match self {
+            RuntimeError::AssertionFailed {
+                values: Some((left, right)),
+            } => vec![format!("left:  {left}"), format!("right: {right}")],
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// A value as `assert_eq` shows it: strings in double quotes, as they are.
+pub fn shown_str(s: &str) -> String {
+    format!("\"{s}\"")
+}
 
 /// Implements `print(i64)`: writes the value in decimal and a newline.
 pub fn print_i64(out: &mut dyn Write, value: i64) -> io::Result<()> {

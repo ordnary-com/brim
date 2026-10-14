@@ -112,6 +112,36 @@ pub const BUILTINS: &[Builtin] = &[
         }],
     },
     Builtin {
+        name: "assert",
+        summary: "Stops the program with an error if the condition is false.",
+        overloads: &[Overload {
+            params: &[Prim::Bool],
+            ret: Prim::Void,
+            runtime: RuntimeFn::Assert,
+        }],
+    },
+    Builtin {
+        name: "assert_eq",
+        summary: "Stops the program with an error if two values differ.",
+        overloads: &[
+            Overload {
+                params: &[Prim::I64, Prim::I64],
+                ret: Prim::Void,
+                runtime: RuntimeFn::AssertEqI64,
+            },
+            Overload {
+                params: &[Prim::Bool, Prim::Bool],
+                ret: Prim::Void,
+                runtime: RuntimeFn::AssertEqBool,
+            },
+            Overload {
+                params: &[Prim::String, Prim::String],
+                ret: Prim::Void,
+                runtime: RuntimeFn::AssertEqStr,
+            },
+        ],
+    },
+    Builtin {
         name: "to_string",
         summary: "Converts a value to its textual representation.",
         overloads: &[

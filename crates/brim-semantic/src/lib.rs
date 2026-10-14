@@ -121,13 +121,19 @@ pub fn check(program: &Program) -> (Option<CheckedProgram>, Vec<Diagnostic>) {
         name: String::new(),
         program: program.clone(),
     }];
-    checker::Checker::check(&modules)
+    checker::Checker::check(&modules, false)
 }
 
 /// Checks a program of several modules. The first module is the root, which
 /// contains `main`; the others are named by their dotted paths (`net.http`).
 pub fn check_modules(modules: &[ModuleAst]) -> (Option<CheckedProgram>, Vec<Diagnostic>) {
-    checker::Checker::check(modules)
+    checker::Checker::check(modules, false)
+}
+
+/// Checks a program for `brim test`: `main` is optional, and the test
+/// functions of every module are collected in [`CheckedProgram::tests`].
+pub fn check_tests(modules: &[ModuleAst]) -> (Option<CheckedProgram>, Vec<Diagnostic>) {
+    checker::Checker::check(modules, true)
 }
 
 #[cfg(test)]

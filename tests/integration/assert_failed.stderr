@@ -1,0 +1,7 @@
+error[R0008]: assertion failed
+ --> tests/integration/assert_failed.brim:3:5
+  |
+3 |     assert(n > 0)
+  |     ^^^^^^^^^^^^^
+  |
+  = note: call stack: main -> check_positive

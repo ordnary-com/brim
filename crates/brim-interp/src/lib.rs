@@ -292,14 +292,19 @@ impl std::fmt::Debug for Host<'_> {
 /// The module must have passed [`brim_ir::validate`]; executing invalid IR
 /// may panic.
 pub fn run(module: &Module, host: &mut Host<'_>, limits: Limits) -> Result<i32, Trap> {
+    run_function(module, module.entry, host, limits)
+}
+
+/// Runs one function of `module`, which must take no parameters and return
+/// `void`, as if it were the entry point. `brim test` runs each test so.
+pub fn run_function(
+    module: &Module,
+    function: brim_ir::FuncId,
+    host: &mut Host<'_>,
+    limits: Limits,
+) -> Result<i32, Trap> {
     let mut cache = vec![None; module.functions.len()];
-    let mut stack = vec![Frame::new(
-        module,
-        module.entry,
-        Vec::new(),
-        None,
-        &mut cache,
-    )];
+    let mut stack = vec![Frame::new(module, function, Vec::new(), None, &mut cache)];
     let mut state = State {
         host,
         last_error: String::new(),
@@ -697,6 +702,26 @@ fn call_runtime(
         RuntimeFn::EnvHas => Some(Value::Bool(std::env::var_os(s(0)).is_some())),
         RuntimeFn::EnvGet => str_value(BrimStr::from(std::env::var(s(0)).unwrap_or_default())),
         RuntimeFn::Exit => unreachable!("handled by the interpreter loop"),
+        RuntimeFn::Assert => {
+            if !args[0].bool() {
+                return Err(RuntimeError::AssertionFailed { values: None });
+            }
+            None
+        }
+        RuntimeFn::AssertEqI64 | RuntimeFn::AssertEqBool | RuntimeFn::AssertEqStr => {
+            if args[0] != args[1] {
+                let show = |v: &Value| match v {
+                    Value::I64(n) => n.to_string(),
+                    Value::Bool(b) => b.to_string(),
+                    Value::Str(s) => r::shown_str(s),
+                    other => unreachable!("validated IR: assert_eq on {other:?}"),
+                };
+                return Err(RuntimeError::AssertionFailed {
+                    values: Some((show(args[0]), show(args[1]))),
+                });
+            }
+            None
+        }
     })
 }
 

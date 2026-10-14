@@ -43,8 +43,11 @@ pub struct CheckedProgram {
     /// Indexed by [`EnumId`]; the built-in `Option` and `Result` come first.
     pub enums: Vec<CheckedEnum>,
     pub functions: Vec<CheckedFn>,
-    /// The `main` function.
-    pub entry: FnId,
+    /// The `main` function. Only a test build can be without one.
+    pub entry: Option<FnId>,
+    /// The test functions (`fn test_name()` outside `impl` blocks), in
+    /// declaration order; only collected for a test build.
+    pub tests: Vec<FnId>,
 }
 
 #[derive(Clone, Debug)]

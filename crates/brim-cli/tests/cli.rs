@@ -345,3 +345,97 @@ fn native_programs_get_arguments_and_input() {
     assert_eq!(stdout(&out), IO_EXPECTED, "{}", stderr(&out));
     assert_eq!(out.status.code(), Some(2));
 }
+
+#[test]
+fn new_creates_a_project_that_builds_and_tests() {
+    let dir = scratch("new_project");
+    let out = brim_in(&dir, &["new", "hello"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "created project `hello` in hello\n");
+    let project = dir.join("hello");
+    assert!(project.join(".gitignore").is_file());
+    let manifest = fs::read_to_string(project.join("brim.toml")).unwrap();
+    assert!(manifest.contains("name = \"hello\""), "{manifest}");
+
+    let out = brim_in(&project, &["run"]);
+    assert_eq!(stdout(&out), "Hello, world!\n", "{}", stderr(&out));
+    let out = brim_in(&project, &["test"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(stdout(&out).contains("test test_greeting ... ok"));
+
+    let out = brim_in(&dir, &["new", "hello"]);
+    assert_eq!(out.status.code(), Some(3));
+    assert!(stderr(&out).contains("already exists"));
+    let out = brim_in(&dir, &["new", "Hello"]);
+    assert_eq!(out.status.code(), Some(3));
+    assert!(stderr(&out).contains("`Hello` cannot be a package name"));
+}
+
+const TESTED_PROGRAM: &str = r#"import shapes
+
+fn double(n: i64) -> i64 {
+    return n * 2
+}
+
+fn test_double() {
+    assert_eq(double(21), 42)
+}
+
+fn test_wrong() {
+    print("about to fail")
+    assert_eq(double(2), 5)
+}
+
+fn test_exit() {
+    exit(3)
+}
+
+fn helper_not_a_test() {
+    assert(false)
+}
+"#;
+
+#[test]
+fn test_runs_test_functions() {
+    let dir = scratch("test_command");
+    fs::write(dir.join("lib.brim"), TESTED_PROGRAM).unwrap();
+    fs::write(
+        dir.join("shapes.brim"),
+        "pub fn area(w: i64, h: i64) -> i64 {\n    return w * h\n}\n\nfn test_area() {\n    assert_eq(area(2, 3), 6)\n}\n",
+    )
+    .unwrap();
+
+    let out = brim_in(&dir, &["test", "lib.brim"]);
+    assert_eq!(out.status.code(), Some(101), "{}", stderr(&out));
+    let text = stdout(&out);
+    for line in [
+        "running 4 tests\n",
+        "test test_double ... ok\n",
+        "test test_wrong ... FAILED\n",
+        "test test_exit ... FAILED\n",
+        "test shapes.test_area ... ok\n",
+        "---- test_wrong ----\nabout to fail\n",
+        "test result: FAILED. 2 passed; 2 failed\n",
+    ] {
+        assert!(text.contains(line), "missing {line:?} in:\n{text}");
+    }
+    assert!(!text.contains("helper_not_a_test"));
+    let errors = stderr(&out);
+    assert!(errors.contains("note: left:  4\n"), "{errors}");
+    assert!(errors.contains("the test called `exit(3)`"), "{errors}");
+
+    let out = brim_in(&dir, &["test", "lib.brim", "double"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(stdout(&out).contains("running 1 test\n"));
+    assert!(stdout(&out).contains("test result: ok. 1 passed; 0 failed\n"));
+
+    // A test cannot take parameters.
+    fs::write(dir.join("bad.brim"), "fn test_it(n: i64) {\n}\n").unwrap();
+    let out = brim_in(&dir, &["test", "bad.brim"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(stderr(&out).contains("error[E0244]"));
+    // Outside `brim test`, `main` is still required.
+    let out = brim_in(&dir, &["check", "lib.brim"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(stderr(&out).contains("error[E0210]"));
+}

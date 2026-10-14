@@ -79,10 +79,13 @@ static void print_call(int64_t i, int first) {
  * renders all three at compile time; only the call stack is added here, in
  * the same format the `brim` CLI uses for interpreter errors.
  */
-/* Prints the call-stack notes and exits with status 101. */
+/* Prints the call-stack notes and exits with status 101. `sep` separates
+ * the excerpt from the notes; NULL if it was already printed. */
 _Noreturn static void finish_trap(const char *sep, const char *note) {
     if (depth > 1) {
-        fputs(sep, stderr);
+        if (sep != NULL) {
+            fputs(sep, stderr);
+        }
         if (depth > 8) {
             fprintf(stderr, "%s%" PRId64 " calls omitted from the call stack\n", note, depth - 6);
             fprintf(stderr, "%scall stack: ", note);
@@ -742,6 +745,65 @@ BrimMap *brim_rt_map_remove_at(BrimMap *m, int64_t i, int64_t key_kind, int64_t 
     m->len--;
     rebuild_index(m);
     return m;
+}
+
+/* ---- assertions ----------------------------------------------------------- */
+
+void brim_rt_assert(uint8_t ok, const char *head, const char *sep, const char *note) {
+    if (!ok) {
+        brim_rt_trap(head, sep, note);
+    }
+}
+
+/* Reports `assert_eq` with both values, which `print_value` writes. */
+_Noreturn static void assert_eq_failed(const char *head, const char *sep, const char *note,
+                                       void (*print_value)(const void *), const void *left,
+                                       const void *right) {
+    fflush(stdout);
+    fputs(head, stderr);
+    fputs(sep, stderr);
+    fprintf(stderr, "%sleft:  ", note);
+    print_value(left);
+    fprintf(stderr, "\n%sright: ", note);
+    print_value(right);
+    fputc('\n', stderr);
+    finish_trap(NULL, note);
+}
+
+static void print_i64(const void *v) {
+    fprintf(stderr, "%" PRId64, *(const int64_t *)v);
+}
+
+static void print_bool(const void *v) {
+    fputs(*(const uint8_t *)v ? "true" : "false", stderr);
+}
+
+static void print_str(const void *v) {
+    const BrimStr *s = *(BrimStr *const *)v;
+    fputc('"', stderr);
+    fwrite(s->data, 1, (size_t)s->len, stderr);
+    fputc('"', stderr);
+}
+
+void brim_rt_assert_eq_i64(int64_t a, int64_t b, const char *head, const char *sep,
+                           const char *note) {
+    if (a != b) {
+        assert_eq_failed(head, sep, note, print_i64, &a, &b);
+    }
+}
+
+void brim_rt_assert_eq_bool(uint8_t a, uint8_t b, const char *head, const char *sep,
+                            const char *note) {
+    if ((a != 0) != (b != 0)) {
+        assert_eq_failed(head, sep, note, print_bool, &a, &b);
+    }
+}
+
+void brim_rt_assert_eq_str(const BrimStr *a, const BrimStr *b, const char *head,
+                           const char *sep, const char *note) {
+    if (!brim_rt_str_eq(a, b)) {
+        assert_eq_failed(head, sep, note, print_str, &a, &b);
+    }
 }
 
 /* ---- the standard library ------------------------------------------------- */

@@ -93,10 +93,7 @@ pub fn parse(src: &str) -> Result<Manifest, Vec<Diagnostic>> {
             Diagnostic::error(format!("invalid package name `{name}`"))
                 .with_code("M0002")
                 .with_primary(span(&raw.package.name), "")
-                .with_note(
-                    "package names start with a lowercase ASCII letter and contain only \
-                     lowercase letters, digits, `_` and `-` (at most 64 characters)",
-                ),
+                .with_note(NAME_RULES),
         );
     }
 
@@ -165,7 +162,12 @@ pub fn parse(src: &str) -> Result<Manifest, Vec<Diagnostic>> {
     })
 }
 
-fn valid_name(name: &str) -> bool {
+/// What [`valid_name`] requires, for messages.
+pub const NAME_RULES: &str = "package names start with a lowercase ASCII letter and contain only \
+                              lowercase letters, digits, `_` and `-` (at most 64 characters)";
+
+/// Whether `name` can be a package name.
+pub fn valid_name(name: &str) -> bool {
     let mut chars = name.chars();
     name.len() <= 64
         && chars.next().is_some_and(|c| c.is_ascii_lowercase())

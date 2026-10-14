@@ -36,6 +36,15 @@ pub enum Command {
         /// `--release`: optimise.
         release: bool,
     },
+    Test {
+        input: Option<PathBuf>,
+        /// Only run tests whose names contain this text.
+        filter: Option<String>,
+    },
+    New {
+        /// The directory to create; its name is the package name.
+        path: PathBuf,
+    },
 }
 
 /// A problem with the command line itself.
@@ -52,7 +61,7 @@ impl fmt::Display for UsageError {
     }
 }
 
-const COMMANDS: &[&str] = &["check", "run", "build", "help", "version"];
+const COMMANDS: &[&str] = &["check", "run", "build", "test", "new", "help", "version"];
 
 /// Parses the arguments after the program name.
 pub fn parse(args: &[String]) -> Result<Command, UsageError> {
@@ -97,6 +106,26 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
                 output: parsed.output,
                 release: parsed.release,
             }))
+        }
+        "test" => {
+            let parsed = CommandArgs::parse("test", rest)?;
+            Ok(parsed.help.unwrap_or(Command::Test {
+                input: parsed.input,
+                filter: parsed.program_args.into_iter().next(),
+            }))
+        }
+        "new" => {
+            let parsed = CommandArgs::parse("new", rest)?;
+            if let Some(help) = parsed.help {
+                return Ok(help);
+            }
+            match parsed.input {
+                Some(path) => Ok(Command::New { path }),
+                None => Err(UsageError {
+                    message: "`brim new` needs the path of the project to create".into(),
+                    command: Some("new"),
+                }),
+            }
         }
         other if other.starts_with('-') => Err(UsageError {
             message: format!("unknown option `{other}`"),
@@ -185,6 +214,9 @@ impl CommandArgs {
                 }
             } else if parsed.input.is_none() {
                 parsed.input = Some(PathBuf::from(arg));
+            } else if command == "test" && parsed.program_args.is_empty() {
+                // `brim test [PATH] [FILTER]`
+                parsed.program_args.push(arg.clone());
             } else if command == "run" {
                 // Everything after the program belongs to the program.
                 parsed.program_args.push(arg.clone());
@@ -218,6 +250,8 @@ Commands:
   check [PATH]   Check a program for errors without running it
   run [PATH]     Check a program and run it with the reference interpreter
   build [PATH]   Compile a native executable
+  test [PATH]    Run a program's tests
+  new <PATH>     Create a new project
   help [COMMAND] Show help for a command
   version        Show the compiler version
 
@@ -276,6 +310,39 @@ Options:
   -o, --output <PATH>  Where to write the executable
   --release            Optimise the executable
   -h, --help           Show help
+"
+        }
+        "test" => {
+            "\
+Run a program's tests
+
+A test is a function whose name starts with `test_`, outside `impl`
+blocks, in any module of the program. It takes no parameters and returns
+nothing; it fails when it stops with a run-time error, such as a failed
+`assert` or `assert_eq`. `main` is not needed, and not run.
+
+Tests run with the reference interpreter, one after another. Their output
+is shown only when they fail.
+
+Usage: brim test [PATH] [FILTER]
+
+FILTER runs only the tests whose names contain it.
+
+Options:
+  -h, --help  Show help
+"
+        }
+        "new" => {
+            "\
+Create a new project
+
+Creates the directory PATH with a `brim.toml` manifest, `src/main.brim`
+and a `.gitignore`. The directory's name is the package name.
+
+Usage: brim new <PATH>
+
+Options:
+  -h, --help  Show help
 "
         }
         "help" => "Show help for a command\n\nUsage: brim help [COMMAND]\n",
@@ -347,6 +414,26 @@ mod tests {
         );
         assert_eq!(p(&["run", "-h"]), Ok(Command::Help(Some("run".into()))));
         assert_eq!(
+            p(&["test", "lib.brim", "parse"]),
+            Ok(Command::Test {
+                input: Some("lib.brim".into()),
+                filter: Some("parse".into()),
+            })
+        );
+        assert_eq!(
+            p(&["test"]),
+            Ok(Command::Test {
+                input: None,
+                filter: None,
+            })
+        );
+        assert_eq!(
+            p(&["new", "hello"]),
+            Ok(Command::New {
+                path: "hello".into()
+            })
+        );
+        assert_eq!(
             p(&["build", "--release", "-o", "out/app", "a.brim"]),
             Ok(Command::Build {
                 input: Some("a.brim".into()),
@@ -369,7 +456,7 @@ mod tests {
         let msg = |args: &[&str]| p(args).unwrap_err().message;
         assert_eq!(
             msg(&["frobnicate"]),
-            "unknown command `frobnicate` (available: check, run, build, help, version)"
+            "unknown command `frobnicate` (available: check, run, build, test, new, help, version)"
         );
         assert_eq!(
             msg(&["check", "a.brim", "b.brim"]),
@@ -392,6 +479,15 @@ mod tests {
             msg(&["run", "--release"]),
             "unknown option `--release` for `brim run`"
         );
+        assert_eq!(
+            msg(&["test", "a.brim", "x", "y"]),
+            "unexpected argument `y`"
+        );
+        assert_eq!(
+            msg(&["new"]),
+            "`brim new` needs the path of the project to create"
+        );
+        assert_eq!(msg(&["new", "a", "b"]), "unexpected argument `b`");
         assert_eq!(
             msg(&["build", "-o"]),
             "`-o` needs a value: the executable's path"

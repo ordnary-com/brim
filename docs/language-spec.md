@@ -559,6 +559,20 @@ Every `.brim` file is a module. `import a.b` loads the module in `a/b.brim`, rel
 - Modules may import each other in cycles. Every module is loaded once.
 - `main` must be in the root module. Function names of other modules appear qualified (`geometry.area`) in messages and run-time call stacks.
 
+### 9.3 Tests
+
+```brim
+fn add(a: i64, b: i64) -> i64 {
+    return a + b
+}
+
+fn test_add() {
+    assert_eq(add(2, 3), 5)
+}
+```
+
+`brim test` runs the program's tests: the functions whose names start with `test_`, declared outside `impl` blocks, in any module. A test takes no parameters and returns nothing (`E0244` otherwise). It passes when it returns and fails when it stops with a run-time error, such as a failed `assert_eq`, or calls `exit`. For `brim test`, `main` is optional; it is never run. Other commands ignore tests, so a program still needs `main`.
+
 ## 10. Builtins
 
 Builtins are always in scope and cannot be redefined.
@@ -574,6 +588,8 @@ Builtins are always in scope and cannot be redefined.
 | `args` | `args() -> List[string]` | the program's command-line arguments, without the program name |
 | `env` | `env(name: string) -> Option[string]` | an environment variable |
 | `exit` | `exit(code: i64)` | ends the program with an exit code (its low 8 bits); a statement calling `exit` diverges |
+| `assert` | `assert(bool)` | stops the program with run-time error `R0008` if the condition is false |
+| `assert_eq` | `assert_eq(i64, i64)`, `assert_eq(bool, bool)`, `assert_eq(string, string)` | stops the program with `R0008` if the values differ; the message shows both |
 
 A builtin selects its form by the argument's type. User functions cannot be overloaded, and builtins cannot be redefined (`E0216`).
 
@@ -642,4 +658,5 @@ entry = "src/main.brim" # optional; default "src/main.brim"; relative, inside th
 
 - Unknown tables and keys are errors, to catch typos.
 - `[dependencies]` is reserved and currently rejected with error `M0006`. Dependency resolution and a registry are not implemented.
-- `brim run` and `brim check` without a path use the nearest `brim.toml` in the current directory or its parents.
+- `brim run`, `brim check`, `brim build` and `brim test` without a path use the nearest `brim.toml` in the current directory or its parents.
+- `brim new PATH` creates a project: a `brim.toml`, a `src/main.brim` with a test, and a `.gitignore`.

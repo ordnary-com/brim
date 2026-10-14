@@ -1,0 +1,8 @@
+error[R0008]: assertion failed: the values are not equal
+ --> tests/integration/assert_eq_failed.brim:9:5
+  |
+9 |     assert_eq(shout("brim"), "Brim!")
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: left:  "BRIM!"
+  = note: right: "Brim!"

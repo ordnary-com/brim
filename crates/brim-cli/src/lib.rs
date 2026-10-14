@@ -81,6 +81,8 @@ pub fn run(args: &[String], ctx: &mut Context<'_>) -> i32 {
             output,
             release,
         } => build(input.as_deref(), output.as_deref(), release, ctx),
+        Command::Test { input, filter } => test(input.as_deref(), filter.as_deref(), ctx),
+        Command::New { path } => new_project(&path, ctx),
     };
     match result {
         Ok(()) => exit::SUCCESS,
@@ -100,14 +102,14 @@ fn write_out(out: &mut dyn Write, text: &str) -> CmdResult {
 
 fn check(input: Option<&Path>, emit: Option<Emit>, ctx: &mut Context<'_>) -> CmdResult {
     let file = load_input(input, ctx)?.file;
-    compile(&file, emit, ctx)?;
+    compile(&file, emit, false, ctx)?;
     let _ = writeln!(ctx.stderr, "ok: no errors found in {}", file.name());
     Ok(())
 }
 
 fn run_program(input: Option<&Path>, args: Vec<String>, ctx: &mut Context<'_>) -> CmdResult {
     let file = load_input(input, ctx)?.file;
-    let (module, map) = compile(&file, None, ctx)?;
+    let (module, map, _) = compile(&file, None, false, ctx)?;
     let mut host = brim_interp::Host {
         out: ctx.stdout,
         err: ctx.stderr,
@@ -120,26 +122,164 @@ fn run_program(input: Option<&Path>, args: Vec<String>, ctx: &mut Context<'_>) -
         Ok(0) => Ok(()),
         Ok(code) => Err(code),
         Err(trap) => {
-            let mut diag = Diagnostic::error(trap.error.to_string()).with_code(trap.error.code());
-            if let Some(span) = trap.span {
-                diag = diag.with_primary(span, "");
-            }
-            if trap.backtrace.len() > 1 {
-                let mut calls: Vec<&str> = trap.backtrace.iter().map(String::as_str).collect();
-                if calls.len() > 8 {
-                    let omitted = calls.len() - 6;
-                    let tail = calls.split_off(calls.len() - 3);
-                    calls.truncate(3);
-                    calls.push("...");
-                    calls.extend(tail);
-                    diag = diag.with_note(format!("{omitted} calls omitted from the call stack"));
-                }
-                diag = diag.with_note(format!("call stack: {}", calls.join(" -> ")));
-            }
+            let diag = trap_diagnostic(&trap);
             report(&[diag], &map, ctx);
             Err(exit::RUNTIME_ERROR)
         }
     }
+}
+
+fn test(input: Option<&Path>, filter: Option<&str>, ctx: &mut Context<'_>) -> CmdResult {
+    let file = load_input(input, ctx)?.file;
+    let (module, map, tests) = compile(&file, None, true, ctx)?;
+    let tests: Vec<_> = tests
+        .into_iter()
+        .filter(|&t| filter.is_none_or(|f| module.function(t).name.contains(f)))
+        .collect();
+    let _ = writeln!(ctx.stdout, "\nrunning {}", brim_plural(tests.len(), "test"));
+    let mut failures = Vec::new();
+    for &t in &tests {
+        let name = &module.function(t).name;
+        let _ = write!(ctx.stdout, "test {name} ... ");
+        let _ = ctx.stdout.flush();
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let mut host = brim_interp::Host {
+            out: &mut out,
+            err: &mut err,
+            input: &mut io::empty(),
+            args: Vec::new(),
+            cwd: ctx.cwd.clone(),
+        };
+        let result =
+            brim_interp::run_function(&module, t, &mut host, brim_interp::Limits::default());
+        let failure = match result {
+            Ok(0) => None,
+            Ok(code) => Some(Diagnostic::error(format!("the test called `exit({code})`"))),
+            Err(trap) => Some(trap_diagnostic(&trap)),
+        };
+        match failure {
+            None => {
+                let _ = writeln!(ctx.stdout, "ok");
+            }
+            Some(diag) => {
+                let _ = writeln!(ctx.stdout, "FAILED");
+                failures.push((name.clone(), out, err, diag));
+            }
+        }
+    }
+    if !failures.is_empty() {
+        let _ = writeln!(ctx.stdout, "\nfailures:");
+        for (name, out, err, diag) in &failures {
+            let _ = writeln!(ctx.stdout, "\n---- {name} ----");
+            let _ = ctx.stdout.write_all(out);
+            let _ = ctx.stdout.write_all(err);
+            let _ = ctx.stdout.flush();
+            report(std::slice::from_ref(diag), &map, ctx);
+        }
+    }
+    let passed = tests.len() - failures.len();
+    let _ = writeln!(
+        ctx.stdout,
+        "\ntest result: {}. {passed} passed; {} failed",
+        if failures.is_empty() { "ok" } else { "FAILED" },
+        failures.len()
+    );
+    let _ = ctx.stdout.flush();
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(exit::RUNTIME_ERROR)
+    }
+}
+
+fn brim_plural(n: usize, word: &str) -> String {
+    if n == 1 {
+        format!("1 {word}")
+    } else {
+        format!("{n} {word}s")
+    }
+}
+
+fn new_project(path: &Path, ctx: &mut Context<'_>) -> CmdResult {
+    let dir = ctx.cwd.join(path);
+    let shown = path.display().to_string();
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default()
+        .to_string();
+    if !brim_manifest::valid_name(&name) {
+        return Err(input_error(
+            ctx,
+            &shown,
+            Diagnostic::error(format!("`{name}` cannot be a package name"))
+                .with_note(brim_manifest::NAME_RULES)
+                .with_help("the directory's name is the package name"),
+        ));
+    }
+    if dir.exists() {
+        return Err(input_error(
+            ctx,
+            &shown,
+            Diagnostic::error("already exists").with_help("choose a path that does not exist yet"),
+        ));
+    }
+    let files = [
+        (
+            brim_manifest::MANIFEST_FILE.to_string(),
+            format!(
+                "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"{}\"\n",
+                brim_manifest::EDITIONS[brim_manifest::EDITIONS.len() - 1]
+            ),
+        ),
+        (
+            "src/main.brim".to_string(),
+            "fn main() {\n    print(greeting(\"world\"))\n}\n\nfn greeting(name: string) -> string {\n    return \"Hello, \" + name + \"!\"\n}\n\nfn test_greeting() {\n    assert_eq(greeting(\"Brim\"), \"Hello, Brim!\")\n}\n".to_string(),
+        ),
+        (".gitignore".to_string(), "/target\n".to_string()),
+    ];
+    for (file, text) in files {
+        let full = dir.join(&file);
+        let written = full
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| std::fs::write(&full, text));
+        if let Err(e) = written {
+            let shown = path.join(&file).display().to_string();
+            return Err(input_error(
+                ctx,
+                &shown,
+                Diagnostic::error(format!("cannot write file: {e}")),
+            ));
+        }
+    }
+    let _ = writeln!(ctx.stderr, "created project `{name}` in {shown}");
+    Ok(())
+}
+
+/// The diagnostic for a run-time error, with the call stack.
+fn trap_diagnostic(trap: &brim_interp::Trap) -> Diagnostic {
+    let mut diag = Diagnostic::error(trap.error.to_string()).with_code(trap.error.code());
+    if let Some(span) = trap.span {
+        diag = diag.with_primary(span, "");
+    }
+    for note in trap.error.notes() {
+        diag = diag.with_note(note);
+    }
+    if trap.backtrace.len() > 1 {
+        let mut calls: Vec<&str> = trap.backtrace.iter().map(String::as_str).collect();
+        if calls.len() > 8 {
+            let omitted = calls.len() - 6;
+            let tail = calls.split_off(calls.len() - 3);
+            calls.truncate(3);
+            calls.push("...");
+            calls.extend(tail);
+            diag = diag.with_note(format!("{omitted} calls omitted from the call stack"));
+        }
+        diag = diag.with_note(format!("call stack: {}", calls.join(" -> ")));
+    }
+    diag
 }
 
 fn build(
@@ -152,7 +292,7 @@ fn build(
         file,
         default_output,
     } = load_input(input, ctx)?;
-    let (module, map) = compile(&file, None, ctx)?;
+    let (module, map, _) = compile(&file, None, false, ctx)?;
     let shown = output.map_or(default_output, Path::to_path_buf);
     let output = ctx.cwd.join(&shown);
     if let Some(dir) = output.parent()
@@ -218,11 +358,14 @@ fn build(
 // ---- pipeline ---------------------------------------------------------
 
 /// Runs the frontend and lowering. Prints diagnostics (and `--emit` output).
+/// With `tests`, the program is checked as for `brim test`, and the IR
+/// functions of its tests are returned.
 fn compile(
     file: &SourceFile,
     emit: Option<Emit>,
+    tests: bool,
     ctx: &mut Context<'_>,
-) -> Result<(Module, SourceMap), i32> {
+) -> Result<(Module, SourceMap, Vec<brim_ir::FuncId>), i32> {
     if emit == Some(Emit::Tokens) {
         let (tokens, _) = brim_lexer::lex(file.text());
         for token in &tokens {
@@ -243,14 +386,18 @@ fn compile(
         return Err(exit::COMPILE_ERROR);
     }
 
-    let (checked, semantic_diags) = brim_semantic::check_modules(&modules);
+    let (checked, semantic_diags) = if tests {
+        brim_semantic::check_tests(&modules)
+    } else {
+        brim_semantic::check_modules(&modules)
+    };
     diags.extend(semantic_diags);
     report(&diags, &map, ctx);
     let Some(checked) = checked else {
         return Err(exit::COMPILE_ERROR);
     };
 
-    let module = brim_lower::lower(&checked);
+    let (module, test_fns) = brim_lower::lower_tests(&checked);
     if let Err(errors) = brim_ir::validate(&module) {
         let _ = writeln!(
             ctx.stderr,
@@ -269,7 +416,7 @@ fn compile(
         let _ = write!(ctx.stdout, "{module}");
     }
     let _ = ctx.stdout.flush();
-    Ok((module, map))
+    Ok((module, map, test_fns))
 }
 
 /// Finds and parses the modules a program imports, directly or through

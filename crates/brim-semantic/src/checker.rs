@@ -191,7 +191,10 @@ fn error_expr(span: Span) -> CheckedExpr {
 }
 
 impl<'a> Checker<'a> {
-    pub(crate) fn check(modules: &'a [ModuleAst]) -> (Option<CheckedProgram>, Vec<Diagnostic>) {
+    pub(crate) fn check(
+        modules: &'a [ModuleAst],
+        tests: bool,
+    ) -> (Option<CheckedProgram>, Vec<Diagnostic>) {
         let mut checker = Checker {
             diags: Vec::new(),
             types: TypeTable::default(),
@@ -265,8 +268,17 @@ impl<'a> Checker<'a> {
             checker.leave();
         }
         checker.enter(0);
-        let entry = checker.check_entry();
+        let entry = if tests && !checker.by_name.contains_key("main") {
+            None
+        } else {
+            checker.check_entry()
+        };
         checker.leave();
+        let tests = if tests {
+            checker.collect_tests()
+        } else {
+            Vec::new()
+        };
         let decls = checker.fn_decls.clone();
         let mut functions: Vec<CheckedFn> = Vec::with_capacity(decls.len());
         for (i, f) in decls.iter().enumerate() {
@@ -281,7 +293,6 @@ impl<'a> Checker<'a> {
         if has_errors(&diags) {
             return (None, diags);
         }
-        let entry = entry.expect("a missing entry point is reported as an error");
         let structs = checker
             .structs
             .into_iter()
@@ -322,9 +333,39 @@ impl<'a> Checker<'a> {
                 enums,
                 functions,
                 entry,
+                tests,
             }),
             diags,
         )
+    }
+
+    /// The functions `brim test` runs: free functions named `test_...`.
+    /// They must take no parameters and return nothing.
+    fn collect_tests(&mut self) -> Vec<FnId> {
+        let mut tests = Vec::new();
+        for (i, sig) in self.sigs.iter().enumerate() {
+            let short = sig.name.rsplit('.').next().unwrap_or(&sig.name);
+            if sig.method || !short.starts_with("test_") {
+                continue;
+            }
+            if !sig.params.is_empty()
+                || !sig.type_params.is_empty()
+                || !matches!(sig.ret, Type::Void | Type::Error)
+            {
+                self.diags.push(
+                    Diagnostic::error(format!(
+                        "test `{}` must take no parameters and return nothing",
+                        sig.name
+                    ))
+                    .with_code("E0244")
+                    .with_primary(sig.name_span, "")
+                    .with_note("functions whose names start with `test_` are tests"),
+                );
+                continue;
+            }
+            tests.push(FnId(i));
+        }
+        tests
     }
 
     /// Makes module `m`'s scope the current one.

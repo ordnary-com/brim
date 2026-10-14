@@ -127,15 +127,15 @@ Brim is at **version 0.1**. It is a working foundation, **not ready for producti
 - Methods in `impl` blocks, including `mut self` methods that change the caller's value
 - A standard library for command-line tools: string methods, `read_line`, `read_file`, `write_file`, `args`, `env`, `exit`
 - Programs of several files: modules with `import` and `pub`
-- Builtins `print` and `to_string`
+- Builtins `print` and `to_string`, and `assert`/`assert_eq` for tests: `brim test` runs every `fn test_...()`
 - Full static type checking, return checking on all paths, and detailed diagnostics
-- `brim build` (native executables via LLVM 22, opt-in at compile time), `brim run` (reference interpreter), `brim check`, `brim.toml` projects
+- `brim build` (native executables via LLVM 22, opt-in at compile time), `brim run` (reference interpreter), `brim check`, `brim test`, `brim.toml` projects created with `brim new`
 
 **Not yet**
 
 - Debug information and Windows builds for native executables
-- Traits (interfaces), networking and HTTP, packages and dependencies, generics, modules and imports, error handling, closures, concurrency
-- Standard library beyond `print` and `to_string`; dependencies and a package registry; formatter and language server
+- Traits (interfaces), networking and HTTP, closures, concurrency
+- Dependencies and a package registry; formatter and language server
 
 The [roadmap](docs/roadmap.md) lists the milestones in order.
 
@@ -157,6 +157,7 @@ brim run examples/control_flow.brim   # FizzBuzz and primes
 brim check examples/variables.brim    # report errors without running
 brim check --emit ir examples/functions.brim   # show the intermediate representation
 brim run examples/project             # run a project described by brim.toml
+brim new hello && cd hello && brim test   # create a project and run its tests
 brim --help
 ```
 

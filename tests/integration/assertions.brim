@@ -1,0 +1,8 @@
+// `assert` and `assert_eq` that hold do nothing.
+fn main() {
+    assert(1 < 2)
+    assert_eq(6 * 7, 42)
+    assert_eq(true, "brim".starts_with("br"))
+    assert_eq("a" + "b", "ab")
+    print("all assertions hold")
+}

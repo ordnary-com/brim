@@ -110,6 +110,7 @@ Guidelines for writing diagnostics:
 | E0241 | Use of another module's item that is not `pub` |
 | E0242 | Module not found, or imported item not found in its module |
 | E0243 | Two imports with the same name, or an import whose name is already defined |
+| E0244 | A test function (`fn test_...`) with parameters or a return type (only reported by `brim test`) |
 
 ### Warnings
 
@@ -142,6 +143,7 @@ Guidelines for writing diagnostics:
 | R0005 | List index out of bounds |
 | R0006 | Map key not found |
 | R0007 | Invalid string slice |
+| R0008 | Failed `assert` or `assert_eq` (with the two values as notes) |
 
 Run-time errors are reported like compile-time diagnostics, with the source location of the failing operation and the call stack:
 
@@ -165,7 +167,7 @@ error[R0001]: integer overflow in `*`
 | 3    | Input problem: file missing or unreadable, not UTF-8, wrong extension, invalid `brim.toml` |
 | 4    | Requested feature unavailable: `brim build` in a `brim` compiled without the `llvm` feature, or no C compiler to link with |
 | 70   | Internal compiler error (a bug in Brim) |
-| 101  | The Brim program stopped with a run-time error |
+| 101  | The Brim program stopped with a run-time error; for `brim test`, a test failed |
 
 ## Internal errors
 

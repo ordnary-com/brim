@@ -154,6 +154,14 @@ runtime_fns! {
     EnvGet = "brim_rt_env_get" (Str) -> Str;
     /// Ends the program with an exit code (0 to 255).
     Exit = "brim_rt_exit" (I64) -> Void;
+    /// `assert(cond)`
+    Assert = "brim_rt_assert" (Bool) -> Void;
+    /// `assert_eq(a, b)` on integers.
+    AssertEqI64 = "brim_rt_assert_eq_i64" (I64, I64) -> Void;
+    /// `assert_eq(a, b)` on booleans.
+    AssertEqBool = "brim_rt_assert_eq_bool" (Bool, Bool) -> Void;
+    /// `assert_eq(a, b)` on strings.
+    AssertEqStr = "brim_rt_assert_eq_str" (Str, Str) -> Void;
 }
 
 impl RuntimeFn {
@@ -161,6 +169,13 @@ impl RuntimeFn {
     pub fn failure(self) -> Option<RuntimeError> {
         match self {
             RuntimeFn::StrSlice => Some(RuntimeError::InvalidSlice),
+            RuntimeFn::Assert => Some(RuntimeError::AssertionFailed { values: None }),
+            // The values are printed by the runtime.
+            RuntimeFn::AssertEqI64 | RuntimeFn::AssertEqBool | RuntimeFn::AssertEqStr => {
+                Some(RuntimeError::AssertionFailed {
+                    values: Some(Default::default()),
+                })
+            }
             _ => None,
         }
     }

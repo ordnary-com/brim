@@ -54,7 +54,7 @@ fn main() {
 }
 "#);
     assert_eq!(program.functions.len(), 2);
-    assert_eq!(program.functions[program.entry.0].name, "main");
+    assert_eq!(program.functions[program.entry.unwrap().0].name, "main");
     assert_eq!(program.functions[0].param_count, 2);
     assert_eq!(program.functions[0].ret, Type::I64);
 }
@@ -472,7 +472,7 @@ fn checks_structs() {
         panic!()
     };
     assert_eq!(program.types.get(id).def, Def::Struct(StructId(0)));
-    let main = &program.functions[program.entry.0];
+    let main = &program.functions[program.entry.unwrap().0];
     let CheckedStmt::Let { init, .. } = &main.body[0] else {
         panic!()
     };
