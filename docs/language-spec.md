@@ -229,7 +229,7 @@ struct Point {
 A struct declaration introduces a new type with named, typed **fields**. Fields are separated by newlines or commas. Struct names share the type namespace with the built-in types (`struct string {}` is `E0219`) and may not be used by a function as well (`E0219`). A struct can be used before its declaration.
 
 - Field names within a struct must be unique (`E0220`). A field cannot have type `void` (`E0213`).
-- A struct cannot contain itself, directly or through other structs (`E0221`): structs are values, so that would make it infinitely large.
+- A struct cannot contain itself, directly or through other structs or enums (`E0221`): structs are values, so that would make it infinitely large. It can contain itself through a `List` or `Map`, whose elements live on the heap: `struct Node { name: string, children: List[Node] }` is a tree.
 
 **Values.** `Point { x: 1, y: 2 }` creates a struct value. Every field must be given exactly once (`E0222` for a missing field, `E0223` for a repeated one, `E0224` for an unknown one), in any order. The field values are evaluated in the order they are written. `p.x` reads a field; reading a field of a non-struct is `E0224`.
 
@@ -252,7 +252,7 @@ enum Shape {
 An enum declaration introduces a type whose values are exactly one of its **variants**. A variant may carry values of the listed types (its *payload*). Variants are separated by newlines or commas, and their names must be unique (`E0220`).
 
 - `Shape.Circle(3)` and `Shape.Empty` create values. The number of values must match the variant (`E0228`), and an unknown variant is `E0227`.
-- An enum is a value like a struct, and cannot contain itself (`E0221`): recursive enums such as linked lists need indirection, which Brim does not have yet.
+- An enum is a value like a struct, and cannot contain itself directly (`E0221`), but it can through a `List` or `Map`: `enum Json { Null, Number(i64), Array(List[Json]), Object(Map[string, Json]) }`. A linked list (`Cons(i64, List)`) needs indirection that Brim does not have yet; use a `List` instead.
 - Enums cannot be compared with `==` yet (`E0209`); use `match`.
 
 ### 5.3 Generics

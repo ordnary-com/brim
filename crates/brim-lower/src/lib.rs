@@ -218,27 +218,41 @@ impl ModuleLowerer<'_> {
                     return *ir;
                 }
                 let named = self.types.get(id).clone();
+                // Types can contain themselves through lists and maps
+                // (`struct Node { children: List[Node] }`), so each type's
+                // id is reserved before its contents are lowered.
                 if named.def == Def::Map {
-                    let key = self.ir_type(named.args[0]);
-                    let value = self.ir_type(named.args[1]);
                     let id = MapId(
                         u32::try_from(self.module.maps.len()).expect("map count fits in u32"),
                     );
-                    self.module.maps.push((key, value));
+                    self.module.maps.push((IrType::Void, IrType::Void));
                     let ir = IrType::Map(id);
                     self.ir_types.insert(ty, ir);
+                    let key = self.ir_type(named.args[0]);
+                    let value = self.ir_type(named.args[1]);
+                    self.module.maps[id.index()] = (key, value);
                     return ir;
                 }
                 if named.def == Def::List {
-                    let elem = self.ir_type(named.args[0]);
                     let id = ListId(
                         u32::try_from(self.module.lists.len()).expect("list count fits in u32"),
                     );
-                    self.module.lists.push(elem);
+                    self.module.lists.push(IrType::Void);
                     let ir = IrType::List(id);
                     self.ir_types.insert(ty, ir);
+                    let elem = self.ir_type(named.args[0]);
+                    self.module.lists[id.index()] = elem;
                     return ir;
                 }
+                let id = StructId(
+                    u32::try_from(self.module.structs.len()).expect("struct count fits in u32"),
+                );
+                self.module.structs.push(StructDef {
+                    name: self.type_name(ty),
+                    fields: Vec::new(),
+                });
+                let ir = IrType::Struct(id);
+                self.ir_types.insert(ty, ir);
                 let mut fields = Vec::new();
                 match named.def {
                     Def::Struct(s) => {
@@ -272,15 +286,7 @@ impl ModuleLowerer<'_> {
                     }
                     Def::List | Def::Map => unreachable!("handled above"),
                 }
-                let id = StructId(
-                    u32::try_from(self.module.structs.len()).expect("struct count fits in u32"),
-                );
-                self.module.structs.push(StructDef {
-                    name: self.type_name(ty),
-                    fields,
-                });
-                let ir = IrType::Struct(id);
-                self.ir_types.insert(ty, ir);
+                self.module.structs[id.index()].fields = fields;
                 ir
             }
             Type::Param(_) | Type::Error => {

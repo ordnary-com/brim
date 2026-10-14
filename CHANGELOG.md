@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Structs and enums can contain themselves through `List` and `Map`, for trees and JSON-like values (`enum Json { Array(List[Json]), ... }`). The checker already allowed it; lowering looped forever.
+
 ## [0.1.1] - 2026-10-14
 
 ### Added

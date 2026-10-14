@@ -1,0 +1,55 @@
+// Types can contain themselves through lists and maps: trees and
+// JSON-like values.
+
+enum Value {
+    Null,
+    Int(i64),
+    Text(string),
+    Items(List[Value]),
+    Fields(Map[string, Value]),
+}
+
+fn show(v: Value) -> string {
+    match v {
+        Value.Null => return "null"
+        Value.Int(n) => return to_string(n)
+        Value.Text(s) => return "\"" + s + "\""
+        Value.Items(items) => {
+            let mut parts: List[string] = []
+            for item in items {
+                parts.push(show(item))
+            }
+            return "[" + parts.join(",") + "]"
+        }
+        Value.Fields(fields) => {
+            let mut parts: List[string] = []
+            for key in fields.keys() {
+                parts.push("\"" + key + "\":" + show(fields[key]))
+            }
+            return "{" + parts.join(",") + "}"
+        }
+    }
+}
+
+struct Node {
+    name: string,
+    children: List[Node],
+}
+
+fn count(n: Node) -> i64 {
+    let mut total: i64 = 1
+    for c in n.children {
+        total += count(c)
+    }
+    return total
+}
+
+fn main() {
+    let v: Value = Value.Fields(["a": Value.Int(1), "b": Value.Items([Value.Null, Value.Text("x")])])
+    print(show(v))
+    let mut t: Node = Node { name: "root", children: [Node { name: "a", children: [] }] }
+    t.children.push(Node { name: "b", children: [Node { name: "c", children: [] }] })
+    t.children[0].children.push(Node { name: "d", children: [] })
+    print(count(t))
+    print(t.children[1].children[0].name)
+}

@@ -87,7 +87,7 @@ Guidelines for writing diagnostics:
 | E0218 | Assignment to an immutable variable, a parameter, or a field of one |
 | E0219 | Type name already used: by another struct or enum, a built-in type (including `Option` and `Result`) or a function; or a type parameter named like a built-in type |
 | E0220 | Field, variant or type parameter declared more than once |
-| E0221 | Struct or enum contains itself, directly or through other types |
+| E0221 | Struct or enum contains itself, directly or through other structs and enums (through `List` and `Map` is allowed) |
 | E0222 | Struct literal is missing fields |
 | E0223 | Field given more than once in a struct literal |
 | E0224 | Unknown field, or field access on a value that is not a struct |
