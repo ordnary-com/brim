@@ -86,7 +86,10 @@ fn dependency_problems() {
     );
     let failure = resolve_in(&cwd, "app", false).unwrap_err();
     assert_eq!(failure.diagnostic.message, "cannot find package `missing`");
-    assert_eq!(failure.file.unwrap().name(), "app/brim.toml");
+    assert_eq!(
+        failure.file.unwrap().name().replace('\\', "/"),
+        "app/brim.toml"
+    );
 
     write_package(&cwd.join("app"), "app", "other = { path = \"../lib\" }\n");
     write_package(&cwd.join("lib"), "lib", "");
