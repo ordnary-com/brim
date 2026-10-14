@@ -333,6 +333,7 @@ impl Lexer<'_> {
             '|' => diag.with_help("logical OR is written `||`"),
             '\'' => diag.with_help("string literals use double quotes: \"...\""),
             '#' => diag.with_help("comments start with `//`"),
+            '[' | ']' => diag.with_note("lists and arrays are not supported yet"),
             c if c.is_alphabetic() => {
                 diag.with_note("identifiers may only contain ASCII letters, digits and `_`")
             }
