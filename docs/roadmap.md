@@ -49,8 +49,9 @@ Status legend: **done**, **in progress**, **planned**. Only items marked done ex
 ## Phase 5: Runtime and standard library (planned)
 
 - Memory management for heap values (ARC, as recommended in `architecture.md`).
-- Recoverable error handling in the language (see `error-handling.md`).
-- Structs, enums, collections, and string operations.
+- Recoverable error handling in the language: errors as values the compiler makes you handle, with short propagation syntax (see `error-handling.md`).
+- Structs, enums (sum types) with exhaustive `match`, collections, and string operations.
+- An explicit optional type for "no value", instead of a null value.
 - Standard library modules: I/O, files, formatting, environment, processes; later networking and HTTP for backend services.
 
 ## Phase 6: Package manager and project tooling (planned)
@@ -58,6 +59,7 @@ Status legend: **done**, **in progress**, **planned**. Only items marked done ex
 - Multi-file programs: modules, imports, visibility.
 - `brim new`, `brim test`, `brim fmt`.
 - `[dependencies]` in `brim.toml`, a lock file, dependency resolution, and later a package registry.
+- API contracts for web frontends: declare API types once in Brim and generate the matching TypeScript types (and later a client) for Angular, so frontend and backend cannot drift apart.
 
 ## Phase 7: Editor support and production readiness (planned)
 
