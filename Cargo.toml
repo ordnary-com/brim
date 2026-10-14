@@ -20,6 +20,7 @@ brim-ir = { path = "crates/brim-ir" }
 brim-lexer = { path = "crates/brim-lexer" }
 brim-lower = { path = "crates/brim-lower" }
 brim-manifest = { path = "crates/brim-manifest" }
+brim-package = { path = "crates/brim-package" }
 brim-parser = { path = "crates/brim-parser" }
 brim-runtime = { path = "crates/brim-runtime" }
 brim-semantic = { path = "crates/brim-semantic" }

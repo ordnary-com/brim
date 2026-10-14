@@ -22,7 +22,7 @@ This document describes how the Brim compiler is structured, and why. The langua
       └──► brim-codegen    LLVM backend + C runtime   (`brim build`, opt-in `llvm` feature)
 ```
 
-A program can consist of several files. The driver (`brim-cli`) parses the root file, follows its `import`s to the other modules, and puts all files in one `SourceMap`: each file's spans are shifted by a base offset, so a `Span` alone identifies the file. Diagnostics render against the map, with labels in other files shown in their own snippet (`::: file:line:col`). Semantic analysis receives all modules at once.
+A program can consist of several files, also from other packages: the driver asks `brim-package` for the project's dependency graph, and an import whose first name is a dependency loads that package's module. Imports in a dependency are rewritten to full module names (`import shapes` in `geometry` becomes `import geometry.shapes`), so semantic analysis sees one set of uniquely named modules and knows nothing about packages. The driver (`brim-cli`) parses the root file, follows its `import`s to the other modules, and puts all files in one `SourceMap`: each file's spans are shifted by a base offset, so a `Span` alone identifies the file. Diagnostics render against the map, with labels in other files shown in their own snippet (`::: file:line:col`). Semantic analysis receives all modules at once.
 
 Every stage reports problems as `brim_diagnostics::Diagnostic`s. A stage only runs if the previous stage produced no errors. Warnings never block compilation.
 
@@ -42,12 +42,13 @@ Every stage reports problems as `brim_diagnostics::Diagnostic`s. A stage only ru
 | `brim-interp` | Reference interpreter for IR | diagnostics, ir, runtime |
 | `brim-codegen` | `Backend` trait; `LlvmBackend` (IR to LLVM IR, object emission, linking with the C runtime in `runtime/brim_rt.c`). LLVM code is only compiled with the `llvm` feature | diagnostics, ir, runtime; `inkwell` (optional) |
 | `brim-manifest` | `brim.toml` parsing and validation (`M0xxx`) | diagnostics, serde, toml |
+| `brim-package` | Dependency graphs: path and git dependencies, the git cache, `brim.lock` | diagnostics, manifest, serde, toml |
 | `brim-fmt` | The formatter (`brim fmt`): works on tokens so comments and line breaks survive, and checks that the tokens are unchanged | diagnostics, lexer, parser |
 | `brim-cli` | The `brim` binary: argument parsing, commands, exit codes | everything above |
 
 `brim-lower` and `brim-manifest` were added beyond the initially sketched layout. `brim-lower` keeps the IR independent of the AST and of semantic analysis: `brim-ir` itself depends on neither. `brim-manifest` keeps project configuration reusable by future tools, such as a package manager or language server, without depending on the CLI. `brim-interp` is separate from `brim-codegen` so the temporary interpreter is never confused with the native backend.
 
-Only `brim-manifest` (`serde`, `toml`) and, with the `llvm` feature, `brim-codegen` (`inkwell`, which brings `llvm-sys`) have third-party dependencies, all pinned exactly in the workspace `Cargo.toml`. The compiler frontend is dependency-free.
+Only `brim-manifest` and `brim-package` (`serde`, `toml`; `brim-package` also runs the `git` program) and, with the `llvm` feature, `brim-codegen` (`inkwell`, which brings `llvm-sys`) have third-party dependencies, all pinned exactly in the workspace `Cargo.toml`. The compiler frontend is dependency-free.
 
 ## Source positions
 

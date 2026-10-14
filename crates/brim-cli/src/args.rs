@@ -45,6 +45,10 @@ pub enum Command {
         /// The directory to create; its name is the package name.
         path: PathBuf,
     },
+    /// `brim update [PATH]`: newest commits for git dependencies.
+    Update {
+        input: Option<PathBuf>,
+    },
     Fmt {
         /// Files and directories; empty for the current project.
         paths: Vec<PathBuf>,
@@ -68,7 +72,7 @@ impl fmt::Display for UsageError {
 }
 
 const COMMANDS: &[&str] = &[
-    "check", "run", "build", "test", "new", "fmt", "help", "version",
+    "check", "run", "build", "test", "new", "fmt", "update", "help", "version",
 ];
 
 /// Parses the arguments after the program name.
@@ -134,6 +138,12 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
                     command: Some("new"),
                 }),
             }
+        }
+        "update" => {
+            let parsed = CommandArgs::parse("update", rest)?;
+            Ok(parsed.help.unwrap_or(Command::Update {
+                input: parsed.input,
+            }))
         }
         "fmt" => {
             let mut paths = Vec::new();
@@ -283,6 +293,7 @@ Commands:
   test [PATH]    Run a program's tests
   new <PATH>     Create a new project
   fmt [PATH...]  Format source files
+  update [PATH]  Update the git dependencies in brim.lock
   help [COMMAND] Show help for a command
   version        Show the compiler version
 
@@ -371,6 +382,20 @@ Creates the directory PATH with a `brim.toml` manifest, `src/main.brim`
 and a `.gitignore`. The directory's name is the package name.
 
 Usage: brim new <PATH>
+
+Options:
+  -h, --help  Show help
+"
+        }
+        "update" => {
+            "\
+Update the git dependencies in brim.lock
+
+Fetches every git dependency of the project and records the newest commit
+of its branch, tag or default branch in `brim.lock`. Other commands use
+the commits in `brim.lock` and fetch only what is missing.
+
+Usage: brim update [PATH]
 
 Options:
   -h, --help  Show help
@@ -522,7 +547,7 @@ mod tests {
         let msg = |args: &[&str]| p(args).unwrap_err().message;
         assert_eq!(
             msg(&["frobnicate"]),
-            "unknown command `frobnicate` (available: check, run, build, test, new, fmt, help, version)"
+            "unknown command `frobnicate` (available: check, run, build, test, new, fmt, update, help, version)"
         );
         assert_eq!(
             msg(&["check", "a.brim", "b.brim"]),

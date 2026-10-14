@@ -8,14 +8,18 @@
 //!
 //! [build]
 //! entry = "src/main.brim"   # optional; this is the default
+//! lib = "src/lib.brim"      # optional; this is the default
+//!
+//! [dependencies]
+//! geometry = { path = "../geometry" }
+//! http = { git = "https://example.com/http.git", tag = "v1.0.0" }
 //! ```
 //!
 //! This is Brim's own, proposed format (see `docs/language-spec.md`). Unknown
-//! keys are rejected so typos are caught early. A `[dependencies]` table is
-//! recognised but rejected for now: dependency resolution and a package
-//! registry are planned for a later milestone, and accepting the table
-//! silently would suggest they work.
+//! keys are rejected so typos are caught early. Dependencies come from a
+//! directory or a git repository; there is no package registry yet.
 
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 use brim_diagnostics::{Diagnostic, Span};
@@ -28,6 +32,10 @@ pub const MANIFEST_FILE: &str = "brim.toml";
 /// The entry point used when `[build] entry` is not given.
 pub const DEFAULT_ENTRY: &str = "src/main.brim";
 
+/// The library root used when `[build] lib` is not given: the module other
+/// packages get with `import <package>`.
+pub const DEFAULT_LIB: &str = "src/lib.brim";
+
 /// Language editions this compiler understands.
 pub const EDITIONS: &[&str] = &["2026"];
 
@@ -36,6 +44,63 @@ pub const EDITIONS: &[&str] = &["2026"];
 pub struct Manifest {
     pub package: Package,
     pub build: Build,
+    /// In name order.
+    pub dependencies: Vec<Dependency>,
+}
+
+/// An entry of `[dependencies]`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Dependency {
+    /// The name the package is imported by; it must be the package's own
+    /// name.
+    pub name: String,
+    pub source: Source,
+    /// The entry in the manifest.
+    pub span: Span,
+}
+
+/// Where a dependency comes from.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Source {
+    /// A directory with a `brim.toml`, relative to the depending manifest
+    /// (or absolute).
+    Path(PathBuf),
+    Git {
+        url: String,
+        reference: GitRef,
+    },
+}
+
+/// The version of a git dependency to use.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum GitRef {
+    /// The repository's default branch (`HEAD`).
+    DefaultBranch,
+    Branch(String),
+    Tag(String),
+    /// A commit.
+    Rev(String),
+}
+
+impl GitRef {
+    /// The revision to ask git for.
+    pub fn revision(&self) -> &str {
+        match self {
+            GitRef::DefaultBranch => "HEAD",
+            GitRef::Branch(name) | GitRef::Tag(name) | GitRef::Rev(name) => name,
+        }
+    }
+}
+
+impl std::fmt::Display for GitRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GitRef::DefaultBranch => f.write_str("default branch"),
+            GitRef::Branch(name) => write!(f, "branch {name}"),
+            GitRef::Tag(name) => write!(f, "tag {name}"),
+            GitRef::Rev(name) => write!(f, "rev {name}"),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -49,6 +114,8 @@ pub struct Package {
 pub struct Build {
     /// Path of the entry source file, relative to the manifest's directory.
     pub entry: PathBuf,
+    /// Path of the library root, relative to the manifest's directory.
+    pub lib: PathBuf,
 }
 
 #[derive(Deserialize)]
@@ -56,7 +123,7 @@ pub struct Build {
 struct RawManifest {
     package: RawPackage,
     build: Option<RawBuild>,
-    dependencies: Option<Spanned<toml::Table>>,
+    dependencies: Option<BTreeMap<Spanned<String>, Spanned<toml::Value>>>,
 }
 
 #[derive(Deserialize)]
@@ -71,6 +138,7 @@ struct RawPackage {
 #[serde(deny_unknown_fields)]
 struct RawBuild {
     entry: Option<Spanned<String>>,
+    lib: Option<Spanned<String>>,
 }
 
 /// Parses and validates manifest text. Diagnostics point into `src`.
@@ -126,27 +194,55 @@ pub fn parse(src: &str) -> Result<Manifest, Vec<Diagnostic>> {
         );
     }
 
-    let entry = match raw.build.and_then(|b| b.entry) {
-        None => PathBuf::from(DEFAULT_ENTRY),
-        Some(entry) => {
-            if let Err(problem) = check_entry(entry.get_ref()) {
+    let (entry, lib) = match raw.build {
+        None => (None, None),
+        Some(build) => (build.entry, build.lib),
+    };
+    let mut source_path = |path: Option<Spanned<String>>, default: &str| match path {
+        None => PathBuf::from(default),
+        Some(path) => {
+            if let Err(problem) = check_entry(path.get_ref()) {
                 diags.push(
-                    Diagnostic::error(format!("invalid entry path `{}`", entry.get_ref()))
+                    Diagnostic::error(format!("invalid source path `{}`", path.get_ref()))
                         .with_code("M0005")
-                        .with_primary(span(&entry), problem),
+                        .with_primary(span(&path), problem),
                 );
             }
-            PathBuf::from(entry.into_inner())
+            PathBuf::from(path.into_inner())
         }
     };
+    let entry = source_path(entry, DEFAULT_ENTRY);
+    let lib = source_path(lib, DEFAULT_LIB);
 
-    if let Some(deps) = raw.dependencies {
-        diags.push(
-            Diagnostic::error("dependencies are not supported yet")
-                .with_code("M0006")
-                .with_primary(Span::new(deps.span().start, deps.span().end), "")
-                .with_note("package dependencies and a registry are planned; see docs/roadmap.md"),
-        );
+    let mut dependencies = Vec::new();
+    for (name, value) in raw.dependencies.unwrap_or_default() {
+        let entry_span = Span::new(name.span().start, value.span().end);
+        if !valid_import_name(name.get_ref()) {
+            diags.push(
+                Diagnostic::error(format!("invalid dependency name `{}`", name.get_ref()))
+                    .with_code("M0007")
+                    .with_primary(span(&name), "")
+                    .with_note(
+                        "dependencies are imported by name, so their names start with a \
+                         lowercase ASCII letter and contain only lowercase letters, digits \
+                         and `_`",
+                    ),
+            );
+            continue;
+        }
+        match dependency_source(value.get_ref()) {
+            Ok(source) => dependencies.push(Dependency {
+                name: name.into_inner(),
+                source,
+                span: entry_span,
+            }),
+            Err((message, help)) => diags.push(
+                Diagnostic::error(message)
+                    .with_code("M0006")
+                    .with_primary(Span::new(value.span().start, value.span().end), "")
+                    .with_help(help),
+            ),
+        }
     }
 
     if !diags.is_empty() {
@@ -158,8 +254,68 @@ pub fn parse(src: &str) -> Result<Manifest, Vec<Diagnostic>> {
             version: raw.package.version.into_inner(),
             edition: raw.package.edition.into_inner(),
         },
-        build: Build { entry },
+        build: Build { entry, lib },
+        dependencies,
     })
+}
+
+/// The source of a dependency entry, or an error message and help.
+fn dependency_source(value: &toml::Value) -> Result<Source, (String, &'static str)> {
+    const FORMS: &str = "write `{ path = \"../dir\" }` or `{ git = \"URL\" }`, optionally with `tag`, `branch` or `rev`";
+    let table = match value {
+        toml::Value::String(_) => {
+            return Err((
+                "version requirements need a package registry, which does not exist yet".into(),
+                FORMS,
+            ));
+        }
+        toml::Value::Table(table) => table,
+        _ => return Err(("a dependency must be a table".into(), FORMS)),
+    };
+    let mut strings = BTreeMap::new();
+    for (key, value) in table {
+        if !matches!(key.as_str(), "path" | "git" | "tag" | "branch" | "rev") {
+            return Err((format!("unknown dependency key `{key}`"), FORMS));
+        }
+        let Some(text) = value.as_str() else {
+            return Err((format!("`{key}` must be a string"), FORMS));
+        };
+        strings.insert(key.as_str(), text.to_string());
+    }
+    let refs: Vec<&str> = ["tag", "branch", "rev"]
+        .into_iter()
+        .filter(|k| strings.contains_key(k))
+        .collect();
+    match (strings.remove("path"), strings.remove("git")) {
+        (Some(_), Some(_)) => Err(("a dependency has either `path` or `git`".into(), FORMS)),
+        (None, None) => Err(("a dependency needs `path` or `git`".into(), FORMS)),
+        (Some(path), None) => {
+            if let Some(key) = refs.first() {
+                return Err((format!("`{key}` only applies to git dependencies"), FORMS));
+            }
+            Ok(Source::Path(PathBuf::from(path)))
+        }
+        (None, Some(url)) => {
+            if refs.len() > 1 {
+                return Err((
+                    "use only one of `tag`, `branch` and `rev`".into(),
+                    "they all select the version to use",
+                ));
+            }
+            let reference = match refs.first() {
+                None => GitRef::DefaultBranch,
+                Some(&"tag") => GitRef::Tag(strings.remove("tag").unwrap_or_default()),
+                Some(&"branch") => GitRef::Branch(strings.remove("branch").unwrap_or_default()),
+                Some(_) => GitRef::Rev(strings.remove("rev").unwrap_or_default()),
+            };
+            Ok(Source::Git { url, reference })
+        }
+    }
+}
+
+/// Whether a package name can be written in `import`.
+pub fn valid_import_name(name: &str) -> bool {
+    valid_name(name) && !name.contains('-')
 }
 
 /// What [`valid_name`] requires, for messages.
@@ -198,16 +354,16 @@ fn valid_version(version: &str) -> bool {
 fn check_entry(entry: &str) -> Result<(), &'static str> {
     let path = Path::new(entry);
     if path.is_absolute() || entry.starts_with('/') || entry.starts_with('\\') {
-        return Err("the entry path must be relative to brim.toml");
+        return Err("the path must be relative to brim.toml");
     }
     if path
         .components()
         .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_)))
     {
-        return Err("the entry path must stay inside the package directory");
+        return Err("the path must stay inside the package directory");
     }
     if path.extension().is_none_or(|ext| ext != "brim") {
-        return Err("the entry file must have the `.brim` extension");
+        return Err("source files have the `.brim` extension");
     }
     Ok(())
 }
@@ -316,11 +472,55 @@ entry = "src/app.brim"
     }
 
     #[test]
-    fn dependencies_are_rejected_explicitly() {
+    fn dependencies() {
+        let m = parse(&format!(
+            "{VALID}\n[dependencies]\nshapes = {{ path = \"../shapes\" }}\n\
+             http = {{ git = \"https://example.com/http.git\", tag = \"v1\" }}\n\
+             json = {{ git = \"file:///tmp/json\" }}\n"
+        ))
+        .unwrap();
+        let deps: Vec<(&str, &Source)> = m
+            .dependencies
+            .iter()
+            .map(|d| (d.name.as_str(), &d.source))
+            .collect();
         assert_eq!(
-            codes(&format!("{VALID}\n[dependencies]\nhttp = \"1.0\"\n")),
+            deps,
+            vec![
+                (
+                    "http",
+                    &Source::Git {
+                        url: "https://example.com/http.git".into(),
+                        reference: GitRef::Tag("v1".into())
+                    }
+                ),
+                (
+                    "json",
+                    &Source::Git {
+                        url: "file:///tmp/json".into(),
+                        reference: GitRef::DefaultBranch
+                    }
+                ),
+                ("shapes", &Source::Path("../shapes".into())),
+            ]
+        );
+        assert_eq!(m.build.lib, PathBuf::from(DEFAULT_LIB));
+    }
+
+    #[test]
+    fn invalid_dependencies() {
+        let deps = |text: &str| codes(&format!("{VALID}\n[dependencies]\n{text}\n"));
+        assert_eq!(deps("http = \"1.0\""), vec!["M0006"]);
+        assert_eq!(deps("a = { path = \"x\", git = \"y\" }"), vec!["M0006"]);
+        assert_eq!(deps("a = {}"), vec!["M0006"]);
+        assert_eq!(deps("a = { path = \"x\", tag = \"v1\" }"), vec!["M0006"]);
+        assert_eq!(
+            deps("a = { git = \"x\", tag = \"v1\", rev = \"abc\" }"),
             vec!["M0006"]
         );
+        assert_eq!(deps("a = { git = \"x\", version = \"1\" }"), vec!["M0006"]);
+        assert_eq!(deps("a = { path = 1 }"), vec!["M0006"]);
+        assert_eq!(deps("my-lib = { path = \"x\" }"), vec!["M0007"]);
     }
 
     #[test]

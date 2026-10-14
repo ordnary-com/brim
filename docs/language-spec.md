@@ -558,6 +558,7 @@ Every `.brim` file is a module. `import a.b` loads the module in `a/b.brim`, rel
 - A missing module or item is `E0242`; importing two modules under the same name, or an item whose name is already taken, is `E0243`.
 - Modules may import each other in cycles. Every module is loaded once.
 - `main` must be in the root module. Function names of other modules appear qualified (`geometry.area`) in messages and run-time call stacks.
+- Modules can also come from other packages: see `[dependencies]` in Appendix A.
 
 ### 9.3 Tests
 
@@ -630,7 +631,7 @@ These questions are not settled. The current behavior is a reversible default.
 7. **Statement termination.** Newline termination with continuation after operators is the current rule. Behavior around method chains (`.` at line start) must be decided when methods exist.
 8. **`main` signature.** `main` takes no parameters and returns nothing; arguments come from `args()` and the exit code from `exit`. Returning a `Result` from `main` is undecided.
 9. **Unicode identifiers.** Identifiers are ASCII-only. Allowing Unicode (UAX #31) is possible later.
-10. **Modules.** Modules are files and `pub` controls visibility. Re-exports, visibility of single struct fields, and modules from dependencies (packages) are undecided.
+10. **Modules.** Modules are files and `pub` controls visibility; dependencies add their modules under the package's name. Re-exports, visibility of single struct fields, and a package registry with version requirements are undecided.
 11. **Loop forms.** `while` and `for` exist. A dedicated `loop` keyword, labeled `break` for nested loops, and `for` over other collections are candidates.
 12. **Struct and enum equality and printing.** Comparing structs and enums field by field with `==` and printing them are natural next steps. Field-shorthand literals (`Point { x, y }`) and default values are also undecided.
 13. **`match` as an expression, or-patterns and nested patterns.** `match` is a statement; arms with several patterns (`A | B`) and patterns inside variant patterns (`Some(Circle(r))`) are not supported yet.
@@ -654,10 +655,20 @@ edition = "2026"        # required: language edition; only "2026" exists
 
 [build]                 # optional
 entry = "src/main.brim" # optional; default "src/main.brim"; relative, inside the package
+lib = "src/lib.brim"    # optional; default "src/lib.brim": the library root
+
+[dependencies]          # optional
+geometry = { path = "../geometry" }
+http = { git = "https://example.com/http.git", tag = "v1.0.0" }
 ```
 
 - Unknown tables and keys are errors, to catch typos.
-- `[dependencies]` is reserved and currently rejected with error `M0006`. Dependency resolution and a registry are not implemented.
+- A dependency comes from a directory with a `brim.toml` (`path`, relative to this manifest) or from a git repository (`git`, with at most one of `tag`, `branch` and `rev`; without them, the default branch). There is no package registry yet, so version requirements such as `http = "1.0"` are errors (`M0006`).
+- A dependency's name is the name of its package, and is used in `import`, so it contains no `-` (`M0007`). All packages of a project have different names (`M0009`).
+- A package is used as a library through its library root: `import geometry` is the module in `src/lib.brim` of the package `geometry`, and `import geometry.shapes` the module in `src/shapes.brim` next to it. Inside the package, its modules import each other as usual (`import shapes`). The project's own modules cannot have the name of a dependency.
+- A package without `src/main.brim` but with a library root is a library: `brim check` and `brim test` work on its library root.
+- `brim test` runs only the tests of the project's own modules.
+- **`brim.lock`.** The first build writes the commit of every git dependency to `brim.lock`, next to `brim.toml`; later builds use those commits. `brim update` fetches the newest commits. Commit `brim.lock` for programs, so every build uses the same versions. Git repositories are cached in `$BRIM_HOME/git` (by default `~/.brim/git`) and only fetched when a commit is missing.
 - `brim run`, `brim check`, `brim build` and `brim test` without a path use the nearest `brim.toml` in the current directory or its parents.
 - `brim fmt` formats the project's source files (all `.brim` files under the manifest's directory, except in `target`).
 - `brim new PATH` creates a project: a `brim.toml`, a `src/main.brim` with a test, and a `.gitignore`.

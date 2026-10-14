@@ -1,0 +1,18 @@
+[package]
+name = "brim-package"
+description = "Dependency resolution and lock files for Brim packages"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+brim-diagnostics.workspace = true
+brim-manifest.workspace = true
+serde.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true

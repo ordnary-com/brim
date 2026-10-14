@@ -27,6 +27,7 @@ brim-ir.workspace = true
 brim-lexer.workspace = true
 brim-lower.workspace = true
 brim-manifest.workspace = true
+brim-package.workspace = true
 brim-parser.workspace = true
 brim-semantic.workspace = true
 

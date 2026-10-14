@@ -126,7 +126,7 @@ Brim is at **version 0.1**. It is a working foundation, **not ready for producti
 - `List[T]` and `Map[K, V]` with indexing and methods, and `for` loops over lists and ranges
 - Methods in `impl` blocks, including `mut self` methods that change the caller's value
 - A standard library for command-line tools: string methods, `read_line`, `read_file`, `write_file`, `args`, `env`, `exit`
-- Programs of several files: modules with `import` and `pub`
+- Programs of several files: modules with `import` and `pub`; dependencies on other packages from a directory or git repository, locked in `brim.lock`
 - Builtins `print` and `to_string`, and `assert`/`assert_eq` for tests: `brim test` runs every `fn test_...()`
 - Full static type checking, return checking on all paths, and detailed diagnostics
 - `brim build` (native executables via LLVM 22, opt-in at compile time), `brim run` (reference interpreter), `brim check`, `brim test`, `brim fmt`, `brim.toml` projects created with `brim new`
@@ -135,7 +135,7 @@ Brim is at **version 0.1**. It is a working foundation, **not ready for producti
 
 - Debug information and Windows builds for native executables
 - Traits (interfaces), networking and HTTP, closures, concurrency
-- Dependencies and a package registry; a language server
+- A package registry; a language server
 
 The [roadmap](docs/roadmap.md) lists the milestones in order.
 
@@ -211,6 +211,7 @@ crates/
   brim-stdlib       builtin function catalogue
   brim-manifest     brim.toml parsing and validation
   brim-fmt          the formatter
+  brim-package      dependencies and brim.lock
   brim-cli          the `brim` command
 assets/             logo and other project artwork
 docs/               language spec, architecture, error handling, roadmap, development

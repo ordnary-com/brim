@@ -34,6 +34,7 @@ dependencies = [
  "brim-lexer",
  "brim-lower",
  "brim-manifest",
+ "brim-package",
  "brim-parser",
  "brim-semantic",
 ]
@@ -103,6 +104,16 @@ name = "brim-manifest"
 version = "0.1.0"
 dependencies = [
  "brim-diagnostics",
+ "serde",
+ "toml",
+]
+
+[[package]]
+name = "brim-package"
+version = "0.1.0"
+dependencies = [
+ "brim-diagnostics",
+ "brim-manifest",
  "serde",
  "toml",
 ]

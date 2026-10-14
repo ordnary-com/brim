@@ -129,8 +129,12 @@ Guidelines for writing diagnostics:
 | M0002 | Invalid package name |
 | M0003 | Invalid package version |
 | M0004 | Unsupported edition |
-| M0005 | Invalid `[build] entry` path |
-| M0006 | `[dependencies]` used; not supported yet |
+| M0005 | Invalid `[build] entry` or `lib` path |
+| M0006 | Invalid dependency: no `path` or `git`, both, unknown keys, or a version requirement |
+| M0007 | Dependency name that cannot be imported (it contains `-`) |
+| M0008 | Dependency not found, or its git repository cannot be fetched |
+| M0009 | A dependency's package has another name, or two packages have the same name |
+| M0010 | Invalid `brim.lock` |
 
 ### Run-time errors (`brim-runtime`)
 

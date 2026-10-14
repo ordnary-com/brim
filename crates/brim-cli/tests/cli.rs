@@ -494,3 +494,169 @@ fn fmt_formats_files_in_place() {
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(stdout(&out), tidy);
 }
+
+fn brim_with_home(dir: &Path, home: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_brim"))
+        .args(args)
+        .current_dir(dir)
+        .env("NO_COLOR", "1")
+        .env("BRIM_HOME", home)
+        .output()
+        .expect("brim runs")
+}
+
+fn manifest(name: &str, deps: &str) -> String {
+    format!(
+        "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2026\"\n\n[dependencies]\n{deps}"
+    )
+}
+
+#[test]
+fn path_dependencies() {
+    let dir = scratch("path_deps");
+    let home = dir.join("home");
+    fs::create_dir_all(dir.join("app/src")).unwrap();
+    fs::create_dir_all(dir.join("geometry/src")).unwrap();
+    fs::write(
+        dir.join("app/brim.toml"),
+        manifest("app", "geometry = { path = \"../geometry\" }\n"),
+    )
+    .unwrap();
+    fs::write(
+        dir.join("app/src/main.brim"),
+        "import geometry\nimport geometry.shapes.{square}\n\nfn main() {\n    print(geometry.area(square(3)))\n}\n\nfn test_app() {\n    assert(true)\n}\n",
+    )
+    .unwrap();
+    fs::write(dir.join("geometry/brim.toml"), manifest("geometry", "")).unwrap();
+    fs::write(
+        dir.join("geometry/src/lib.brim"),
+        "import shapes.{Square}\n\npub fn area(s: Square) -> i64 {\n    return s.side * s.side\n}\n\nfn test_area() {\n    assert(false)\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("geometry/src/shapes.brim"),
+        "pub struct Square {\n    side: i64,\n}\n\npub fn square(side: i64) -> Square {\n    return Square { side: side }\n}\n",
+    )
+    .unwrap();
+
+    let app = dir.join("app");
+    let out = brim_with_home(&app, &home, &["run"]);
+    assert_eq!(stdout(&out), "9\n", "{}", stderr(&out));
+    assert_eq!(stderr(&out), "updated brim.lock\n");
+    let lock = fs::read_to_string(app.join("brim.lock")).unwrap();
+    assert!(lock.contains("source = \"path+../geometry\""), "{lock}");
+    let out = brim_with_home(&app, &home, &["run"]);
+    assert_eq!(stderr(&out), "");
+
+    // Only the project's own tests run.
+    let out = brim_with_home(&app, &home, &["test"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stdout(&out));
+    assert!(stdout(&out).contains("running 1 test\n"));
+    // A library is tested on its own.
+    let out = brim_with_home(&dir.join("geometry"), &home, &["test"]);
+    assert_eq!(out.status.code(), Some(101));
+    assert!(stdout(&out).contains("test test_area ... FAILED"));
+
+    // A module of a dependency can be imported on its own.
+    fs::write(
+        dir.join("app/src/main.brim"),
+        "import geometry.shapes\n\nfn main() {\n    let s: shapes.Square = shapes.square(1)\n    print(s.side)\n}\n",
+    )
+    .unwrap();
+    let out = brim_with_home(&app, &home, &["run"]);
+    assert_eq!(stdout(&out), "1\n", "{}", stderr(&out));
+
+    fs::write(
+        dir.join("app/brim.toml"),
+        manifest("app", "geometry = { path = \"../nowhere\" }\n"),
+    )
+    .unwrap();
+    let out = brim_with_home(&app, &home, &["run"]);
+    assert_eq!(out.status.code(), Some(3));
+    assert!(
+        stderr(&out).contains("error[M0008]: cannot find package `geometry`"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+fn git(dir: &Path, args: &[&str]) {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@example.com")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@example.com")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn git_dependencies_and_update() {
+    let dir = scratch("git_deps");
+    let home = dir.join("home");
+    let repo = dir.join("greet");
+    fs::create_dir_all(repo.join("src")).unwrap();
+    fs::write(repo.join("brim.toml"), manifest("greet", "")).unwrap();
+    let publish = |text: &str| {
+        fs::write(
+            repo.join("src/lib.brim"),
+            format!("pub fn hello() -> string {{\n    return \"{text}\"\n}}\n"),
+        )
+        .unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "--quiet", "-m", text]);
+    };
+    git(&repo, &["init", "--quiet"]);
+    publish("hello v1");
+
+    let shown = repo.display().to_string().replace('\\', "/");
+    let url = if shown.starts_with('/') {
+        format!("file://{shown}")
+    } else {
+        format!("file:///{shown}")
+    };
+    let app = dir.join("app");
+    fs::create_dir_all(app.join("src")).unwrap();
+    fs::write(
+        app.join("brim.toml"),
+        manifest("app", &format!("greet = {{ git = \"{url}\" }}\n")),
+    )
+    .unwrap();
+    fs::write(
+        app.join("src/main.brim"),
+        "import greet\n\nfn main() {\n    print(greet.hello())\n}\n",
+    )
+    .unwrap();
+
+    let out = brim_with_home(&app, &home, &["run"]);
+    assert_eq!(stdout(&out), "hello v1\n", "{}", stderr(&out));
+    assert_eq!(stderr(&out), format!("fetched {url}\nupdated brim.lock\n"));
+    assert!(
+        fs::read_to_string(app.join("brim.lock"))
+            .unwrap()
+            .contains("commit = \"")
+    );
+
+    // The lock file keeps the commit until `brim update`.
+    publish("hello v2");
+    let out = brim_with_home(&app, &home, &["run"]);
+    assert_eq!(stdout(&out), "hello v1\n");
+    assert_eq!(stderr(&out), "");
+    let out = brim_with_home(&app, &home, &["update"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(
+        stderr(&out).ends_with("ok: 1 dependency up to date\n"),
+        "{}",
+        stderr(&out)
+    );
+    let out = brim_with_home(&app, &home, &["run"]);
+    assert_eq!(stdout(&out), "hello v2\n");
+}

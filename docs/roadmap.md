@@ -69,7 +69,8 @@ Still open from this phase: debug information, Windows, cross-compilation, and l
 - **Done:** multi-file programs: every file is a module, `import` with aliases and item lists, `pub` visibility, diagnostics across files.
 - **Done:** `brim new`, and `brim test` with `assert` and `assert_eq`.
 - **Done:** `brim fmt`, a token-based formatter that keeps comments and line breaks.
-- `[dependencies]` in `brim.toml`, a lock file, dependency resolution, and later a package registry.
+- **Done:** `[dependencies]` from directories and git repositories, `brim.lock`, `brim update`.
+- A package registry with version requirements.
 - API contracts for web frontends: declare API types once in Brim and generate the matching TypeScript types (and later a client) for Angular, so frontend and backend cannot drift apart.
 
 ## Phase 7: Editor support and production readiness (planned)
