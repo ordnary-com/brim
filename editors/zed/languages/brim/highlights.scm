@@ -7,7 +7,7 @@
 (string) @string
 (escape_sequence) @string.escape
 (boolean) @boolean
-(self) @variable.builtin
+(self) @variable.special
 
 (primitive_type) @type.builtin
 (type_identifier) @type
@@ -15,27 +15,27 @@
 ((path_type (identifier) @type.builtin)
   (#any-of? @type.builtin "Option" "Result" "List" "Map"))
 (type_parameters (identifier) @type)
-(scoped_type_identifier (identifier) @module)
+(scoped_type_identifier (identifier) @type)
 
 (function_declaration name: (identifier) @function)
-(call_expression function: (identifier) @function.call)
-((call_expression function: (identifier) @function.builtin)
-  (#any-of? @function.builtin
+(call_expression function: (identifier) @function)
+((call_expression function: (identifier) @function)
+  (#any-of? @function
     "print" "eprint" "to_string" "read_line" "read_file" "write_file" "args" "env" "exit"
     "assert" "assert_eq"))
 ((call_expression function: (identifier) @constructor)
   (#any-of? @constructor "Some" "Ok" "Err"))
 ((identifier) @constant.builtin
   (#eq? @constant.builtin "None"))
-(method_call_expression method: (identifier) @function.method.call)
+(method_call_expression method: (identifier) @function.method)
 
-(parameter name: (identifier) @variable.parameter)
+(parameter name: (identifier) @variable)
 (field_declaration name: (field_identifier) @property)
 (field_initializer name: (field_identifier) @property)
 (field_expression field: (field_identifier) @property)
 (variant name: (identifier) @constructor)
 (variant_pattern name: (identifier) @constructor)
-(module_path) @module
+(module_path) @type
 
 [
   "fn" "struct" "enum" "impl" "let"

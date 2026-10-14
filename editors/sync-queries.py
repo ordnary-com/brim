@@ -28,9 +28,19 @@ HELIX = [
     ("@module", "@namespace"),
 ]
 
+# Capture names in Zed's themes where they differ.
+ZED = [
+    ("@function.method.call", "@function.method"),
+    ("@function.call", "@function"),
+    ("@function.builtin", "@function"),
+    ("@variable.builtin", "@variable.special"),
+    ("@variable.parameter", "@variable"),
+    ("@module", "@type"),
+]
+
 COPIES = {
     "neovim/queries/brim/highlights.scm": None,
-    "zed/languages/brim/highlights.scm": None,
+    "zed/languages/brim/highlights.scm": ZED,
     "helix/runtime/queries/brim/highlights.scm": HELIX,
 }
 
