@@ -30,6 +30,9 @@ The release workflow (`.github/workflows/release.yml`) builds:
 | `brim-X.Y.Z-linux-x86_64-native`, `-macos-aarch64-native` | the same, with the LLVM backend linked in for `brim build` (which also needs a C compiler) |
 
 Each archive holds `brim`, the README, the license and the changelog. The
+Linux builds need glibc 2.34 or newer (Ubuntu 22.04, Debian 12, Fedora 35
+and later); the native Linux build also uses the system's zlib, zstd and
+libstdc++. The macOS builds need nothing beyond macOS itself. The
 release has a `SHA256SUMS` file. Running the workflow by hand
 (`workflow_dispatch`) builds the archives as workflow artifacts without
 publishing anything: a dry run.

@@ -44,8 +44,11 @@ jobs:
       - name: Install LLVM 22 (macOS)
         if: matrix.llvm && runner.os == 'macOS'
         run: |
-          brew install llvm@22
+          brew install llvm@22 zstd
           echo "LLVM_SYS_221_PREFIX=$(brew --prefix llvm@22)" >> "$GITHUB_ENV"
+          # Link zstd statically: without its dylib the linker takes
+          # libzstd.a, so the binary does not need Homebrew.
+          rm -f "$(brew --prefix zstd)"/lib/libzstd*.dylib
       - name: Build
         shell: bash
         run: |
@@ -58,6 +61,11 @@ jobs:
           bin="target/${{ matrix.target }}/release/brim"
           "$bin" --version
           "$bin" run examples/hello.brim
+          if [ "${{ runner.os }}" = "macOS" ] && otool -L "$bin" | grep -q /opt/homebrew; then
+            otool -L "$bin"
+            echo "the binary depends on Homebrew libraries" >&2
+            exit 1
+          fi
           if [ "${{ matrix.llvm }}" = "true" ]; then
             "$bin" build examples/hello.brim -o target/hello && target/hello
           fi
