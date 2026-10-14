@@ -254,23 +254,44 @@ fn positions_and_uris() {
 #[test]
 fn grammars_are_complete() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../editors");
-    let textmate = fs::read_to_string(root.join("vscode/syntaxes/brim.tmLanguage.json")).unwrap();
+    let read = |path: &str| fs::read_to_string(root.join(path)).unwrap();
+    let textmate = read("vscode/syntaxes/brim.tmLanguage.json");
     let grammar: Value = serde_json::from_str(&textmate).unwrap();
     assert_eq!(grammar["scopeName"], json!("source.brim"));
-    let vim = fs::read_to_string(root.join("vim/syntax/brim.vim")).unwrap();
-    let words = brim_lexer::KEYWORDS
-        .iter()
-        .map(|(word, _)| *word)
-        .chain(brim_lexer::RESERVED.iter().copied())
-        .chain(brim_stdlib_names());
-    for word in words {
+    let keywords: Vec<&str> = brim_lexer::KEYWORDS.iter().map(|(word, _)| *word).collect();
+    let reserved = brim_lexer::RESERVED;
+    let builtins: Vec<&str> = brim_stdlib_names().collect();
+
+    // Grammars that list every word themselves.
+    for file in [
+        "vscode/syntaxes/brim.tmLanguage.json",
+        "vim/syntax/brim.vim",
+        "sublime/Brim.sublime-syntax",
+        "emacs/brim-mode.el",
+        "kate/brim.xml",
+        "nano/brim.nanorc",
+        "micro/brim.yaml",
+        "kakoune/brim.kak",
+        "notepad++/brim.xml",
+    ] {
+        let text = read(file);
+        for word in keywords.iter().chain(reserved).chain(&builtins) {
+            assert!(contains_word(&text, word), "{file} misses `{word}`");
+        }
+    }
+    // The tree-sitter grammar has the keywords; its queries the builtins.
+    let tree_sitter = read("tree-sitter-brim/grammar.js");
+    for word in &keywords {
         assert!(
-            contains_word(&textmate, word),
-            "the TextMate grammar misses `{word}`"
+            tree_sitter.contains(&format!("'{word}'")),
+            "tree-sitter-brim/grammar.js misses `{word}`"
         );
+    }
+    let queries = read("tree-sitter-brim/queries/highlights.scm");
+    for word in &builtins {
         assert!(
-            vim.split_whitespace().any(|w| w == word),
-            "the Vim syntax misses `{word}`"
+            queries.contains(&format!("\"{word}\"")),
+            "highlights.scm misses `{word}`"
         );
     }
 }

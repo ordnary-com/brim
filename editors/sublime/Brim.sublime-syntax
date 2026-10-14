@@ -1,0 +1,79 @@
+%YAML 1.2
+---
+# Brim syntax for Sublime Text (and tools that read sublime-syntax, such
+# as bat).
+name: Brim
+file_extensions: [brim]
+scope: source.brim
+
+variables:
+  ident: '[A-Za-z_][A-Za-z0-9_]*'
+
+contexts:
+  main:
+    - include: comments
+    - include: strings
+    - match: '\b[0-9][0-9_]*\b'
+      scope: constant.numeric.integer.decimal.brim
+    - match: '\b(fn)\s+({{ident}})'
+      captures:
+        1: storage.type.function.brim
+        2: entity.name.function.brim
+    - match: '\b(struct|enum|impl)\s+({{ident}})'
+      captures:
+        1: storage.type.brim
+        2: entity.name.type.brim
+    - match: '\b(if|else|while|for|in|match|return|break|continue)\b'
+      scope: keyword.control.brim
+    - match: '\b(fn|struct|enum|impl|let)\b'
+      scope: storage.type.brim
+    - match: '\b(mut|pub)\b'
+      scope: storage.modifier.brim
+    - match: '\b(import|as)\b'
+      scope: keyword.control.import.brim
+    - match: '\b(true|false)\b'
+      scope: constant.language.boolean.brim
+    - match: '\bself\b'
+      scope: variable.language.self.brim
+    - match: '\b(async|await|const|loop|trait|type|use)\b'
+      scope: invalid.illegal.reserved.brim
+    - match: '\b(i64|bool|string|void)\b'
+      scope: storage.type.primitive.brim
+    - match: '\b(Option|Result|List|Map)\b'
+      scope: support.type.brim
+    - match: '\b(Some|None|Ok|Err)\b'
+      scope: support.constant.brim
+    - match: '\b(print|eprint|to_string|read_line|read_file|write_file|args|env|exit|assert|assert_eq)\b(?=\s*\()'
+      scope: support.function.builtin.brim
+    - match: '\b[A-Z][A-Za-z0-9_]*\b'
+      scope: entity.name.type.brim
+    - match: '\b{{ident}}(?=\s*(\[[^\]]*\])?\s*\()'
+      scope: variable.function.brim
+    - match: '->|=>'
+      scope: punctuation.separator.brim
+    - match: '==|!=|<=|>=|&&|\|\||[-+*/%]=?|[<>!?]|=|\.\.'
+      scope: keyword.operator.brim
+
+  comments:
+    - match: '//'
+      scope: punctuation.definition.comment.brim
+      push:
+        - meta_scope: comment.line.double-slash.brim
+        - match: '$\n?'
+          pop: true
+
+  strings:
+    - match: '"'
+      scope: punctuation.definition.string.begin.brim
+      push:
+        - meta_scope: string.quoted.double.brim
+        - match: '\\(u\{[0-9a-fA-F]{1,6}\}|[nrt0"\\])'
+          scope: constant.character.escape.brim
+        - match: '\\.'
+          scope: invalid.illegal.escape.brim
+        - match: '"'
+          scope: punctuation.definition.string.end.brim
+          pop: true
+        - match: '\n'
+          scope: invalid.illegal.newline.brim
+          pop: true

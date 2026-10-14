@@ -86,6 +86,43 @@ jobs:
             "target/native/$(basename "$f" .brim)"
           done
 
+  editors:
+    name: Editor support
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: The tree-sitter parser matches grammar.js
+        working-directory: editors/tree-sitter-brim
+        run: |
+          npm install --no-save tree-sitter-cli@0.25.10
+          npx tree-sitter generate
+          git diff --exit-code -- src
+          npx tree-sitter test
+      - name: Every example and test program parses
+        run: |
+          git ls-files '*.brim' | grep -E '^(examples|tests/integration|tests/modules)/' | sed 's|^|../../|' > /tmp/programs.txt
+          cd editors/tree-sitter-brim
+          npx tree-sitter parse -q --paths /tmp/programs.txt
+      - name: The query copies are up to date
+        run: |
+          python3 editors/sync-queries.py
+          git diff --exit-code -- editors
+      - name: The Emacs mode compiles and highlights the examples
+        run: |
+          sudo apt-get install -y -qq emacs-nox > /dev/null
+          emacs --batch -Q -L editors/emacs -f batch-byte-compile editors/emacs/brim-mode.el
+          for f in examples/*.brim; do
+            emacs --batch -Q -L editors/emacs -l brim-mode "$f" \
+              --eval '(progn (unless (eq major-mode (quote brim-mode)) (error "not brim-mode")) (font-lock-ensure) (indent-region (point-min) (point-max)))'
+          done
+      - uses: dtolnay/rust-toolchain@stable
+      - name: The Zed extension compiles
+        working-directory: editors/zed
+        run: cargo check
+
   msrv:
     name: Minimum supported Rust version
     runs-on: ubuntu-latest

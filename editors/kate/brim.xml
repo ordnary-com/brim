@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE language>
+<!-- Brim highlighting for KSyntaxHighlighting: Kate, KWrite, KDevelop. -->
+<language name="Brim" section="Sources" extensions="*.brim" mimetype="text/x-brim" version="1" kateversion="5.0" indenter="cstyle" license="Apache-2.0">
+  <highlighting>
+    <list name="keywords">
+      <item>fn</item><item>let</item><item>mut</item><item>return</item><item>if</item>
+      <item>else</item><item>while</item><item>for</item><item>in</item><item>match</item>
+      <item>break</item><item>continue</item><item>struct</item><item>enum</item><item>impl</item>
+      <item>pub</item><item>import</item><item>as</item>
+    </list>
+    <list name="reserved">
+      <item>async</item><item>await</item><item>const</item><item>loop</item><item>trait</item>
+      <item>type</item><item>use</item>
+    </list>
+    <list name="types">
+      <item>i64</item><item>bool</item><item>string</item><item>void</item><item>Option</item>
+      <item>Result</item><item>List</item><item>Map</item>
+    </list>
+    <list name="constants">
+      <item>true</item><item>false</item><item>self</item><item>Some</item><item>None</item>
+      <item>Ok</item><item>Err</item>
+    </list>
+    <list name="builtins">
+      <item>print</item><item>eprint</item><item>to_string</item><item>read_line</item>
+      <item>read_file</item><item>write_file</item><item>args</item><item>env</item><item>exit</item>
+      <item>assert</item><item>assert_eq</item>
+    </list>
+    <contexts>
+      <context name="Normal" attribute="Normal Text" lineEndContext="#stay">
+        <keyword attribute="Keyword" context="#stay" String="keywords"/>
+        <keyword attribute="Error" context="#stay" String="reserved"/>
+        <keyword attribute="Data Type" context="#stay" String="types"/>
+        <keyword attribute="Constant" context="#stay" String="constants"/>
+        <keyword attribute="Builtin" context="#stay" String="builtins"/>
+        <Detect2Chars attribute="Comment" context="Comment" char="/" char1="/"/>
+        <DetectChar attribute="String" context="String" char="&quot;"/>
+        <RegExpr attribute="Decimal" context="#stay" String="\b[0-9][0-9_]*\b"/>
+        <RegExpr attribute="Type" context="#stay" String="\b[A-Z][A-Za-z0-9_]*\b"/>
+        <DetectChar attribute="Symbol" context="#stay" char="{" beginRegion="Brace"/>
+        <DetectChar attribute="Symbol" context="#stay" char="}" endRegion="Brace"/>
+      </context>
+      <context name="Comment" attribute="Comment" lineEndContext="#pop"/>
+      <context name="String" attribute="String" lineEndContext="#pop">
+        <RegExpr attribute="Escape" context="#stay" String="\\(u\{[0-9a-fA-F]{1,6}\}|[nrt0&quot;\\])"/>
+        <DetectChar attribute="String" context="#pop" char="&quot;"/>
+      </context>
+    </contexts>
+    <itemDatas>
+      <itemData name="Normal Text" defStyleNum="dsNormal"/>
+      <itemData name="Keyword" defStyleNum="dsKeyword"/>
+      <itemData name="Error" defStyleNum="dsError"/>
+      <itemData name="Data Type" defStyleNum="dsDataType"/>
+      <itemData name="Type" defStyleNum="dsDataType"/>
+      <itemData name="Constant" defStyleNum="dsConstant"/>
+      <itemData name="Builtin" defStyleNum="dsBuiltIn"/>
+      <itemData name="Comment" defStyleNum="dsComment"/>
+      <itemData name="String" defStyleNum="dsString"/>
+      <itemData name="Escape" defStyleNum="dsSpecialChar"/>
+      <itemData name="Decimal" defStyleNum="dsDecVal"/>
+      <itemData name="Symbol" defStyleNum="dsOperator"/>
+    </itemDatas>
+  </highlighting>
+  <general>
+    <comments>
+      <comment name="singleLine" start="//"/>
+    </comments>
+    <keywords casesensitive="1"/>
+  </general>
+</language>

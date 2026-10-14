@@ -7,6 +7,6 @@
   "main": "bindings/node",
   "keywords": ["tree-sitter", "brim", "parser"],
   "files": ["grammar.js", "src/**", "queries/*", "tree-sitter.json"],
-  "devDependencies": { "tree-sitter-cli": "^0.25.0" },
+  "devDependencies": { "tree-sitter-cli": "0.25.10" },
   "scripts": { "build": "tree-sitter generate", "test": "tree-sitter test" }
 }

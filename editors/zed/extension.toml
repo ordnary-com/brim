@@ -1,0 +1,16 @@
+id = "brim"
+name = "Brim"
+version = "0.1.0"
+schema_version = 1
+authors = ["Ordnary"]
+description = "Brim language support: highlighting, outline and the brim language server"
+repository = "https://github.com/ordnary-com/brim"
+
+[grammars.brim]
+repository = "https://github.com/ordnary-com/brim"
+rev = "3e572bcbe2e9e8a842ac51af238eb3ae8f594fea"
+path = "editors/tree-sitter-brim"
+
+[language_servers.brim]
+name = "Brim"
+languages = ["Brim"]

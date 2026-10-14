@@ -1,0 +1,15 @@
+[package]
+name = "zed-brim"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "Apache-2.0"
+
+# Built to WebAssembly by Zed; not part of the Brim workspace.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api = "0.7.0"

@@ -1,0 +1,21 @@
+# Add this to ~/.config/helix/languages.toml, and copy runtime/queries/brim
+# to ~/.config/helix/runtime/queries/brim. Then run
+#   hx --grammar fetch && hx --grammar build
+
+[[language]]
+name = "brim"
+scope = "source.brim"
+file-types = ["brim"]
+roots = ["brim.toml"]
+comment-token = "//"
+indent = { tab-width = 4, unit = "    " }
+language-servers = ["brim"]
+auto-format = true
+
+[language-server.brim]
+command = "brim"
+args = ["lsp"]
+
+[[grammar]]
+name = "brim"
+source = { git = "https://github.com/ordnary-com/brim", rev = "3e572bcbe2e9e8a842ac51af238eb3ae8f594fea", subpath = "editors/tree-sitter-brim" }

@@ -60,9 +60,8 @@ whole mapping.
 lists a file's declarations, and offers go to definition and hover. The
 Brim repository has:
 
-- a Visual Studio Code extension with syntax highlighting that starts the
-  language server (`editors/vscode`);
-- syntax highlighting for Vim and Neovim (`editors/vim`).
-
-Other editors can use the TextMate grammar in
-`editors/vscode/syntaxes/brim.tmLanguage.json` and start `brim lsp`.
+support for VS Code, Neovim, Vim, Helix, Zed, Emacs, Sublime Text,
+JetBrains IDEs, Kate, Kakoune, nano, micro and Notepad++ in `editors/`,
+each with its own instructions. Other editors can use the TextMate grammar
+(`editors/vscode/syntaxes/brim.tmLanguage.json`) or the tree-sitter grammar
+(`editors/tree-sitter-brim`), and start `brim lsp` from any LSP client.

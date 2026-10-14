@@ -1,0 +1,14 @@
+## Brim syntax for nano. Add `include "/path/to/brim.nanorc"` to ~/.nanorc.
+syntax brim "\.brim$"
+comment "//"
+
+color brightblue "\<(fn|let|mut|return|if|else|while|for|in|match|break|continue|struct|enum|impl|pub|import|as)\>"
+color red "\<(async|await|const|loop|trait|type|use)\>"
+color green "\<(i64|bool|string|void|Option|Result|List|Map)\>"
+color green "\<[A-Z][A-Za-z0-9_]*\>"
+color magenta "\<(true|false|self|Some|None|Ok|Err)\>"
+color cyan "\<(print|eprint|to_string|read_line|read_file|write_file|args|env|exit|assert|assert_eq)\>"
+color yellow "\<[0-9][0-9_]*\>"
+color yellow ""([^"\\]|\\.)*""
+color brightyellow "\\([nrt0"\\]|u\{[0-9a-fA-F]+\})"
+color brightblack "//.*"
