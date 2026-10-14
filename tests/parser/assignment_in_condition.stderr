@@ -1,0 +1,9 @@
+error[E0100]: expected `{` after the `if` condition, found `=`
+ --> tests/parser/assignment_in_condition.brim:3:10
+  |
+3 |     if x = 1 {
+  |          ^ assignment is not allowed here
+  |
+  = help: use `==` to compare two values
+
+error: could not compile tests/parser/assignment_in_condition.brim due to 1 error

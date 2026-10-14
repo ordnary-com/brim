@@ -1,0 +1,6 @@
+fn main() {
+    print("start")
+    else {
+        print("never")
+    }
+}

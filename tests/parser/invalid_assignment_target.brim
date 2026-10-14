@@ -1,0 +1,7 @@
+fn total() -> i64 {
+    return 1
+}
+
+fn main() {
+    total() = 5
+}

@@ -1,0 +1,18 @@
+error[E0206]: mismatched types
+ --> tests/diagnostics/condition_not_bool.brim:3:8
+  |
+3 |     if items {
+  |        ^^^^^ expected `bool`, found `i64`
+  |
+  = note: the condition of `if` must be a `bool`
+  = help: compare explicitly, for example `x != 0`
+
+error[E0206]: mismatched types
+ --> tests/diagnostics/condition_not_bool.brim:6:11
+  |
+6 |     while "forever" {
+  |           ^^^^^^^^^ expected `bool`, found `string`
+  |
+  = note: the condition of `while` must be a `bool`
+
+error: could not compile tests/diagnostics/condition_not_bool.brim due to 2 errors

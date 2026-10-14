@@ -1,0 +1,17 @@
+error[E0217]: `break` outside of a loop
+ --> tests/diagnostics/break_outside_loop.brim:4:9
+  |
+4 |         break
+  |         ^^^^^ cannot `break` here
+  |
+  = note: `break` can only be used inside a `while` loop
+
+error[E0217]: `continue` outside of a loop
+ --> tests/diagnostics/break_outside_loop.brim:6:5
+  |
+6 |     continue
+  |     ^^^^^^^^ cannot `continue` here
+  |
+  = note: `continue` can only be used inside a `while` loop
+
+error: could not compile tests/diagnostics/break_outside_loop.brim due to 2 errors

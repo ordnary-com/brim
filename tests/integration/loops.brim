@@ -1,0 +1,51 @@
+fn is_prime(n: i64) -> bool {
+    if n < 2 {
+        return false
+    }
+    let mut d: i64 = 2
+    while d * d <= n {
+        if n % d == 0 {
+            return false
+        }
+        d += 1
+    }
+    return true
+}
+
+fn main() {
+    // Primes below 50, skipping 2 with `continue`.
+    let mut n: i64 = 0
+    let mut primes: string = ""
+    while n < 50 {
+        n += 1
+        if n == 2 {
+            continue
+        }
+        if is_prime(n) {
+            primes += to_string(n) + " "
+        }
+    }
+    print(primes)
+
+    // `break` leaves only the innermost loop.
+    let mut outer: i64 = 0
+    while outer < 3 {
+        outer += 1
+        let mut inner: i64 = 0
+        while true {
+            inner += 1
+            if inner == outer {
+                break
+            }
+        }
+        print("outer " + to_string(outer) + " stopped inner at " + to_string(inner))
+    }
+
+    // Compound assignment operators.
+    let mut x: i64 = 100
+    x -= 30
+    x *= 2
+    x /= 7
+    x %= 6
+    print(x)
+}

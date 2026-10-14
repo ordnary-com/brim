@@ -1,0 +1,18 @@
+warning[W0003]: variable `greeting` is declared `mut` but never reassigned
+ --> tests/diagnostics/unneeded_mut.brim:3:13
+  |
+3 |     let mut greeting: string = "hello"
+  |             ^^^^^^^^
+  |
+  = help: remove `mut`
+
+warning[W0001]: unreachable code
+ --> tests/diagnostics/unneeded_mut.brim:7:9
+  |
+6 |         break
+  |         ----- control never continues past this
+7 |         print("unreachable")
+  |         ^^^^^^^^^^^^^^^^^^^^ this statement will never run
+
+warning: tests/diagnostics/unneeded_mut.brim generated 2 warnings
+ok: no errors found in tests/diagnostics/unneeded_mut.brim

@@ -1,0 +1,22 @@
+error[E0218]: cannot assign to immutable variable `n`
+ --> tests/diagnostics/assign_immutable.brim:2:5
+  |
+1 | fn bump(n: i64) -> i64 {
+  |         ------ declared here
+2 |     n += 1
+  |     ^ cannot be reassigned
+  |
+  = note: function parameters cannot be reassigned
+  = help: copy it into a mutable variable: `let mut n: i64 = n`
+
+error[E0218]: cannot assign to immutable variable `count`
+ --> tests/diagnostics/assign_immutable.brim:8:5
+  |
+7 |     let count: i64 = 0
+  |         ----- declared here
+8 |     count = count + 1
+  |     ^^^^^ cannot be reassigned
+  |
+  = help: make it mutable: `let mut count`
+
+error: could not compile tests/diagnostics/assign_immutable.brim due to 2 errors

@@ -1,0 +1,9 @@
+// exit: 0
+fn main() {
+    let mut greeting: string = "hello"
+    print(greeting)
+    while true {
+        break
+        print("unreachable")
+    }
+}

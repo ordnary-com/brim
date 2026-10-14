@@ -1,0 +1,51 @@
+// Conditionals, loops and mutable variables.
+
+fn fizzbuzz(n: i64) -> string {
+    if n % 15 == 0 {
+        return "FizzBuzz"
+    } else if n % 3 == 0 {
+        return "Fizz"
+    } else if n % 5 == 0 {
+        return "Buzz"
+    }
+    return to_string(n)
+}
+
+fn is_prime(n: i64) -> bool {
+    if n < 2 {
+        return false
+    }
+    let mut divisor: i64 = 2
+    while divisor * divisor <= n {
+        if n % divisor == 0 {
+            return false
+        }
+        divisor += 1
+    }
+    return true
+}
+
+fn main() {
+    let mut i: i64 = 1
+    while i <= 15 {
+        print(fizzbuzz(i))
+        i += 1
+    }
+
+    // Collect the first ten primes; `break` stops the loop early.
+    let mut found: i64 = 0
+    let mut candidate: i64 = 1
+    let mut primes: string = "primes:"
+    while true {
+        candidate += 1
+        if !is_prime(candidate) {
+            continue
+        }
+        primes += " " + to_string(candidate)
+        found += 1
+        if found == 10 {
+            break
+        }
+    }
+    print(primes)
+}

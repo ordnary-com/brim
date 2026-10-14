@@ -1,0 +1,8 @@
+fn main() {
+    let items: i64 = 3
+    if items {
+        print("has items")
+    }
+    while "forever" {
+    }
+}

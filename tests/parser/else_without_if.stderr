@@ -1,0 +1,9 @@
+error[E0100]: `else` without a preceding `if`
+ --> tests/parser/else_without_if.brim:3:5
+  |
+3 |     else {
+  |     ^^^^
+  |
+  = note: `else` must directly follow the closing `}` of an `if` block
+
+error: could not compile tests/parser/else_without_if.brim due to 1 error

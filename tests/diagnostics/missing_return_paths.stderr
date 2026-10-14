@@ -1,0 +1,10 @@
+error[E0207]: function `sign` may end without returning a value
+ --> tests/diagnostics/missing_return_paths.brim:7:1
+  |
+1 | fn sign(n: i64) -> i64 {
+  |                    --- `i64` must be returned
+...
+7 | }
+  | ^ missing `return` before the end of the function
+
+error: could not compile tests/diagnostics/missing_return_paths.brim due to 1 error

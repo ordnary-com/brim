@@ -1,0 +1,50 @@
+fn describe(n: i64) -> string {
+    let mut parts: string = to_string(n) + " is"
+    if n < 0 {
+        parts += " negative"
+    } else if n == 0 {
+        parts += " zero"
+    } else {
+        parts += " positive"
+    }
+    if n % 2 == 0 {
+        parts += " and even"
+    }
+    return parts
+}
+
+fn max(a: i64, b: i64) -> i64 {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+fn forever_returns() -> i64 {
+    // `while true` without `break` counts as never ending.
+    let mut i: i64 = 0
+    while true {
+        i += 1
+        if i == 7 {
+            return i
+        }
+    }
+}
+
+fn main() {
+    print(describe(-3))
+    print(describe(0))
+    print(describe(8))
+    print(max(4, 9))
+    print(forever_returns())
+    let flag: bool = max(1, 2) == 2
+    if flag
+    {
+        print("braces may start on the next line")
+    }
+    else
+    {
+        print("not printed")
+    }
+    print(to_string(flag) + "!")
+}

@@ -1,0 +1,10 @@
+fn bump(n: i64) -> i64 {
+    n += 1
+    return n
+}
+
+fn main() {
+    let count: i64 = 0
+    count = count + 1
+    print(bump(count))
+}

@@ -1,0 +1,7 @@
+error[E0100]: expected `{` after the `while` condition, found identifier `print`
+ --> tests/parser/missing_braces.brim:3:17
+  |
+3 |     while ready print("waiting")
+  |                 ^^^^^ expected `{` after the `while` condition
+
+error: could not compile tests/parser/missing_braces.brim due to 1 error
