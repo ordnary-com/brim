@@ -4,9 +4,6 @@ stderr: careful
 code 7, success false
 stdout: 
 stderr: 
-code 137, success false
-stdout: 
-stderr: 
 error: cannot run "brim-no-such-program": not found
 error: cannot run "sh": output is not valid UTF-8
 code 0, success true

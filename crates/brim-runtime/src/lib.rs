@@ -383,6 +383,14 @@ pub fn process_run(
 mod tests {
     use super::*;
 
+    // A signal's exit code is Unix-only (the fixture runs on Windows too).
+    #[cfg(unix)]
+    #[test]
+    fn process_stopped_by_a_signal() {
+        let out = process_run(std::path::Path::new("."), "sh", &["-c", "kill -9 $$"]).unwrap();
+        assert_eq!(out.code, 137);
+    }
+
     #[test]
     fn printing() {
         let mut out = Vec::new();

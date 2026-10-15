@@ -15,7 +15,6 @@ fn show(result: Result[process.Output, string]) {
 fn main() {
     show(process.run("sh", ["-c", "echo hello; echo careful >&2"]))
     show(process.run("sh", ["-c", "exit 7"]))
-    show(process.run("sh", ["-c", "kill -9 $$"]))
     show(process.run("brim-no-such-program", ["x"]))
     show(process.run("sh", ["-c", "printf '\\377'"]))
 
