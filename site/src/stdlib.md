@@ -436,6 +436,32 @@ fn age_next_year(text: string) -> Result[i64, string] {
 `examples/http/notes.brim` combines `std.http` and `std.json` into a small
 JSON API.
 
+## Time and logging: std.time, std.log
+
+```brim
+import std.log
+import std.time
+
+fn main() {
+    let start: i64 = time.millis()
+    print(time.now().iso())
+    print(time.from_unix_seconds(0).http_date())
+    time.sleep(10)
+    log.info("took " + to_string(time.millis() - start) + " ms")
+}
+```
+
+| | |
+|---|---|
+| `time.now()` | the current `Time`, from the system clock, in UTC |
+| `time.from_unix_millis(ms)`, `time.from_unix_seconds(s)` | a `Time` |
+| `t.iso()`, `t.date()`, `t.http_date()` | `2026-10-15T08:30:01.123Z`, `2026-10-15`, `Thu, 15 Oct 2026 08:30:01 GMT` |
+| `t.parts()` | `year`, `month`, `day`, `hour`, `minute`, `second`, `millisecond`, `weekday` (1 is Monday) |
+| `t.unix_seconds()`, `t.add_millis(n)`, `t.add_seconds(n)` | |
+| `time.millis()` | milliseconds on a clock that only moves forward, for durations |
+| `time.sleep(ms)` | waits |
+| `log.info(m)`, `log.warn(m)`, `log.error(m)` | `2026-10-15T08:30:01.123Z INFO m` on standard error |
+
 ## Tests
 
 | Function | |

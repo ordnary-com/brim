@@ -1,0 +1,159 @@
+// Time: the current date and time in UTC, measuring durations, and
+// waiting.
+//
+//   import std.time
+//
+//   print(time.now().iso())          // 2026-10-15T08:30:01.123Z
+//   let start: i64 = time.millis()
+//   time.sleep(250)
+//   print(time.millis() - start)     // about 250
+
+// A moment, as milliseconds since 1970-01-01T00:00:00Z.
+pub struct Time {
+    unix_millis: i64,
+}
+
+// The parts of a moment in UTC.
+pub struct DateTime {
+    year: i64,
+    // 1 to 12.
+    month: i64,
+    // 1 to 31.
+    day: i64,
+    hour: i64,
+    minute: i64,
+    second: i64,
+    millisecond: i64,
+    // 1 (Monday) to 7 (Sunday).
+    weekday: i64,
+}
+
+// The current time, from the system clock.
+pub fn now() -> Time {
+    return Time { unix_millis: __time_now_millis() }
+}
+
+pub fn from_unix_millis(millis: i64) -> Time {
+    return Time { unix_millis: millis }
+}
+
+pub fn from_unix_seconds(seconds: i64) -> Time {
+    return Time { unix_millis: seconds * 1000 }
+}
+
+// Milliseconds on a clock that only moves forward, for measuring how long
+// something takes. Unlike `now`, it does not jump when the system clock is
+// set.
+pub fn millis() -> i64 {
+    return __time_monotonic_millis()
+}
+
+// Waits this many milliseconds.
+pub fn sleep(millis: i64) {
+    __time_sleep_millis(millis)
+}
+
+impl Time {
+    pub fn unix_seconds(self) -> i64 {
+        return floor_div(self.unix_millis, 1000)
+    }
+
+    pub fn add_millis(self, millis: i64) -> Time {
+        return Time { unix_millis: self.unix_millis + millis }
+    }
+
+    pub fn add_seconds(self, seconds: i64) -> Time {
+        return Time { unix_millis: self.unix_millis + seconds * 1000 }
+    }
+
+    // The year, month, day and so on, in UTC.
+    pub fn parts(self) -> DateTime {
+        let days: i64 = floor_div(self.unix_millis, 86400000)
+        let in_day: i64 = self.unix_millis - days * 86400000
+        // Howard Hinnant's civil_from_days.
+        let z: i64 = days + 719468
+        let era: i64 = floor_div(z, 146097)
+        let doe: i64 = z - era * 146097
+        let yoe: i64 = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+        let doy: i64 = doe - (365 * yoe + yoe / 4 - yoe / 100)
+        let mp: i64 = (5 * doy + 2) / 153
+        let day: i64 = doy - (153 * mp + 2) / 5 + 1
+        let mut month: i64 = mp + 3
+        if mp >= 10 {
+            month = mp - 9
+        }
+        let mut year: i64 = yoe + era * 400
+        if month <= 2 {
+            year += 1
+        }
+        return DateTime {
+            year: year,
+            month: month,
+            day: day,
+            hour: in_day / 3600000,
+            minute: in_day / 60000 % 60,
+            second: in_day / 1000 % 60,
+            millisecond: in_day % 1000,
+            weekday: floor_mod(days + 3, 7) + 1,
+        }
+    }
+
+    // The date, as in `2026-10-15`.
+    pub fn date(self) -> string {
+        let p: DateTime = self.parts()
+        return pad(p.year, 4) + "-" + pad(p.month, 2) + "-" + pad(p.day, 2)
+    }
+
+    // ISO 8601 in UTC, with milliseconds: `2026-10-15T08:30:01.123Z`.
+    pub fn iso(self) -> string {
+        let p: DateTime = self.parts()
+        return self.date() + "T" + pad(p.hour, 2) + ":" + pad(p.minute, 2) + ":" + pad(p.second, 2) + "." + pad(p.millisecond, 3) + "Z"
+    }
+
+    // The format of HTTP headers: `Thu, 15 Oct 2026 08:30:01 GMT`.
+    pub fn http_date(self) -> string {
+        let p: DateTime = self.parts()
+        let days: List[string] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        let months: List[string] = [
+            "Jan",
+            "Feb",
+            "Mar",
+            "Apr",
+            "May",
+            "Jun",
+            "Jul",
+            "Aug",
+            "Sep",
+            "Oct",
+            "Nov",
+            "Dec",
+        ]
+        return days[p.weekday - 1] + ", " + pad(p.day, 2) + " " + months[p.month - 1] + " " + pad(p.year, 4) + " " + pad(p.hour, 2) + ":" + pad(p.minute, 2) + ":" + pad(p.second, 2) + " GMT"
+    }
+}
+
+// `n` with leading zeros to `width` digits.
+fn pad(n: i64, width: i64) -> string {
+    let mut text: string = to_string(n)
+    let mut sign: string = ""
+    if n < 0 {
+        sign = "-"
+        text = text.slice(1, text.len())
+    }
+    while text.len() < width {
+        text = "0" + text
+    }
+    return sign + text
+}
+
+fn floor_div(a: i64, b: i64) -> i64 {
+    let q: i64 = a / b
+    if a % b != 0 && (a < 0) != (b < 0) {
+        return q - 1
+    }
+    return q
+}
+
+fn floor_mod(a: i64, b: i64) -> i64 {
+    return a - floor_div(a, b) * b
+}

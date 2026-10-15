@@ -1,0 +1,17 @@
+// std.time: dates in UTC, from known moments, and the monotonic clock.
+import std.time
+
+fn main() {
+    for ms in [0, 951782400000, 1709251199999, -1, -62135596800000, 253402300799999, 1792022401123] {
+        let t: time.Time = time.from_unix_millis(ms)
+        let p: time.DateTime = t.parts()
+        print(t.iso() + " day " + to_string(p.weekday) + " | " + t.http_date() + " | " + t.date())
+    }
+    print(time.from_unix_seconds(86400).add_seconds(-1).iso())
+    print(time.from_unix_millis(-1500).unix_seconds())
+    let start: i64 = time.millis()
+    time.sleep(50)
+    let elapsed: i64 = time.millis() - start
+    print(elapsed >= 50 && elapsed < 5000)
+    print(time.now().unix_seconds() > 1700000000)
+}

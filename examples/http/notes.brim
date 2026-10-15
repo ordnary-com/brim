@@ -7,6 +7,8 @@
 //   curl -X DELETE localhost:8080/notes/1
 import std.http
 import std.json
+import std.log
+import std.time
 
 struct Notes {
     texts: Map[i64, string],
@@ -99,12 +101,14 @@ fn error(status: i64, message: string) -> http.Response {
 fn serve(port: i64) -> Result[i64, string] {
     let server: http.Server = http.serve("127.0.0.1", port)?
     print("listening on http://127.0.0.1:" + to_string(server.port()))
+    log.info("notes service started")
     let mut notes: Notes = Notes { texts: [:], next_id: 1 }
     while true {
         let request: http.Request = server.next()?
+        let start: i64 = time.millis()
         let response: http.Response = notes.handle(request)
-        eprint(request.method + " " + request.path + " " + to_string(response.status))
         request.respond(response)?
+        log.info(request.method + " " + request.path + " " + to_string(response.status) + " in " + to_string(time.millis() - start) + " ms")
     }
 }
 
@@ -122,7 +126,7 @@ fn main() {
     match serve(port) {
         Ok(_) => {}
         Err(e) => {
-            eprint("error: " + e)
+            log.error(e)
             exit(1)
         }
     }

@@ -43,6 +43,7 @@
 #include <signal.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 typedef struct BrimStr {
@@ -1852,6 +1853,37 @@ int brim_rt_internal_valid_utf8(const char *data, int64_t len) {
 
 char *brim_rt_internal_c_string(const BrimStr *s) {
     return c_string(s);
+}
+
+/* ---- time (std.time) ------------------------------------------------------- */
+
+int64_t brim_rt_time_now_millis(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_REALTIME, &t);
+    return (int64_t)t.tv_sec * 1000 + (int64_t)(t.tv_nsec / 1000000);
+}
+
+int64_t brim_rt_time_monotonic_millis(void) {
+    static int64_t start = -1;
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    int64_t now = (int64_t)t.tv_sec * 1000 + (int64_t)(t.tv_nsec / 1000000);
+    if (start < 0) {
+        start = now;
+    }
+    return now - start;
+}
+
+void brim_rt_time_sleep_millis(int64_t millis) {
+    fflush(stdout);
+    if (millis <= 0) {
+        return;
+    }
+    struct timespec t;
+    t.tv_sec = (time_t)(millis / 1000);
+    t.tv_nsec = (long)((millis % 1000) * 1000000);
+    while (nanosleep(&t, &t) != 0 && errno == EINTR) {
+    }
 }
 
 /* ---- process entry ------------------------------------------------------- */

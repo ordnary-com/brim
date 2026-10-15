@@ -14,7 +14,9 @@ use brim_semantic::ModuleAst;
 pub const STD_MODULES: &[(&str, &str)] = &[
     ("std.http", include_str!("../std/http.brim")),
     ("std.json", include_str!("../std/json.brim")),
+    ("std.log", include_str!("../std/log.brim")),
     ("std.net", include_str!("../std/net.brim")),
+    ("std.time", include_str!("../std/time.brim")),
 ];
 
 /// The source of a standard library module.

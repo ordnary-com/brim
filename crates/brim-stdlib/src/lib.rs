@@ -301,6 +301,33 @@ pub const BUILTINS: &[Builtin] = &[
         }],
     },
     Builtin {
+        name: "__time_now_millis",
+        summary: "std.time: the wall clock in milliseconds.",
+        overloads: &[Overload {
+            params: &[],
+            ret: Prim::I64,
+            runtime: RuntimeFn::TimeNowMillis,
+        }],
+    },
+    Builtin {
+        name: "__time_monotonic_millis",
+        summary: "std.time: a monotonic clock in milliseconds.",
+        overloads: &[Overload {
+            params: &[],
+            ret: Prim::I64,
+            runtime: RuntimeFn::TimeMonotonicMillis,
+        }],
+    },
+    Builtin {
+        name: "__time_sleep_millis",
+        summary: "std.time: wait some milliseconds.",
+        overloads: &[Overload {
+            params: &[Prim::I64],
+            ret: Prim::Void,
+            runtime: RuntimeFn::TimeSleepMillis,
+        }],
+    },
+    Builtin {
         name: "__net_set_timeout",
         summary: "std.net: set a read and write timeout.",
         overloads: &[Overload {

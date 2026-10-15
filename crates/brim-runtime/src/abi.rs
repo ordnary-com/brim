@@ -198,6 +198,12 @@ runtime_fns! {
     CharFromCode = "brim_rt_char_from_code" (I64) -> Str;
     /// The code point of the first character of a string; -1 if empty.
     CharCode = "brim_rt_char_code" (Str) -> I64;
+    /// Milliseconds since 1970-01-01T00:00:00Z (the wall clock).
+    TimeNowMillis = "brim_rt_time_now_millis" () -> I64;
+    /// Milliseconds on a clock that never goes back, for durations.
+    TimeMonotonicMillis = "brim_rt_time_monotonic_millis" () -> I64;
+    /// Waits this many milliseconds.
+    TimeSleepMillis = "brim_rt_time_sleep_millis" (I64) -> Void;
     /// An HTTP request through libcurl, for `https://` URLs: method, URL,
     /// header lines (`name: value\r\n` each), body and a timeout in
     /// milliseconds. Returns the status code, the response's header lines

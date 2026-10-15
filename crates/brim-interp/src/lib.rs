@@ -835,6 +835,25 @@ fn call_runtime(
                 }
             }
         }
+        RuntimeFn::TimeNowMillis => Some(Value::I64(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX)),
+        )),
+        RuntimeFn::TimeMonotonicMillis => {
+            static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+            let start = START.get_or_init(std::time::Instant::now);
+            Some(Value::I64(
+                i64::try_from(start.elapsed().as_millis()).unwrap_or(i64::MAX),
+            ))
+        }
+        RuntimeFn::TimeSleepMillis => {
+            let _ = state.host.out.flush();
+            if let Ok(ms) = u64::try_from(args[0].i64()) {
+                std::thread::sleep(std::time::Duration::from_millis(ms));
+            }
+            None
+        }
         RuntimeFn::UrlEncode => str_value(BrimStr::from(brim_runtime::net::url_encode(s(0)))),
         RuntimeFn::Exit => unreachable!("handled by the interpreter loop"),
         RuntimeFn::Assert => {
