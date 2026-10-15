@@ -181,5 +181,16 @@ pub fn check_tests(modules: &[ModuleAst]) -> (Option<CheckedProgram>, Vec<Diagno
     checker::Checker::check(modules, true)
 }
 
+/// Checks a program for an editor: the diagnostics, and an index of what
+/// names refer to, the types of expressions and the members of types. The
+/// index is there also when the program has errors.
+pub fn index_modules(
+    modules: &[ModuleAst],
+    tests: bool,
+) -> (checked::EditorIndex, Vec<Diagnostic>) {
+    let (_, diags, index) = checker::Checker::check_program(modules, tests, true);
+    (index.unwrap_or_default(), diags)
+}
+
 #[cfg(test)]
 mod tests;

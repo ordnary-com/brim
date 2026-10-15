@@ -450,6 +450,12 @@ impl<'a> Checker<'a> {
             }
         }
         let index = self.variant_index(e, variant)?;
+        if let Some(decl) = self.enums[e.0].variants[index].name_span {
+            self.note_ref(variant.span, decl);
+        }
+        if let (Some(name), Some(decl)) = (enum_name, self.enums[e.0].name_span) {
+            self.note_ref(name.span, decl);
+        }
         let fields = self.enums[e.0].variants[index].fields.clone();
         let field_types = fields
             .into_iter()

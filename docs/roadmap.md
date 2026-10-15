@@ -76,7 +76,7 @@ Still open from this phase: debug information, Windows, cross-compilation, and l
 
 ## Phase 7: Editor support and production readiness (done, first version)
 
-- **Done:** a language server, `brim lsp`: diagnostics for every file of the program, formatting, outline, go to definition and hover. Completion is still open.
+- **Done:** a language server, `brim lsp`: diagnostics for every file of the program, formatting, outline, go to definition and hover; completion (names, `module.` and the members of a value's type), find references, rename, signature help and quick fixes from the diagnostics.
 - **Done:** editor support for VS Code, Neovim, Vim, Helix, Zed, Emacs, Sublime Text, JetBrains IDEs, Kate, Kakoune, nano, micro and Notepad++ (`editors/`), with a tree-sitter grammar and a TextMate grammar.
 - **Done:** stability rules per edition, a release process and release binaries for Linux, macOS and Windows (`docs/releasing.md`).
 - **Done:** fuzzing: a mutation fuzzer in the test suite (frontend, formatter, interpreter) and cargo-fuzz targets run weekly.

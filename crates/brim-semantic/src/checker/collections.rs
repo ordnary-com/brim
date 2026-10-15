@@ -58,7 +58,7 @@ fn map_method(name: &str) -> Option<(MapOp, Vec<Type>)> {
     })
 }
 
-const MAP_METHODS: &[&str] = &[
+pub(super) const MAP_METHODS: &[&str] = &[
     "len",
     "is_empty",
     "get",
@@ -70,7 +70,7 @@ const MAP_METHODS: &[&str] = &[
     "clear",
 ];
 
-const SET_METHODS: &[&str] = &[
+pub(super) const SET_METHODS: &[&str] = &[
     "add",
     "remove",
     "contains",
@@ -84,7 +84,7 @@ const SET_METHODS: &[&str] = &[
     "is_subset",
 ];
 
-const LIST_METHODS: &[&str] = &[
+pub(super) const LIST_METHODS: &[&str] = &[
     "len",
     "is_empty",
     "get",

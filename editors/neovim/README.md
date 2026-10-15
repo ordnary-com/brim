@@ -1,7 +1,8 @@
 # Brim for Neovim
 
 Highlighting with tree-sitter, and the language server `brim lsp`
-(diagnostics, formatting, symbols, go to definition, hover).
+(diagnostics, completion, go to definition, references, rename, hover,
+signature help, quick fixes, formatting and symbols).
 
 With [lazy.nvim](https://github.com/folke/lazy.nvim):
 

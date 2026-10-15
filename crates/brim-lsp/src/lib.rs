@@ -8,12 +8,18 @@
 //! - formatting (`brim fmt`);
 //! - an outline of each file (document symbols);
 //! - go to definition and hover for variables, parameters, functions,
-//!   types, fields, variants, methods and modules.
+//!   types, fields, variants, methods and modules;
+//! - completion of names, of a module's items after `module.`, and of the
+//!   fields and methods of a value's type after `value.`;
+//! - find references and rename;
+//! - signature help in calls;
+//! - quick fixes for diagnostics whose help says what to write.
 //!
 //! Documents are synchronised in full on every change; Brim files are
 //! small, and the whole program is checked again anyway.
 
 mod analysis;
+mod features;
 mod protocol;
 
 use std::collections::{HashMap, HashSet};
@@ -88,6 +94,11 @@ impl Server {
                     "documentSymbolProvider": true,
                     "definitionProvider": true,
                     "hoverProvider": true,
+                    "completionProvider": { "triggerCharacters": ["."] },
+                    "referencesProvider": true,
+                    "renameProvider": { "prepareProvider": true },
+                    "signatureHelpProvider": { "triggerCharacters": ["(", ","] },
+                    "codeActionProvider": { "codeActionKinds": ["quickfix"] },
                 },
                 "serverInfo": { "name": "brim", "version": env!("CARGO_PKG_VERSION") },
             })),
@@ -99,6 +110,12 @@ impl Server {
             "textDocument/documentSymbol" => self.document_symbols(params),
             "textDocument/definition" => self.definition(params),
             "textDocument/hover" => self.hover(params),
+            "textDocument/completion" => self.completion(params),
+            "textDocument/references" => self.references(params),
+            "textDocument/prepareRename" => self.prepare_rename(params),
+            "textDocument/rename" => self.rename(params),
+            "textDocument/signatureHelp" => self.signature_help(params),
+            "textDocument/codeAction" => Ok(code_actions(params)),
             _ => Err((-32601, format!("unsupported method `{method}`"))),
         }
     }
@@ -154,7 +171,29 @@ impl Server {
                 Some(span) => {
                     let (file, base, index) = map.locate(span.start);
                     let range = range(file.text(), span.start - base, span.end - base);
-                    (index, lsp_diagnostic(diag, range))
+                    let mut value = lsp_diagnostic(diag, range);
+                    let fixes: Vec<Value> = features::fixes(diag, &analysis)
+                        .into_iter()
+                        .map(|fix| {
+                            let edits: Vec<Value> = fix["edits"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .map(|e| {
+                                    let at = |k: &str| e[k].as_u64().unwrap_or(0) as usize;
+                                    json!({
+                                        "range": protocol::range(file.text(), at("start"), at("end")),
+                                        "newText": e["text"],
+                                    })
+                                })
+                                .collect();
+                            json!({ "title": fix["title"], "edits": edits })
+                        })
+                        .collect();
+                    if !fixes.is_empty() {
+                        value["data"] = json!({ "fixes": fixes });
+                    }
+                    (index, value)
                 }
                 None => (0, lsp_diagnostic(diag, range("", 0, 0))),
             };
@@ -231,7 +270,37 @@ impl Server {
         Ok((analysis, found))
     }
 
+    /// The analysis of a request's document, the module and the global
+    /// offset of its position.
+    fn position(&self, params: &Value) -> Result<(Analysis, usize, usize), (i64, String)> {
+        let (_, analysis, index) = self.document(params)?;
+        let file = &analysis.map().files()[index];
+        let at = analysis.map().base(index) + offset(file.text(), &params["position"]);
+        Ok((analysis, index, at))
+    }
+
+    fn location(&self, analysis: &Analysis, span: brim_diagnostics::Span) -> Value {
+        let (file, base, _) = analysis.map().locate(span.start);
+        json!({
+            "uri": self.uri(Path::new(file.name())),
+            "range": range(file.text(), span.start - base, span.end - base),
+        })
+    }
+
     fn definition(&self, params: &Value) -> RequestResult {
+        let (analysis, module, at) = self.position(params)?;
+        // The checker knows what a name refers to; the syntax index is the
+        // fallback while the program has errors.
+        if let Some(decl) = analysis
+            .index
+            .refs
+            .iter()
+            .find(|(u, _)| u.start <= at && at <= u.end)
+            .map(|(_, d)| *d)
+        {
+            return Ok(json!([self.location(&analysis, decl)]));
+        }
+        let _ = module;
         let (analysis, found) = self.declarations_at(params)?;
         let locations: Vec<Value> = found
             .iter()
@@ -247,16 +316,142 @@ impl Server {
     }
 
     fn hover(&self, params: &Value) -> RequestResult {
-        let (_, found) = self.declarations_at(params)?;
+        let (analysis, found) = self.declarations_at(params)?;
         let Some(first) = found.first() else {
             return Ok(Value::Null);
         };
-        let mut text = format!("```brim\n{}\n```", first.detail);
+        let mut detail = first.detail.clone();
+        // `let x = 5`: the type the checker inferred.
+        if detail.starts_with("let ")
+            && !detail.contains(':')
+            && let Some(ty) = analysis
+                .index
+                .types
+                .iter()
+                .find(|(s, _)| *s == first.span)
+                .and_then(|(_, t)| analysis.index.type_text.get(t))
+        {
+            detail = format!("{detail}: {ty}");
+        }
+        let mut text = format!("```brim\n{detail}\n```");
         if found.len() > 1 {
             text.push_str(&format!("\n\n{} more declarations", found.len() - 1));
         }
         Ok(json!({ "contents": { "kind": "markdown", "value": text } }))
     }
+}
+
+impl Server {
+    fn completion(&self, params: &Value) -> RequestResult {
+        let uri = params["textDocument"]["uri"].as_str().unwrap_or_default();
+        let path = uri_to_path(uri).ok_or((-32602, format!("not a file URI: {uri}")))?;
+        let text = self
+            .open
+            .get(&path)
+            .cloned()
+            .or_else(|| std::fs::read_to_string(&path).ok())
+            .unwrap_or_default();
+        let at = offset(&text, &params["position"]);
+        Ok(features::completion(&path, &self.open, at))
+    }
+
+    fn references(&self, params: &Value) -> RequestResult {
+        let (analysis, module, at) = self.position(params)?;
+        let Some(decl) = analysis.target(module, at) else {
+            return Ok(json!([]));
+        };
+        let with_decl = params["context"]["includeDeclaration"]
+            .as_bool()
+            .unwrap_or(true);
+        let spans: Vec<Value> = analysis
+            .references(decl)
+            .into_iter()
+            .filter(|s| with_decl || *s != decl)
+            .map(|s| self.location(&analysis, s))
+            .collect();
+        Ok(Value::Array(spans))
+    }
+
+    fn prepare_rename(&self, params: &Value) -> RequestResult {
+        let (analysis, module, at) = self.position(params)?;
+        if analysis.target(module, at).is_none() {
+            return Ok(Value::Null);
+        }
+        let file = &analysis.map().files()[module];
+        let base = analysis.map().base(module);
+        let (tokens, _) = brim_lexer::lex(file.text());
+        let local = at - base;
+        Ok(tokens
+            .iter()
+            .find(|t| {
+                t.span.start <= local
+                    && local <= t.span.end
+                    && matches!(t.kind, brim_lexer::TokenKind::Ident(_))
+            })
+            .map_or(Value::Null, |t| {
+                range(file.text(), t.span.start, t.span.end)
+            }))
+    }
+
+    fn rename(&self, params: &Value) -> RequestResult {
+        let (analysis, module, at) = self.position(params)?;
+        let new_name = params["newName"].as_str().unwrap_or_default();
+        let Some(decl) = analysis.target(module, at) else {
+            return Err((-32602, "there is nothing to rename here".into()));
+        };
+        let edits = features::rename_edits(&analysis, decl, new_name).map_err(|e| (-32602, e))?;
+        let mut changes = serde_json::Map::new();
+        for (file_name, spans) in edits {
+            let Some(file) = analysis
+                .map()
+                .files()
+                .iter()
+                .find(|f| f.name() == file_name)
+            else {
+                continue;
+            };
+            let list: Vec<Value> = spans
+                .iter()
+                .map(|(s, e)| json!({ "range": range(file.text(), *s, *e), "newText": new_name }))
+                .collect();
+            changes.insert(self.uri(Path::new(&file_name)), Value::Array(list));
+        }
+        Ok(json!({ "changes": changes }))
+    }
+
+    fn signature_help(&self, params: &Value) -> RequestResult {
+        let (analysis, module, at) = self.position(params)?;
+        let base = analysis.map().base(module);
+        Ok(features::signature_help(&analysis, module, at - base))
+    }
+}
+
+/// Quick fixes for the diagnostics of a `codeAction` request, from the
+/// fixes the published diagnostics carry.
+fn code_actions(params: &Value) -> Value {
+    let uri = params["textDocument"]["uri"].clone();
+    let mut actions = Vec::new();
+    for diag in params["context"]["diagnostics"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        for fix in diag["data"]["fixes"].as_array().into_iter().flatten() {
+            let mut changes = serde_json::Map::new();
+            changes.insert(
+                uri.as_str().unwrap_or_default().to_string(),
+                fix["edits"].clone(),
+            );
+            actions.push(json!({
+                "title": fix["title"],
+                "kind": "quickfix",
+                "diagnostics": [diag],
+                "isPreferred": true,
+                "edit": { "changes": changes },
+            }));
+        }
+    }
+    Value::Array(actions)
 }
 
 fn publish(uri: &str, diagnostics: Vec<Value>) -> Value {

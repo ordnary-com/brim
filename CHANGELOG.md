@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- The language server completes names, a module's items after `module.` and the fields and methods of a value's type after `value.`; finds references; renames across files; shows signature help in calls; offers quick fixes for diagnostics whose help says what to write (a similar name, `let mut`, a missing import, `2.0`); and shows inferred types on hover. It uses a new index from the checker (`brim_semantic::index_modules`) of what every name refers to, which is there also for programs with errors.
+
 ## [0.4.0] - 2026-10-15
 
 ### Added

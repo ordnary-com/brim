@@ -88,8 +88,11 @@ generated client.
 
 ## Editors
 
-`brim lsp` is a language server: it shows errors as you type, formats,
-lists a file's declarations, and offers go to definition and hover. The
+`brim lsp` is a language server: it shows errors as you type, completes
+names (after `value.` the fields and methods of the value's type), goes to
+definitions, finds references, renames across files, shows signatures
+while you type a call, offers quick fixes for errors that say what to
+write, formats, lists a file's declarations and shows types on hover. The
 Brim repository has:
 
 support for VS Code, Neovim, Vim, Helix, Zed, Emacs, Sublime Text,

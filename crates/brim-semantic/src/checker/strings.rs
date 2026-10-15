@@ -67,7 +67,7 @@ fn str_method(name: &str) -> Option<(StrMethod, &'static [Type], Ret)> {
     })
 }
 
-const STR_METHODS: &[&str] = &[
+pub(super) const STR_METHODS: &[&str] = &[
     "len",
     "is_empty",
     "contains",

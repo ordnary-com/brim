@@ -2,6 +2,7 @@ mod branches;
 mod collections;
 mod consts;
 mod decls;
+mod editor;
 mod exprs;
 mod matching;
 mod strings;
@@ -61,6 +62,7 @@ struct StructInfo {
 
 struct FieldInfo {
     name: String,
+    name_span: Span,
     ty: Type,
     /// Declared with `pub`: usable outside the struct's module.
     public: bool,
@@ -83,6 +85,8 @@ struct VariantInfo {
     name: String,
     fields: Vec<Type>,
     span: Option<Span>,
+    /// The span of the name, for the built-in enums none.
+    name_span: Option<Span>,
 }
 
 pub(crate) struct Checker<'a> {
@@ -116,6 +120,8 @@ pub(crate) struct Checker<'a> {
     trait_by_name: HashMap<String, traits::TraitId>,
     /// Which types implement which traits.
     trait_impls: std::collections::HashSet<(traits::TraitId, Def)>,
+    /// What an editor needs, when checking for one (`index_modules`).
+    index: Option<crate::checked::EditorIndex>,
     /// Modules whose `pub fn`s are served with `serve_api`.
     api_modules: std::collections::BTreeSet<usize>,
     /// The bounds of the type parameters in scope.
@@ -255,6 +261,20 @@ impl<'a> Checker<'a> {
         modules: &'a [ModuleAst],
         tests: bool,
     ) -> (Option<CheckedProgram>, Vec<Diagnostic>) {
+        let (program, diags, _) = Self::check_program(modules, tests, false);
+        (program, diags)
+    }
+
+    /// Checks the program; with `editor`, also gathers an [`EditorIndex`].
+    pub(crate) fn check_program(
+        modules: &'a [ModuleAst],
+        tests: bool,
+        editor: bool,
+    ) -> (
+        Option<CheckedProgram>,
+        Vec<Diagnostic>,
+        Option<crate::checked::EditorIndex>,
+    ) {
         let mut checker = Checker {
             diags: Vec::new(),
             types: TypeTable::default(),
@@ -272,6 +292,7 @@ impl<'a> Checker<'a> {
             trait_by_name: traits::builtin_trait_names(),
             trait_impls: std::collections::HashSet::new(),
             api_modules: std::collections::BTreeSet::new(),
+            index: editor.then(Default::default),
             type_bounds: Vec::new(),
             consts: Vec::new(),
             type_params: Vec::new(),
@@ -396,11 +417,12 @@ impl<'a> Checker<'a> {
         );
 
         let api = checker.api_functions();
+        let index = checker.finish_index();
         let mut diags = checker.diags;
         // Source order; diagnostics without a location go last.
         diags.sort_by_key(|d| d.span().map_or(usize::MAX, |s| s.start));
         if has_errors(&diags) {
-            return (None, diags);
+            return (None, diags, index);
         }
         let structs = checker
             .structs
@@ -463,6 +485,7 @@ impl<'a> Checker<'a> {
                 methods: checker.methods,
             }),
             diags,
+            index,
         )
     }
 
@@ -1257,6 +1280,7 @@ impl<'a> Checker<'a> {
                 .with_help("use a different name, or declare it inside a nested block"),
             );
         }
+        self.note_type(name.span, ty);
         ctx.locals.push(Local {
             name: name.name.clone(),
             ty,

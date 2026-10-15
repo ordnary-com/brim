@@ -56,6 +56,17 @@ impl<'a> Checker<'a> {
         expected: Option<Type>,
         ctx: &mut FnCtx,
     ) -> CheckedExpr {
+        let checked = self.check_expr_kind(expr, expected, ctx);
+        self.note_expr(expr, &checked, ctx);
+        checked
+    }
+
+    fn check_expr_kind(
+        &mut self,
+        expr: &ast::Expr,
+        expected: Option<Type>,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
         let span = expr.span;
         let (kind, ty) = match &expr.kind {
             ast::ExprKind::Float(bits) => (CheckedExprKind::Float(*bits), Type::F64),

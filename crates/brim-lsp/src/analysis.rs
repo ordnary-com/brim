@@ -19,6 +19,9 @@ pub(crate) struct Analysis {
     /// Syntax, loading and semantic diagnostics; spans are global offsets
     /// into `loaded.map`.
     pub diags: Vec<Diagnostic>,
+    /// What names refer to and the types of expressions, from the checker;
+    /// empty when the program has syntax errors.
+    pub index: brim_semantic::checked::EditorIndex,
 }
 
 /// Analyses the program `path` belongs to: the project of the nearest
@@ -85,15 +88,17 @@ fn find_project(path: &Path) -> Option<(brim_package::Graph, PathBuf, bool)> {
 
 fn check(loaded: Loaded, main_optional: bool) -> Analysis {
     let mut diags = loaded.diags.clone();
+    let mut index = brim_semantic::checked::EditorIndex::default();
     if !brim_diagnostics::has_errors(&diags) {
-        let (_, semantic) = if main_optional {
-            brim_semantic::check_tests(&loaded.modules)
-        } else {
-            brim_semantic::check_modules(&loaded.modules)
-        };
+        let (found, semantic) = brim_semantic::index_modules(&loaded.modules, main_optional);
+        index = found;
         diags.extend(semantic);
     }
-    Analysis { loaded, diags }
+    Analysis {
+        loaded,
+        diags,
+        index,
+    }
 }
 
 /// A declaration a name refers to.
@@ -241,13 +246,18 @@ impl Analysis {
         Vec::new()
     }
 
-    fn module_named(&self, name: &str) -> Option<usize> {
+    pub(crate) fn module_named(&self, name: &str) -> Option<usize> {
         self.loaded.modules.iter().position(|m| m.name == name)
     }
 
     fn module_start(&self, module: usize) -> Span {
         let base = self.loaded.map.base(module);
         Span::new(base, base)
+    }
+
+    /// The module an import makes available under `alias`.
+    pub(crate) fn module_alias_index(&self, program: &Program, alias: &str) -> Option<usize> {
+        self.module_alias(program, alias)
     }
 
     /// The module an import makes available under `alias`.
@@ -381,6 +391,34 @@ impl Analysis {
             span: f.name.span,
             detail: with_pub(f.public, self.text(header).trim_end()),
         }
+    }
+
+    /// The variables and parameters declared before `offset` in the
+    /// function around it, with how they are declared; the last one of each
+    /// name.
+    pub(crate) fn local_names(&self, program: &Program, offset: usize) -> Vec<(String, String)> {
+        let functions = program
+            .functions
+            .iter()
+            .chain(program.impls.iter().flat_map(|i| &i.methods));
+        let Some(f) = functions
+            .into_iter()
+            .find(|f| f.span.start <= offset && offset <= f.span.end)
+        else {
+            return Vec::new();
+        };
+        let mut found: Vec<(String, String)> = Vec::new();
+        let mut consider = |ident: &Ident, detail: String| {
+            if ident.span.end <= offset {
+                found.retain(|(n, _)| *n != ident.name);
+                found.push((ident.name.clone(), detail));
+            }
+        };
+        for p in &f.params {
+            consider(&p.name, self.text(p.span).to_string());
+        }
+        self.block_locals(&f.body, &mut consider);
+        found
     }
 
     /// The variable or parameter `name` visible at `offset`: the last one

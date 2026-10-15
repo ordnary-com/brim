@@ -177,6 +177,213 @@ fn definition_and_hover() {
     assert_eq!(reply(&replies, 8), &Value::Null);
 }
 
+fn labels(value: &Value) -> Vec<String> {
+    value
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["label"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[test]
+fn completion() {
+    let (_, uri) = project("completion");
+    let with_let = MAIN.replace(
+        "    let side: i64 = 3\n",
+        "    let side: i64 = 3\n    let word = \"hi\"\n",
+    );
+    let (_, replies) = session(&[
+        open(&uri, &with_let),
+        // `sq.|side`: the fields and methods of `shapes.Square`.
+        request(1, "textDocument/completion", at(&uri, 6, 13)),
+        // `shapes.|square`: the module's public items.
+        request(2, "textDocument/completion", at(&uri, 5, 35)),
+        // The start of a line in `main`: names in scope.
+        request(3, "textDocument/completion", at(&uri, 6, 4)),
+        // `let word = "hi"` has an inferred type.
+        request(4, "textDocument/hover", at(&uri, 4, 9)),
+    ]);
+    let fields = reply(&replies, 1);
+    assert_eq!(labels(fields), ["side"], "{fields:#?}");
+    assert_eq!(fields[0]["detail"], json!("side: i64"));
+    let items = labels(reply(&replies, 2));
+    assert!(items.contains(&"square".to_string()), "{items:?}");
+    assert!(items.contains(&"Square".to_string()), "{items:?}");
+    let names = labels(reply(&replies, 3));
+    for name in [
+        "side", "word", "sq", "area", "main", "shapes", "print", "min", "let", "List",
+    ] {
+        assert!(
+            names.contains(&name.to_string()),
+            "{name} missing from {names:?}"
+        );
+    }
+    assert_eq!(
+        reply(&replies, 4)["contents"]["value"],
+        json!("```brim\nlet word: string\n```")
+    );
+}
+
+#[test]
+fn completion_of_values() {
+    let (_, uri) = project("completion_values");
+    let list_text = "fn main() {\n    let names = [\"a\"]\n    names.\n}\n";
+    let string_text = "fn main() {\n    let t = \"x\".tr\n}\n";
+    let (_, replies) = session(&[
+        open(&uri, list_text),
+        request(1, "textDocument/completion", at(&uri, 2, 10)),
+        notification(
+            "textDocument/didChange",
+            json!({ "textDocument": { "uri": uri }, "contentChanges": [{ "text": string_text }] }),
+        ),
+        request(2, "textDocument/completion", at(&uri, 1, 18)),
+    ]);
+    let list = labels(reply(&replies, 1));
+    for name in ["push", "len", "map", "sorted", "sum"] {
+        assert!(
+            list.contains(&name.to_string()),
+            "{name} missing from {list:?}"
+        );
+    }
+    let string = labels(reply(&replies, 2));
+    for name in ["trim", "split", "char_count"] {
+        assert!(
+            string.contains(&name.to_string()),
+            "{name} missing from {string:?}"
+        );
+    }
+}
+
+#[test]
+fn references_and_rename() {
+    let (dir, uri) = project("references");
+    let shapes = path_to_uri(&dir.join("src/shapes.brim"));
+    let (_, replies) = session(&[
+        open(&uri, MAIN),
+        // The variable `side`: its declaration and one use.
+        request(
+            1,
+            "textDocument/references",
+            json!({ "textDocument": { "uri": uri }, "position": { "line": 3, "character": 9 }, "context": { "includeDeclaration": true } }),
+        ),
+        // The field `side` of `Square`, used in both files.
+        request(
+            2,
+            "textDocument/rename",
+            json!({ "textDocument": { "uri": uri }, "position": { "line": 5, "character": 14 }, "newName": "length" }),
+        ),
+        request(3, "textDocument/prepareRename", at(&uri, 5, 14)),
+        request(
+            4,
+            "textDocument/rename",
+            json!({ "textDocument": { "uri": uri }, "position": { "line": 5, "character": 14 }, "newName": "fn" }),
+        ),
+        // `print` is built in: nothing to rename.
+        request(5, "textDocument/prepareRename", at(&uri, 5, 5)),
+    ]);
+    let refs = reply(&replies, 1).as_array().unwrap();
+    let lines: Vec<u64> = refs
+        .iter()
+        .map(|r| r["range"]["start"]["line"].as_u64().unwrap())
+        .collect();
+    assert_eq!(lines, [3, 4]);
+    let changes = &reply(&replies, 2)["changes"];
+    // `sq.side` in `main`, `s.side * s.side` in `area`.
+    assert_eq!(changes[&uri].as_array().unwrap().len(), 3, "{changes:#?}");
+    // The declaration and `Square { side: side }`.
+    assert_eq!(
+        changes[&shapes].as_array().unwrap().len(),
+        2,
+        "{changes:#?}"
+    );
+    assert_eq!(changes[&uri][0]["newText"], json!("length"));
+    assert_eq!(
+        reply(&replies, 3),
+        &json!({ "start": { "line": 5, "character": 13 }, "end": { "line": 5, "character": 17 } })
+    );
+    let refused = replies.iter().find(|r| r["id"] == json!(4)).unwrap();
+    assert_eq!(
+        refused["error"]["message"],
+        json!("`fn` is not a valid name")
+    );
+    assert_eq!(reply(&replies, 5), &Value::Null);
+}
+
+#[test]
+fn signature_help() {
+    let (_, uri) = project("signature");
+    let text = MAIN.replace(
+        "    print(sq.side + area(sq))",
+        "    print(shapes.square(side, ",
+    );
+    let (_, replies) = session(&[
+        open(&uri, &text),
+        request(1, "textDocument/signatureHelp", at(&uri, 5, 24)),
+        request(2, "textDocument/signatureHelp", at(&uri, 5, 30)),
+        request(3, "textDocument/signatureHelp", at(&uri, 3, 4)),
+    ]);
+    let help = reply(&replies, 1);
+    assert_eq!(
+        help["signatures"][0]["label"],
+        json!("pub fn square(side: i64) -> Square")
+    );
+    assert_eq!(
+        help["signatures"][0]["parameters"][0]["label"],
+        json!([14, 23])
+    );
+    assert_eq!(help["activeParameter"], json!(0));
+    assert_eq!(reply(&replies, 2)["activeParameter"], json!(0));
+    assert_eq!(reply(&replies, 3), &Value::Null);
+}
+
+#[test]
+fn quick_fixes() {
+    let (_, uri) = project("fixes");
+    let text = MAIN.replace("area(sq))", "are(sq))").replace(
+        "    let side: i64 = 3\n",
+        "    let side: i64 = 3\n    side = 4\n",
+    );
+    let (_, replies) = session(&[open(&uri, &text)]);
+    let published = replies
+        .iter()
+        .find(|r| r["params"]["uri"] == json!(uri))
+        .unwrap();
+    let diagnostics = published["params"]["diagnostics"].clone();
+    let (_, replies) = session(&[
+        open(&uri, &text),
+        request(
+            1,
+            "textDocument/codeAction",
+            json!({ "textDocument": { "uri": uri }, "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 0 } }, "context": { "diagnostics": diagnostics } }),
+        ),
+    ]);
+    let actions = reply(&replies, 1).as_array().unwrap();
+    let titles: Vec<&str> = actions
+        .iter()
+        .map(|a| a["title"].as_str().unwrap())
+        .collect();
+    assert!(titles.contains(&"Change to `area`"), "{titles:?}");
+    assert!(titles.contains(&"Make it mutable"), "{titles:?}");
+    let change = actions
+        .iter()
+        .find(|a| a["title"] == json!("Change to `area`"))
+        .unwrap();
+    let edit = &change["edit"]["changes"][&uri][0];
+    assert_eq!(edit["newText"], json!("area"));
+    assert_eq!(
+        edit["range"]["start"],
+        json!({ "line": 6, "character": 20 })
+    );
+    let mutable = actions
+        .iter()
+        .find(|a| a["title"] == json!("Make it mutable"))
+        .unwrap();
+    let edit = &mutable["edit"]["changes"][&uri][0];
+    assert_eq!(edit["newText"], json!("mut "));
+    assert_eq!(edit["range"]["start"], json!({ "line": 3, "character": 8 }));
+}
+
 #[test]
 fn symbols_and_formatting() {
     let (_, uri) = project("symbols");

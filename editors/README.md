@@ -2,7 +2,8 @@
 
 Every editor gets highlighting, and the editors that support the Language
 Server Protocol also get the language server `brim lsp`: diagnostics as
-you type, formatting, an outline, go to definition and hover. `brim` must
+you type, completion, go to definition, references, rename, hover,
+signature help, quick fixes, formatting and an outline. `brim` must
 be on the `PATH`.
 
 | Editor | Directory | Highlighting | Language server |

@@ -17,6 +17,7 @@ brim-lexer.workspace = true
 brim-manifest.workspace = true
 brim-package.workspace = true
 brim-semantic.workspace = true
+brim-stdlib.workspace = true
 serde_json.workspace = true
 
 [lints]

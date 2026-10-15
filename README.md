@@ -130,7 +130,7 @@ Brim is at **version 0.1**. It is a working foundation, **not ready for producti
 - Programs of several files: modules with `import` and `pub`; dependencies on other packages from a directory or git repository, locked in `brim.lock`
 - Builtins `print` and `to_string`, and `assert`/`assert_eq` for tests: `brim test` runs every `fn test_...()`
 - Full static type checking, return checking on all paths, and detailed diagnostics
-- Editor support: `brim lsp` (diagnostics, formatting, outline, go to definition, hover) and packages for VS Code, Neovim, Vim, Helix, Zed, Emacs, Sublime Text, JetBrains IDEs, Kate, Kakoune, nano, micro and Notepad++ (see `editors/`)
+- Editor support: `brim lsp` (diagnostics, completion, go to definition, references, rename, hover, signature help, quick fixes, formatting, outline) and packages for VS Code, Neovim, Vim, Helix, Zed, Emacs, Sublime Text, JetBrains IDEs, Kate, Kakoune, nano, micro and Notepad++ (see `editors/`)
 - `brim build` (native executables via LLVM 22, opt-in at compile time), `brim run` (reference interpreter), `brim check`, `brim test`, `brim fmt`, `brim gen ts` (TypeScript types for a web frontend), `brim.toml` projects created with `brim new`
 
 **Not yet**

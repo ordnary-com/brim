@@ -22,6 +22,7 @@ impl<'a> Checker<'a> {
             name: name.to_string(),
             fields,
             span: None,
+            name_span: None,
         };
         self.enums.push(EnumInfo {
             name: "Option".into(),
@@ -110,6 +111,7 @@ impl<'a> Checker<'a> {
                 let ty = self.resolve_type(&field.ty, "a field");
                 fields.push(FieldInfo {
                     name: field.name.name.clone(),
+                    name_span: field.name.span,
                     ty,
                     public: field.public,
                     span: field.span,
@@ -143,6 +145,7 @@ impl<'a> Checker<'a> {
                     name: variant.name.name.clone(),
                     fields,
                     span: Some(variant.span),
+                    name_span: Some(variant.name.span),
                 });
             }
             self.enums[id].variants = variants;
@@ -594,6 +597,9 @@ impl<'a> Checker<'a> {
                         }
                     },
                 };
+                if let Some(decl) = self.def_span(def) {
+                    self.note_ref(ty.name.span, decl);
+                }
                 let expected = self.def_type_params(def).len();
                 let args: Vec<Type> = ty
                     .args

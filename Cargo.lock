@@ -126,6 +126,7 @@ dependencies = [
  "brim-manifest",
  "brim-package",
  "brim-semantic",
+ "brim-stdlib",
  "serde_json",
 ]
 

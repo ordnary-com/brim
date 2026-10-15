@@ -61,6 +61,40 @@ pub struct CheckedProgram {
     pub api: Vec<ApiFn>,
 }
 
+/// What an editor needs to know about a program, gathered while checking
+/// it, also when it has errors (see [`crate::index_modules`]).
+#[derive(Clone, Debug, Default)]
+pub struct EditorIndex {
+    /// Each use of a name and the declared name it refers to: variables,
+    /// parameters, functions, types, fields, variants and methods.
+    pub refs: Vec<(Span, Span)>,
+    /// The type of each expression and of each declared variable.
+    pub types: Vec<(Span, Type)>,
+    /// Types as text, for every type in `types`.
+    pub type_text: std::collections::HashMap<Type, String>,
+    /// What `value.` can be followed by, for every type in `types`.
+    pub members: std::collections::HashMap<Type, Vec<Member>>,
+    /// What `Name.` can be followed by for each struct and enum, by name:
+    /// variants and functions without `self`.
+    pub type_members: std::collections::HashMap<String, Vec<Member>>,
+}
+
+/// A field, method or variant, for completion.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Member {
+    pub name: String,
+    pub kind: MemberKind,
+    /// How it is declared: `text: string`, `fn push(value: T)`, ...
+    pub detail: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemberKind {
+    Field,
+    Method,
+    Variant,
+}
+
 /// A function served by `serve_api`: `POST /api/<name>`.
 #[derive(Clone, Debug)]
 pub struct ApiFn {
