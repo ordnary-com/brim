@@ -111,6 +111,36 @@ fn main() {
 not a number
 ```
 
+### Math
+
+| Function | Result | |
+|----------|--------|---|
+| `abs(x)` | `i64` or `f64` | the absolute value; `abs` of the smallest `i64` stops the program |
+| `sqrt(x)`, `floor(x)`, `ceil(x)`, `round(x)` | `f64` | `round` rounds halves away from zero |
+| `pow(a, b)` | `i64` or `f64` | `a` to the power `b`; on integers a negative power divides (`pow(2, -1)` is 0) and overflow stops the program |
+| `min(a, b)`, `max(a, b)` | the argument type | for numbers and strings |
+| `clamp(x, low, high)` | the argument type | `x` moved into the range |
+| `PI`, `E` | `f64` | the constants |
+
+```brim
+fn main() {
+    let r = 2.0
+    print(round(PI * r * r))
+    print(pow(2, 10))
+    print(sqrt(2.0))
+    print(clamp(150, 0, 100))
+    print(max("pear", "apple"))
+}
+```
+
+```text
+13.0
+1024
+1.4142135623730951
+100
+pear
+```
+
 ## Strings
 
 Positions and lengths count bytes of the UTF-8 text. Strings compare with

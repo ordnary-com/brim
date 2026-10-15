@@ -176,6 +176,74 @@ pub const BUILTINS: &[Builtin] = &[
         ],
     },
     Builtin {
+        name: "abs",
+        summary: "The absolute value of a number.",
+        overloads: &[
+            Overload {
+                params: &[Prim::I64],
+                ret: Prim::I64,
+                runtime: RuntimeFn::AbsI64,
+            },
+            Overload {
+                params: &[Prim::F64],
+                ret: Prim::F64,
+                runtime: RuntimeFn::AbsF64,
+            },
+        ],
+    },
+    Builtin {
+        name: "sqrt",
+        summary: "The square root of a number (NaN for negative numbers).",
+        overloads: &[Overload {
+            params: &[Prim::F64],
+            ret: Prim::F64,
+            runtime: RuntimeFn::Sqrt,
+        }],
+    },
+    Builtin {
+        name: "floor",
+        summary: "A number rounded down to a whole number.",
+        overloads: &[Overload {
+            params: &[Prim::F64],
+            ret: Prim::F64,
+            runtime: RuntimeFn::Floor,
+        }],
+    },
+    Builtin {
+        name: "ceil",
+        summary: "A number rounded up to a whole number.",
+        overloads: &[Overload {
+            params: &[Prim::F64],
+            ret: Prim::F64,
+            runtime: RuntimeFn::Ceil,
+        }],
+    },
+    Builtin {
+        name: "round",
+        summary: "A number rounded to the nearest whole number, halves away from zero.",
+        overloads: &[Overload {
+            params: &[Prim::F64],
+            ret: Prim::F64,
+            runtime: RuntimeFn::Round,
+        }],
+    },
+    Builtin {
+        name: "pow",
+        summary: "A number raised to a power.",
+        overloads: &[
+            Overload {
+                params: &[Prim::I64, Prim::I64],
+                ret: Prim::I64,
+                runtime: RuntimeFn::PowI64,
+            },
+            Overload {
+                params: &[Prim::F64, Prim::F64],
+                ret: Prim::F64,
+                runtime: RuntimeFn::PowF64,
+            },
+        ],
+    },
+    Builtin {
         name: "to_float",
         summary: "Converts an integer to the nearest floating-point number.",
         overloads: &[Overload {
@@ -377,6 +445,12 @@ pub const BUILTINS: &[Builtin] = &[
 /// Whether a builtin is reserved for the standard library modules.
 pub fn is_internal(name: &str) -> bool {
     name.starts_with("__")
+}
+
+/// Builtins a program may define a function of its own for, which is then
+/// used instead: names added after programs could already use them.
+pub fn can_redefine(name: &str) -> bool {
+    matches!(name, "abs" | "sqrt" | "floor" | "ceil" | "round" | "pow")
 }
 
 /// Looks up a builtin by name.

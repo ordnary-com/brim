@@ -54,6 +54,8 @@ pub(crate) fn link(
             .map_err(|e| CodegenError::Llvm(format!("cannot write the runtime source: {e}")))?;
         command.arg(&https).arg("-lcurl");
     }
+    // The math functions (`sqrt`, `pow`, ...) are in libm on Linux.
+    command.arg("-lm");
     command.arg("-o").arg(&options.output);
     let shown = format!("{command:?}").replace('"', "");
     let output = command.output().map_err(|e| CodegenError::LinkerNotFound {

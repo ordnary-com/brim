@@ -294,7 +294,7 @@ impl<'a> Checker<'a> {
         for f in &program.functions {
             let id = FnId(self.fn_decls.len());
             let name = f.name.name.as_str();
-            if brim_stdlib::lookup(name).is_some()
+            if brim_stdlib::lookup(name).is_some_and(|b| !brim_stdlib::can_redefine(b.name))
                 || self.prelude_variants.contains_key(name)
                 || super::strings::intrinsic_function(name).is_some()
             {

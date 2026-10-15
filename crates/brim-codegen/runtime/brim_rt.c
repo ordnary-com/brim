@@ -2156,6 +2156,68 @@ double brim_rt_i64_to_f64(int64_t value) {
 
 /* `to_int(x)`: rounds toward zero; NaN and numbers outside i64 stop the
  * program (run-time error R0010). */
+int64_t brim_rt_abs_i64(int64_t x, const char *head, const char *sep, const char *note) {
+    if (x == INT64_MIN) {
+        brim_rt_trap(head, sep, note);
+    }
+    return x < 0 ? -x : x;
+}
+
+double brim_rt_abs_f64(double x) {
+    return fabs(x);
+}
+
+double brim_rt_sqrt(double x) {
+    return sqrt(x);
+}
+
+double brim_rt_floor(double x) {
+    return floor(x);
+}
+
+double brim_rt_ceil(double x) {
+    return ceil(x);
+}
+
+double brim_rt_round(double x) {
+    return round(x);
+}
+
+double brim_rt_pow_f64(double base, double exp) {
+    return pow(base, exp);
+}
+
+/* `pow` on integers; see `brim_runtime::ops::pow`. */
+int64_t brim_rt_pow_i64(int64_t base, int64_t exp, const char *head, const char *sep,
+                        const char *note) {
+    if (exp < 0) {
+        switch (base) {
+        case 0:
+            brim_rt_trap(head, sep, note);
+            return 0;
+        case 1:
+            return 1;
+        case -1:
+            return exp % 2 == 0 ? 1 : -1;
+        default:
+            return 0;
+        }
+    }
+    /* Squaring, as Rust's `checked_pow`: once the square overflows while
+       bits of the exponent remain, the result would too. */
+    int64_t result = 1;
+    while (exp > 0) {
+        if ((exp & 1) && __builtin_mul_overflow(result, base, &result)) {
+            brim_rt_trap(head, sep, note);
+        }
+        exp >>= 1;
+        if (exp > 0 && __builtin_mul_overflow(base, base, &base)) {
+            brim_rt_trap(head, sep, note);
+        }
+    }
+    return result;
+}
+
 int64_t brim_rt_f64_to_i64(double x, const char *head, const char *sep, const char *note) {
     if (!(x > -9223372036854775809.0 && x < 9223372036854775808.0)) {
         brim_rt_trap(head, sep, note);

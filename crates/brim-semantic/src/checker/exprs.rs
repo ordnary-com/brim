@@ -726,6 +726,24 @@ impl<'a> Checker<'a> {
         Some(self.finish_call(id, Some(receiver), &arg_refs, span, expected, ctx))
     }
 
+    /// A function of the prelude that is used by name, such as `min`: not
+    /// one behind a method (`list_...`).
+    fn prelude_item_fn(&self, name: &str) -> Option<FnId> {
+        let module = self.module_names.iter().position(|n| n == "std.prelude")?;
+        if module == self.module || name.starts_with("list_") {
+            return None;
+        }
+        let id = *self.scopes[module].own_fns.get(name)?;
+        self.fn_decls[id.0].public.then_some(id)
+    }
+
+    /// A constant of the prelude, such as `PI`.
+    fn prelude_item_const(&self, name: &str) -> Option<usize> {
+        let module = self.module_names.iter().position(|n| n == "std.prelude")?;
+        let id = *self.scopes[module].consts.get(name)?;
+        self.consts[id].decl.public.then_some(id)
+    }
+
     /// `value.method(args)` for a method of a built-in type that the prelude
     /// implements in Brim: the function `{kind}_{method}` of `std.prelude`,
     /// with the value as its first argument.
@@ -867,7 +885,10 @@ impl<'a> Checker<'a> {
             };
         }
         let name = ident.name.as_str();
-        if let Some(id) = self.const_named(name) {
+        if let Some(id) = self
+            .const_named(name)
+            .or_else(|| self.prelude_item_const(name))
+        {
             return self.const_value(id, Some(ident.span));
         }
         if self.aliases.contains_key(name) {
@@ -2392,6 +2413,9 @@ impl<'a> Checker<'a> {
 
         if let Some(&(e, v)) = self.prelude_variants.get(name) {
             return self.check_variant(e, v, callee.span, Some(&arg_refs), span, expected, ctx);
+        }
+        if let Some(id) = self.prelude_item_fn(name) {
+            return self.finish_call(id, None, &arg_refs, span, expected, ctx);
         }
 
         for arg in args {

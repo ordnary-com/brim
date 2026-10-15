@@ -1,0 +1,5 @@
+error[R0001]: integer overflow in `abs`
+ --> tests/integration/abs_overflow.brim:6:11
+  |
+6 |     print(abs(lowest))
+  |           ^^^^^^^^^^^

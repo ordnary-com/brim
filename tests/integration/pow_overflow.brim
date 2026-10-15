@@ -1,0 +1,6 @@
+// exit: 101
+// An integer `pow` whose result does not fit stops the program.
+fn main() {
+    print(pow(3, 39))
+    print(pow(3, 40))
+}

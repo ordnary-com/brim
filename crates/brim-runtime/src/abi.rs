@@ -121,6 +121,23 @@ runtime_fns! {
     I64ToStr = "brim_rt_i64_to_str" (I64) -> Str;
     /// `to_string(bool)`
     BoolToStr = "brim_rt_bool_to_str" (Bool) -> Str;
+    /// `abs(i64)`; `abs(i64::MIN)` does not fit.
+    AbsI64 = "brim_rt_abs_i64" (I64) -> I64;
+    /// `abs(f64)`
+    AbsF64 = "brim_rt_abs_f64" (F64) -> F64;
+    /// `sqrt(f64)`: NaN for negative numbers.
+    Sqrt = "brim_rt_sqrt" (F64) -> F64;
+    /// `floor(f64)`
+    Floor = "brim_rt_floor" (F64) -> F64;
+    /// `ceil(f64)`
+    Ceil = "brim_rt_ceil" (F64) -> F64;
+    /// `round(f64)`: halfway cases away from zero.
+    Round = "brim_rt_round" (F64) -> F64;
+    /// `pow(f64, f64)`
+    PowF64 = "brim_rt_pow_f64" (F64, F64) -> F64;
+    /// `pow(i64, i64)`: a negative exponent divides, rounding toward zero
+    /// (`pow(2, -1)` is 0); a result outside `i64`, or `pow(0, -1)`, fails.
+    PowI64 = "brim_rt_pow_i64" (I64, I64) -> I64;
     /// `to_string(u64)`: the bits of the `i64` read as unsigned.
     U64ToStr = "brim_rt_u64_to_str" (I64) -> Str;
     /// `to_float(u64)`
@@ -253,6 +270,8 @@ impl RuntimeFn {
         match self {
             RuntimeFn::StrSlice => Some(RuntimeError::InvalidSlice),
             RuntimeFn::F64ToI64 => Some(RuntimeError::FloatToInt),
+            RuntimeFn::AbsI64 => Some(RuntimeError::IntegerOverflow { op: "abs" }),
+            RuntimeFn::PowI64 => Some(RuntimeError::IntegerOverflow { op: "pow" }),
             RuntimeFn::Assert => Some(RuntimeError::AssertionFailed { values: None }),
             // The values are printed by the runtime.
             RuntimeFn::AssertEqI64 | RuntimeFn::AssertEqBool | RuntimeFn::AssertEqStr => {

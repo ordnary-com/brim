@@ -799,6 +799,13 @@ Builtins are always in scope and cannot be redefined.
 | `eprint` | `eprint(string)` | writes the text and a newline to standard error |
 | `to_string` | `to_string(i64) -> string`, `to_string(f64) -> string`, `to_string(bool) -> string`, and structs, enums, lists and maps | the decimal representation of a number, `"true"`/`"false"`, or the text form of section 5.8 |
 | `to_float` | `to_float(i64) -> f64`, and the other integer types | the nearest `f64` |
+| `abs` | `abs(i64) -> i64`, `abs(f64) -> f64` | the absolute value; `abs` of `i64::MIN` is run-time error `R0001` |
+| `sqrt`, `floor`, `ceil`, `round` | `(f64) -> f64` | IEEE 754; `round` rounds halves away from zero, `sqrt` of a negative number is NaN |
+| `pow` | `pow(i64, i64) -> i64`, `pow(f64, f64) -> f64` | `a` to the power `b`. On integers a result outside `i64` is `R0001`, and a negative power divides, rounding toward zero (`pow(2, -1)` is 0, `pow(0, -1)` is `R0001`) |
+| `min`, `max` | `min[T: Ord](a: T, b: T) -> T` | from the prelude; `a` when the two are equal |
+| `clamp` | `clamp[T: Ord](x: T, low: T, high: T) -> T` | from the prelude: `min(max(x, low), high)` |
+
+The prelude also has the constants `PI` and `E` (`f64`). Its functions and constants can be used by name everywhere, unless a module defines its own with the same name. A program may also define its own `abs`, `sqrt`, `floor`, `ceil`, `round` or `pow`, which it then uses instead of the builtin; redefining other builtins is `E0216`.
 | `to_int` | `to_int(f64) -> i64`, `to_int(i32) -> i64`, `to_int(u8) -> i64`, `to_int(u64) -> i64` | rounds an `f64` toward zero; NaN and numbers outside the `i64` range are run-time error `R0010`; a `u64` above the `i64` range is `R0001` |
 | `to_i32`, `to_u8`, `to_u64` | `to_i32(x) -> i32` and so on, for any integer `x` | the same number in another integer type; `R0001` if it does not fit |
 | `string_from_bytes` | `string_from_bytes(List[u8]) -> Option[string]` | the text of UTF-8 bytes, or `None` if they are not valid UTF-8 |

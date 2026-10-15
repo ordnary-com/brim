@@ -773,6 +773,14 @@ fn call_runtime(
             r::print_str(state.host.out, &(args[0].i64() as u64).to_string()).map_err(io)?;
             None
         }
+        RuntimeFn::AbsI64 => Some(Value::I64(ops::abs(args[0].i64())?)),
+        RuntimeFn::AbsF64 => Some(float(args[0].f64().abs())),
+        RuntimeFn::Sqrt => Some(float(args[0].f64().sqrt())),
+        RuntimeFn::Floor => Some(float(args[0].f64().floor())),
+        RuntimeFn::Ceil => Some(float(args[0].f64().ceil())),
+        RuntimeFn::Round => Some(float(args[0].f64().round())),
+        RuntimeFn::PowF64 => Some(float(args[0].f64().powf(args[1].f64()))),
+        RuntimeFn::PowI64 => Some(Value::I64(ops::pow(args[0].i64(), args[1].i64())?)),
         RuntimeFn::U64ToStr => str_value(BrimStr::from((args[0].i64() as u64).to_string())),
         RuntimeFn::U64ToF64 => Some(float(args[0].i64() as u64 as f64)),
         RuntimeFn::PrintF64 => {

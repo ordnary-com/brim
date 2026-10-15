@@ -1,0 +1,7 @@
+// exit: 101
+// `i64::MIN` has no absolute value in an `i64`.
+fn main() {
+    let lowest = -9223372036854775808
+    print(abs(lowest + 1))
+    print(abs(lowest))
+}

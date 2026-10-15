@@ -43,6 +43,29 @@ pub fn neg(a: i64) -> Result<i64, RuntimeError> {
         .ok_or(RuntimeError::IntegerOverflow { op: "-" })
 }
 
+/// `abs(a)`: only `i64::MIN` has no absolute value in `i64`.
+pub fn abs(a: i64) -> Result<i64, RuntimeError> {
+    a.checked_abs()
+        .ok_or(RuntimeError::IntegerOverflow { op: "abs" })
+}
+
+/// `pow(base, exp)` on integers. A negative exponent divides:
+/// `base^-n` is `1 / base^n`, rounded toward zero, so only 1 and -1 give a
+/// non-zero result and 0 has none.
+pub fn pow(base: i64, exp: i64) -> Result<i64, RuntimeError> {
+    let overflow = RuntimeError::IntegerOverflow { op: "pow" };
+    if exp < 0 {
+        return match base {
+            0 => Err(overflow),
+            1 => Ok(1),
+            -1 => Ok(if exp % 2 == 0 { 1 } else { -1 }),
+            _ => Ok(0),
+        };
+    }
+    let exp = u32::try_from(exp).map_err(|_| overflow.clone())?;
+    base.checked_pow(exp).ok_or(overflow)
+}
+
 /// `a` if `min <= a <= max`: keeps `i32` and `u8` results in range.
 pub fn fit(a: i64, min: i64, max: i64, op: &'static str) -> Result<i64, RuntimeError> {
     if (min..=max).contains(&a) {
@@ -94,6 +117,22 @@ pub fn urem(a: i64, b: i64) -> Result<i64, RuntimeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn abs_and_pow() {
+        assert_eq!(abs(-5), Ok(5));
+        assert_eq!(
+            abs(i64::MIN),
+            Err(RuntimeError::IntegerOverflow { op: "abs" })
+        );
+        assert_eq!(pow(2, 10), Ok(1024));
+        assert_eq!(pow(-3, 3), Ok(-27));
+        assert_eq!(pow(2, 63), Err(RuntimeError::IntegerOverflow { op: "pow" }));
+        assert_eq!(pow(2, -1), Ok(0));
+        assert_eq!(pow(-1, -3), Ok(-1));
+        assert_eq!(pow(0, -1), Err(RuntimeError::IntegerOverflow { op: "pow" }));
+        assert_eq!(pow(7, 0), Ok(1));
+    }
 
     #[test]
     fn unsigned_and_narrow_arithmetic() {

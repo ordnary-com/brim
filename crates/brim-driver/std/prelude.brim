@@ -1,6 +1,29 @@
-// The prelude: functions behind the methods of built-in types that are
-// written in Brim itself. Every program has this module; `xs.sorted()` is
-// `list_sorted(xs)` here. It is not imported by name.
+// The prelude: functions and constants every program has, written in
+// Brim itself. `min(a, b)` and `PI` are used by name; the functions named
+// `list_...` are the methods of lists: `xs.sorted()` is `list_sorted(xs)`.
+
+// ---- numbers -------------------------------------------------------------
+
+// The ratio of a circle's circumference to its diameter.
+pub const PI: f64 = 3.141592653589793
+
+// The base of the natural logarithm.
+pub const E: f64 = 2.718281828459045
+
+// The smaller of two values (`a` when they are equal).
+pub fn min[T: Ord](a: T, b: T) -> T {
+    return if b < a { b } else { a }
+}
+
+// The larger of two values (`a` when they are equal).
+pub fn max[T: Ord](a: T, b: T) -> T {
+    return if b > a { b } else { a }
+}
+
+// `x`, moved into the range from `low` to `high`.
+pub fn clamp[T: Ord](x: T, low: T, high: T) -> T {
+    return min(max(x, low), high)
+}
 
 // ---- lists ---------------------------------------------------------------
 
@@ -23,8 +46,8 @@ pub fn list_sorted_by[T](xs: List[T], less: fn(T, T) -> bool) -> List[T] {
         let mut into: List[T] = []
         let mut start = 0
         while start < n {
-            let middle = min_i64(start + width, n)
-            let end = min_i64(start + 2 * width, n)
+            let middle = min(start + width, n)
+            let end = min(start + 2 * width, n)
             let mut i = start
             let mut j = middle
             while i < middle || j < end {
@@ -61,8 +84,8 @@ pub fn list_reversed[T](xs: List[T]) -> List[T] {
 // outside the list are moved to its start or end, so the result is never
 // an error: `[1, 2, 3].slice(1, 10)` is `[2, 3]`.
 pub fn list_slice[T](xs: List[T], start: i64, end: i64) -> List[T] {
-    let from = max_i64(start, 0)
-    let to = min_i64(end, xs.len())
+    let from = max(start, 0)
+    let to = min(end, xs.len())
     let mut out: List[T] = []
     let mut i = from
     while i < to {
@@ -170,12 +193,4 @@ pub fn list_max[T: Ord](xs: List[T]) -> Option[T] {
         }
     }
     return Some(best)
-}
-
-fn min_i64(a: i64, b: i64) -> i64 {
-    return if a < b { a } else { b }
-}
-
-fn max_i64(a: i64, b: i64) -> i64 {
-    return if a > b { a } else { b }
 }
