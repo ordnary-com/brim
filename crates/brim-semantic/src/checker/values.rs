@@ -20,7 +20,14 @@ impl<'a> Checker<'a> {
     fn not_comparable_inner(&mut self, ty: Type, seen: &mut HashSet<Type>) -> Option<Type> {
         let Type::Named(id) = ty else {
             return match ty {
-                Type::I64 | Type::F64 | Type::Bool | Type::String | Type::Error => None,
+                Type::I64
+                | Type::I32
+                | Type::U8
+                | Type::U64
+                | Type::F64
+                | Type::Bool
+                | Type::String
+                | Type::Error => None,
                 _ => Some(ty),
             };
         };

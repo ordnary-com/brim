@@ -10,6 +10,7 @@
 //! | `Bool`    | `bool`         | 8-bit integer, `0` or `1`                |
 //! | `Str`     | `string`       | pointer to a runtime string object       |
 //! | `StrList` | `List[string]` | pointer to a runtime list of strings     |
+//! | `IntList` | `List[u8]`     | pointer to a runtime list of `i64`s      |
 //! | `Void`    | `void`         | no value                                 |
 //!
 //! Functions that can fail ([`RuntimeFn::failure`]) take three more pointer
@@ -35,6 +36,8 @@ pub enum AbiType {
     Str,
     /// `List[string]`.
     StrList,
+    /// A list of integers held as `i64` (`List[u8]` for bytes).
+    IntList,
     Void,
 }
 
@@ -46,6 +49,7 @@ impl fmt::Display for AbiType {
             AbiType::Bool => "bool",
             AbiType::Str => "str",
             AbiType::StrList => "[str]",
+            AbiType::IntList => "[i64]",
             AbiType::Void => "void",
         })
     }
@@ -117,6 +121,12 @@ runtime_fns! {
     I64ToStr = "brim_rt_i64_to_str" (I64) -> Str;
     /// `to_string(bool)`
     BoolToStr = "brim_rt_bool_to_str" (Bool) -> Str;
+    /// `to_string(u64)`: the bits of the `i64` read as unsigned.
+    U64ToStr = "brim_rt_u64_to_str" (I64) -> Str;
+    /// `to_float(u64)`
+    U64ToF64 = "brim_rt_u64_to_f64" (I64) -> F64;
+    /// `PrintStr` of `U64ToStr`.
+    PrintU64 = "brim_rt_print_u64" (I64) -> Void;
     /// A string as a Brim string literal, for printing values that
     /// contain strings: `"a\"b"`.
     StrQuote = "brim_rt_str_quote" (Str) -> Str;
@@ -151,6 +161,12 @@ runtime_fns! {
     StrLines = "brim_rt_str_lines" (Str) -> StrList;
     /// `s.chars()`: each character as a string.
     StrChars = "brim_rt_str_chars" (Str) -> StrList;
+    /// `s.bytes()`: the UTF-8 bytes of a string.
+    StrBytes = "brim_rt_str_bytes" (Str) -> IntList;
+    /// Whether bytes are valid UTF-8, for `string_from_bytes`.
+    BytesUtf8Ok = "brim_rt_bytes_utf8_ok" (IntList) -> Bool;
+    /// The string of bytes for which `BytesUtf8Ok` is true.
+    BytesToStr = "brim_rt_bytes_to_str" (IntList) -> Str;
     /// Whether `s` is a decimal `i64`, with an optional sign.
     StrParseIntOk = "brim_rt_str_parse_int_ok" (Str) -> Bool;
     /// The value of a string for which `StrParseIntOk` is true.

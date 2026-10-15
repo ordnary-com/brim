@@ -1,0 +1,5 @@
+error[R0001]: integer overflow in `+`
+ --> tests/integration/u8_overflow.brim:6:14
+  |
+6 |         x += 1
+  |              ^

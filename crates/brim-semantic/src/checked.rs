@@ -362,6 +362,9 @@ pub enum CheckedExprKind {
     /// `Option`/`Result` type).
     /// A struct, enum, list or map as text, the way `print` shows it.
     Show(Box<CheckedExpr>),
+    /// `to_i32(x)`, `to_u8(x)`, `to_u64(x)` or `to_int(x)` of an integer:
+    /// the same number as the expression's type, which must fit.
+    IntCast(Box<CheckedExpr>),
     /// `Box(value)`: the value moved to the heap.
     BoxNew(Box<CheckedExpr>),
     /// `b.value()`: the value in a box.
@@ -458,6 +461,8 @@ pub enum BinaryOp {
 pub enum Intrinsic {
     /// `s.is_empty()`
     StrIsEmpty,
+    /// `string_from_bytes(b)`: `Option[string]`.
+    StrFromBytes,
     /// `s.find(t)`: `Option[i64]`.
     StrFind,
     /// `s.parse_int()`: `Option[i64]`.

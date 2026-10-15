@@ -25,6 +25,8 @@ pub(super) enum Ret {
     Bool,
     Str,
     StrList,
+    /// `List[u8]`.
+    ByteList,
     OptionI64,
     OptionF64,
     OptionStr,
@@ -55,6 +57,7 @@ fn str_method(name: &str) -> Option<(StrMethod, &'static [Type], Ret)> {
         "split" => (F(R::StrSplit), STR, Ret::StrList),
         "lines" => (F(R::StrLines), NONE, Ret::StrList),
         "chars" => (F(R::StrChars), NONE, Ret::StrList),
+        "bytes" => (F(R::StrBytes), NONE, Ret::ByteList),
         "parse_int" => (I(Intrinsic::ParseInt), NONE, Ret::OptionI64),
         "parse_float" => (I(Intrinsic::ParseFloat), NONE, Ret::OptionF64),
         _ => return None,
@@ -79,6 +82,7 @@ const STR_METHODS: &[&str] = &[
     "split",
     "lines",
     "chars",
+    "bytes",
     "parse_int",
     "parse_float",
 ];
@@ -100,8 +104,14 @@ pub(super) fn intrinsic_function(name: &str) -> Option<(Intrinsic, &'static [Typ
     })
 }
 
-pub(super) const INTRINSIC_FUNCTIONS: &[&str] =
-    &["read_line", "read_file", "write_file", "args", "env"];
+pub(super) const INTRINSIC_FUNCTIONS: &[&str] = &[
+    "read_line",
+    "read_file",
+    "write_file",
+    "args",
+    "env",
+    "string_from_bytes",
+];
 
 impl<'a> Checker<'a> {
     fn ret_type(&mut self, ret: Ret) -> Type {
@@ -112,11 +122,59 @@ impl<'a> Checker<'a> {
             Ret::Bool => Type::Bool,
             Ret::Str => Type::String,
             Ret::StrList => self.list_of(Type::String),
+            Ret::ByteList => self.list_of(Type::U8),
             Ret::OptionI64 => option(self, Type::I64),
             Ret::OptionF64 => option(self, Type::F64),
             Ret::OptionStr => option(self, Type::String),
             Ret::ResultStr => result(self, Type::String),
             Ret::ResultI64 => result(self, Type::I64),
+        }
+    }
+
+    /// `string_from_bytes(bytes)`: `Some` text if the bytes are UTF-8.
+    fn check_string_from_bytes(
+        &mut self,
+        args: &[ast::Expr],
+        span: Span,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        let bytes = self.list_of(Type::U8);
+        let checked: Vec<CheckedExpr> = args
+            .iter()
+            .map(|a| self.check_expr_with(a, Some(bytes), ctx))
+            .collect();
+        if checked.len() != 1 {
+            self.diags.push(
+                Diagnostic::error(format!(
+                    "`string_from_bytes` takes 1 argument but {} supplied",
+                    supplied(checked.len())
+                ))
+                .with_code("E0205")
+                .with_primary(span, "expected 1 argument"),
+            );
+            return error_expr(span);
+        }
+        let arg = &checked[0];
+        if arg.ty == Type::Error {
+            return error_expr(span);
+        }
+        if arg.ty != bytes {
+            let found = self.show(arg.ty);
+            self.diags.push(
+                Diagnostic::error("mismatched types")
+                    .with_code("E0206")
+                    .with_primary(arg.span, format!("expected `List[u8]`, found `{found}`"))
+                    .with_note("`string_from_bytes` reads UTF-8 bytes"),
+            );
+            return error_expr(span);
+        }
+        CheckedExpr {
+            ty: self.ret_type(Ret::OptionStr),
+            kind: CheckedExprKind::Intrinsic {
+                op: Intrinsic::StrFromBytes,
+                args: checked,
+            },
+            span,
         }
     }
 
@@ -209,6 +267,9 @@ impl<'a> Checker<'a> {
         span: Span,
         ctx: &mut FnCtx,
     ) -> Option<CheckedExpr> {
+        if callee.name == "string_from_bytes" {
+            return Some(self.check_string_from_bytes(args, span, ctx));
+        }
         let (op, params, ret) = intrinsic_function(&callee.name)?;
         let Some(checked) = self.fixed_args(&callee.name, params, args, span, ctx) else {
             return Some(error_expr(span));

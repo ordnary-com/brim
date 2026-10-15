@@ -80,7 +80,7 @@ integer_literal = digit { digit | "_" } ;
 - Decimal only. `_` may be used as a separator (`1_000_000`) and is ignored.
 - A literal with more than one digit may not start with `0` (`007` is error `E0005`), to avoid confusion with octal notation in other languages.
 - Letters directly after a literal (`10px`, `0xFF`) are error `E0006`. Hexadecimal, octal and binary literals are not supported yet.
-- The value must fit in `i64`, i.e. be at most 9223372036854775807. The single exception is `9223372036854775808` written directly after unary `-`, which denotes `i64::MIN`. Out-of-range literals are error `E0215`. Literals that do not even fit in 64 bits are error `E0004`.
+- A literal has the integer type the context expects (`let b: u8 = 200`, `f(3)` with an `i32` parameter, `x + 1` with `x: u64`), and `i64` otherwise. Its value must fit that type: at most 9223372036854775807 for `i64`, 18446744073709551615 for `u64`. A literal directly after unary `-` is one negative value, so `-9223372036854775808` is `i64::MIN` and `-1` is not a `u64`. Out-of-range literals are error `E0215`. Literals that do not even fit in 64 bits are error `E0004`.
 
 ### 3.4.1 Floating-point literals
 
@@ -215,6 +215,9 @@ Comparison operators at the same level cannot be chained: `a < b < c` and `a == 
 | Type     | Values                                    |
 |----------|-------------------------------------------|
 | `i64`    | 64-bit signed integers, two's complement  |
+| `i32`    | 32-bit signed integers                    |
+| `u8`     | integers from 0 to 255, used for bytes    |
+| `u64`    | integers from 0 to 2^64 - 1               |
 | `f64`    | 64-bit floating-point numbers (IEEE 754 double precision) |
 | `bool`   | `true`, `false`                           |
 | `string` | immutable sequences of Unicode text (UTF-8) |
@@ -227,7 +230,9 @@ Comparison operators at the same level cannot be chained: `a < b < c` and `a == 
 
 - `void` may only appear as a function return type. Variables and parameters of type `void` are error `E0213`.
 - Unknown type names are error `E0212`.
-- There are **no implicit conversions** between types, ever: `to_float(n)` turns an `i64` into an `f64` and `to_int(x)` the other way (section 10).
+- There are **no implicit conversions** between types, ever: `to_float(n)` turns an integer into an `f64` and `to_int(x)` the other way (section 10).
+- **Integer types.** Arithmetic and comparisons work on two integers of the same type, and the result has that type. An operation whose result does not fit the type stops the program with run-time error `R0001` (`u8` 250 + 10, `i32` 2147483647 + 1, `u64` 0 - 1); `u8` and `u64` cannot be negated. `to_int(x)`, `to_i32(x)`, `to_u8(x)` and `to_u64(x)` convert between integer types, with `R0001` when the value does not fit. `i32` and `u8` values currently take as much memory as an `i64`.
+- **Bytes** are a `List[u8]`: `s.bytes()` gives a string's UTF-8 bytes and `string_from_bytes(b)` the text back, or `None` when the bytes are not valid UTF-8.
 - Two types are compatible only if they are identical.
 
 ### 5.1 Structs
@@ -638,7 +643,7 @@ fn test_add() {
 
 | Brim | TypeScript |
 |------|------------|
-| `i64`, `bool`, `string` | `number`, `boolean`, `string` |
+| `i64`, `i32`, `u8`, `u64`, `bool`, `string` | `number`, `boolean`, `string` |
 | `List[T]` | `T[]` |
 | `Map[string, V]`, `Map[i64, V]`, `Map[bool, V]` | `Record<string, V>`, `Record<number, V>`, `Partial<Record<"true" \| "false", V>>` |
 | `Option[T]` | `T \| null` |
@@ -658,8 +663,10 @@ Builtins are always in scope and cannot be redefined.
 | `print` | `print(string)`, `print(i64)`, `print(f64)`, `print(bool)`, and structs, enums, lists and maps (section 5.8) | writes the value and a newline to standard output |
 | `eprint` | `eprint(string)` | writes the text and a newline to standard error |
 | `to_string` | `to_string(i64) -> string`, `to_string(f64) -> string`, `to_string(bool) -> string`, and structs, enums, lists and maps | the decimal representation of a number, `"true"`/`"false"`, or the text form of section 5.8 |
-| `to_float` | `to_float(i64) -> f64` | the nearest `f64` |
-| `to_int` | `to_int(f64) -> i64` | rounds toward zero; NaN and numbers outside the `i64` range are run-time error `R0010` |
+| `to_float` | `to_float(i64) -> f64`, and the other integer types | the nearest `f64` |
+| `to_int` | `to_int(f64) -> i64`, `to_int(i32) -> i64`, `to_int(u8) -> i64`, `to_int(u64) -> i64` | rounds an `f64` toward zero; NaN and numbers outside the `i64` range are run-time error `R0010`; a `u64` above the `i64` range is `R0001` |
+| `to_i32`, `to_u8`, `to_u64` | `to_i32(x) -> i32` and so on, for any integer `x` | the same number in another integer type; `R0001` if it does not fit |
+| `string_from_bytes` | `string_from_bytes(List[u8]) -> Option[string]` | the text of UTF-8 bytes, or `None` if they are not valid UTF-8 |
 | `read_line` | `read_line() -> Option[string]` | the next line of standard input without its line ending (`\n` or `\r\n`); `None` at the end of input |
 | `read_file` | `read_file(path: string) -> Result[string, string]` | a file's contents; `Err` with a message if it cannot be read or is not UTF-8 |
 | `write_file` | `write_file(path: string, text: string) -> Result[i64, string]` | creates or replaces a file; `Ok` with the number of bytes written |

@@ -115,7 +115,7 @@ module.exports = grammar({
 
     _type: ($) => choice($.primitive_type, $.generic_type, $.path_type),
 
-    primitive_type: (_) => choice('i64', 'f64', 'bool', 'string', 'void'),
+    primitive_type: (_) => choice('i64', 'i32', 'u8', 'u64', 'f64', 'bool', 'string', 'void'),
 
     path_type: ($) => prec.right(seq($.identifier, repeat(seq('.', $.identifier)))),
 

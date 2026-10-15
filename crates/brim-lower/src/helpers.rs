@@ -86,7 +86,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
     pub(super) fn values_equal(&mut self, a: ValueId, b: ValueId, ty: Type, span: Span) -> ValueId {
         use brim_ir::BinaryOp as Ir;
         let op = match ty {
-            Type::I64 => Ir::IEq,
+            Type::I64 | Type::I32 | Type::U8 | Type::U64 => Ir::IEq,
             Type::Bool => Ir::BEq,
             Type::F64 => Ir::FEq,
             Type::String => {
@@ -105,7 +105,8 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
     /// other values are shown quoted.
     pub(super) fn value_text(&mut self, v: ValueId, ty: Type, span: Span) -> ValueId {
         let runtime = match ty {
-            Type::I64 => RuntimeFn::I64ToStr,
+            Type::I64 | Type::I32 | Type::U8 => RuntimeFn::I64ToStr,
+            Type::U64 => RuntimeFn::U64ToStr,
             Type::Bool => RuntimeFn::BoolToStr,
             Type::F64 => RuntimeFn::F64ToStr,
             Type::String => RuntimeFn::StrQuote,

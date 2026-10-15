@@ -258,10 +258,15 @@ impl<'a> Checker<'a> {
         expr: &ast::Expr,
         ty: Type,
     ) -> Option<CheckedPattern> {
+        // An integer pattern takes the matched integer type.
+        let int_ty = if ty.is_int() { ty } else { Type::I64 };
+        let int = |magnitude, negative| {
+            super::exprs::int_literal(magnitude, negative, int_ty).map(CheckedPattern::Int)
+        };
         let literal = match &expr.kind {
-            ast::ExprKind::Int(v) => i64::try_from(*v).ok().map(CheckedPattern::Int),
+            ast::ExprKind::Int(v) => int(*v, false),
             ast::ExprKind::Unary { operand, .. } => match operand.kind {
-                ast::ExprKind::Int(v) => 0i64.checked_sub_unsigned(v).map(CheckedPattern::Int),
+                ast::ExprKind::Int(v) => int(v, true),
                 _ => None,
             },
             ast::ExprKind::Str(s) => Some(CheckedPattern::Str(s.clone())),
@@ -270,14 +275,14 @@ impl<'a> Checker<'a> {
         };
         let Some(literal) = literal else {
             self.diags.push(
-                Diagnostic::error("integer literal is out of range for `i64`")
+                Diagnostic::error(format!("integer literal is out of range for `{int_ty}`"))
                     .with_code("E0215")
                     .with_primary(pattern.span, ""),
             );
             return None;
         };
         let literal_ty = match literal {
-            CheckedPattern::Int(_) => Type::I64,
+            CheckedPattern::Int(_) => int_ty,
             CheckedPattern::Str(_) => Type::String,
             _ => Type::Bool,
         };

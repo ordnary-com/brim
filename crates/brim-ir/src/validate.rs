@@ -373,31 +373,42 @@ impl FnValidator<'_> {
                 (callee.ret != Type::Void).then_some(callee.ret)
             }
             InstKind::CallRuntime(rt, args) => {
-                let Some(params) = rt
-                    .params()
-                    .iter()
-                    .map(|t| Type::from_abi(*t))
-                    .collect::<Option<Vec<Type>>>()
-                else {
-                    self.error(format!("@{rt} takes a list, which IR cannot pass yet"));
-                    return;
+                // A list parameter or result is any list type with the
+                // right element type.
+                let elem = |t: brim_runtime::AbiType| match t {
+                    brim_runtime::AbiType::StrList => Type::Str,
+                    _ => Type::I64,
                 };
+                let is_list_of = |v: &Self, ty: Option<Type>, want: Type| match ty {
+                    Some(Type::List(id)) => v.module.lists.get(id.index()) == Some(&want),
+                    _ => false,
+                };
+                let mut params = Vec::with_capacity(rt.params().len());
+                for (i, t) in rt.params().iter().enumerate() {
+                    match Type::from_abi(*t) {
+                        Some(ty) => params.push(ty),
+                        None => {
+                            let ty = args.get(i).and_then(|a| f.values.get(a.index()).copied());
+                            if !is_list_of(self, ty, elem(*t)) {
+                                self.error(format!("@{rt} takes a list of {}", elem(*t)));
+                                return;
+                            }
+                            params.push(ty.expect("a list"));
+                        }
+                    }
+                }
                 self.check_args(&format!("@{rt}"), args, &params, local);
                 match Type::from_abi(rt.ret()) {
                     Some(ret) => (ret != Type::Void).then_some(ret),
-                    // A list of strings: the result's declared list type.
-                    None => match result.map(|v| f.values.get(v.index()).copied()) {
-                        Some(Some(ty @ Type::List(id)))
-                            if self.module.lists.get(id.index()) == Some(&Type::Str) =>
-                        {
-                            Some(ty)
-                        }
-                        Some(_) => {
-                            self.error(format!("@{rt} returns a list of str"));
+                    // The result's declared list type.
+                    None => {
+                        let ty = result.and_then(|v| f.values.get(v.index()).copied());
+                        if !is_list_of(self, ty, elem(rt.ret())) {
+                            self.error(format!("@{rt} returns a list of {}", elem(rt.ret())));
                             return;
                         }
-                        None => None,
-                    },
+                        ty
+                    }
                 }
             }
             InstKind::MakeStruct(id, args) => {

@@ -488,6 +488,9 @@ fn execute(
                     UnaryOp::INeg => Value::I64(ops::neg(v.i64()).map_err(fail)?),
                     UnaryOp::FNeg => float(-v.f64()),
                     UnaryOp::BNot => Value::Bool(!v.bool()),
+                    UnaryOp::Fit { min, max, op } => {
+                        Value::I64(ops::fit(v.i64(), *min, *max, op).map_err(fail)?)
+                    }
                 }
             }
             InstKind::Binary(op, a, b) => {
@@ -665,6 +668,15 @@ fn binary(op: BinaryOp, a: &Value, b: &Value) -> Result<Value, RuntimeError> {
         IGe => Value::Bool(a.i64() >= b.i64()),
         BEq => Value::Bool(a.bool() == b.bool()),
         BNe => Value::Bool(a.bool() != b.bool()),
+        UAdd => Value::I64(ops::uadd(a.i64(), b.i64())?),
+        USub => Value::I64(ops::usub(a.i64(), b.i64())?),
+        UMul => Value::I64(ops::umul(a.i64(), b.i64())?),
+        UDiv => Value::I64(ops::udiv(a.i64(), b.i64())?),
+        URem => Value::I64(ops::urem(a.i64(), b.i64())?),
+        ULt => Value::Bool((a.i64() as u64) < (b.i64() as u64)),
+        ULe => Value::Bool((a.i64() as u64) <= (b.i64() as u64)),
+        UGt => Value::Bool((a.i64() as u64) > (b.i64() as u64)),
+        UGe => Value::Bool((a.i64() as u64) >= (b.i64() as u64)),
         FAdd => float(a.f64() + b.f64()),
         FSub => float(a.f64() - b.f64()),
         FMul => float(a.f64() * b.f64()),
@@ -677,6 +689,11 @@ fn binary(op: BinaryOp, a: &Value, b: &Value) -> Result<Value, RuntimeError> {
         FGt => Value::Bool(a.f64() > b.f64()),
         FGe => Value::Bool(a.f64() >= b.f64()),
     })
+}
+
+/// A `List[u8]` as bytes.
+fn bytes(list: &Value) -> Vec<u8> {
+    list.list().iter().map(|b| b.i64() as u8).collect()
 }
 
 fn float(x: f64) -> Value {
@@ -726,6 +743,12 @@ fn call_runtime(
             r::print_bool(state.host.out, args[0].bool()).map_err(io)?;
             None
         }
+        RuntimeFn::PrintU64 => {
+            r::print_str(state.host.out, &(args[0].i64() as u64).to_string()).map_err(io)?;
+            None
+        }
+        RuntimeFn::U64ToStr => str_value(BrimStr::from((args[0].i64() as u64).to_string())),
+        RuntimeFn::U64ToF64 => Some(float(args[0].i64() as u64 as f64)),
         RuntimeFn::PrintF64 => {
             r::print_str(state.host.out, &r::float::format_f64(args[0].f64())).map_err(io)?;
             None
@@ -774,6 +797,14 @@ fn call_runtime(
         RuntimeFn::StrSplit => Some(str_list(r::str_split(s(0), s(1)))),
         RuntimeFn::StrLines => Some(str_list(r::str_lines(s(0)))),
         RuntimeFn::StrChars => Some(str_list(r::str_chars(s(0)))),
+        RuntimeFn::StrBytes => Some(Value::List(Rc::new(
+            s(0).bytes().map(|b| Value::I64(i64::from(b))).collect(),
+        ))),
+        RuntimeFn::BytesUtf8Ok => Some(Value::Bool(std::str::from_utf8(&bytes(args[0])).is_ok())),
+        // Called next to `BytesUtf8Ok`, whose result decides which is used.
+        RuntimeFn::BytesToStr => str_value(BrimStr::from(
+            String::from_utf8_lossy(&bytes(args[0])).as_ref(),
+        )),
         RuntimeFn::StrParseIntOk => Some(Value::Bool(r::str_parse_int(s(0)).is_some())),
         RuntimeFn::StrParseInt => Some(Value::I64(r::str_parse_int(s(0)).unwrap_or(0))),
         RuntimeFn::ReadLine => {

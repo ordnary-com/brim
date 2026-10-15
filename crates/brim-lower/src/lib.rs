@@ -235,7 +235,7 @@ impl ModuleLowerer<'_> {
     /// The IR type of a concrete (parameter-free) type.
     fn ir_type(&mut self, ty: Type) -> IrType {
         match ty {
-            Type::I64 => IrType::I64,
+            Type::I64 | Type::I32 | Type::U8 | Type::U64 => IrType::I64,
             Type::F64 => IrType::F64,
             Type::Bool => IrType::Bool,
             Type::String => IrType::Str,
@@ -345,6 +345,7 @@ fn branches(expr: &CheckedExpr) -> bool {
         CheckedExprKind::Unary { operand, .. }
         | CheckedExprKind::Show(operand)
         | CheckedExprKind::BoxNew(operand)
+        | CheckedExprKind::IntCast(operand)
         | CheckedExprKind::BoxValue(operand) => branches(operand),
         CheckedExprKind::Binary { lhs, rhs, .. } => branches(lhs) || branches(rhs),
         CheckedExprKind::CallMut { .. } => true,
@@ -792,7 +793,8 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                         .values(&[&current, value])
                         .try_into()
                         .expect("two operands");
-                    self.binary(op, a, b, span)
+                    let ty = self.concrete(place.ty);
+                    self.int_binary(op, a, b, ty, span)
                 }
             };
             self.emit(InstKind::Store(slot, v), None, span);
@@ -821,9 +823,12 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
     ) {
         match op {
             None => self.replace_place(place, indices, v, span),
-            Some(op) => self.write_place(place, indices, span, |s, current| {
-                s.binary(op, current, v, span)
-            }),
+            Some(op) => {
+                let ty = self.concrete(place.ty);
+                self.write_place(place, indices, span, |s, current| {
+                    s.int_binary(op, current, v, ty, span)
+                })
+            }
         }
     }
 
@@ -1707,12 +1712,13 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             }
             CheckedExprKind::Unary { op, operand } => {
                 let v = self.value(operand);
-                let op = match op {
+                let ir_op = match op {
                     UnaryOp::IntNeg => brim_ir::UnaryOp::INeg,
                     UnaryOp::FloatNeg => brim_ir::UnaryOp::FNeg,
                     UnaryOp::BoolNot => brim_ir::UnaryOp::BNot,
                 };
-                self.emit_value(InstKind::Unary(op, v), ty, span)
+                let result = self.emit_value(InstKind::Unary(ir_op, v), ty, span);
+                self.fit(result, expr.ty, "-", span)
             }
             CheckedExprKind::Binary { op, lhs, rhs } => {
                 let [a, b] = self.values(&[lhs, rhs]).try_into().expect("two operands");
@@ -1730,8 +1736,17 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                             )
                         }
                     }
-                    _ => self.binary(*op, a, b, span),
+                    _ => {
+                        let operand_ty = self.concrete(lhs.ty);
+                        self.int_binary(*op, a, b, operand_ty, span)
+                    }
                 }
+            }
+            CheckedExprKind::IntCast(value) => {
+                let v = self.value(value);
+                let from = self.concrete(value.ty);
+                let to = self.concrete(expr.ty);
+                self.int_cast(v, from, to, span)
             }
             CheckedExprKind::BoxNew(value) => {
                 let v = self.value(value);
@@ -1924,6 +1939,11 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                     self.runtime(RuntimeFn::StrParseFloat, vec![args[0]], IrType::F64, span);
                 self.choose_variant(ok, enum_ty, value, None, span)
             }
+            Intrinsic::StrFromBytes => {
+                let ok = self.runtime(RuntimeFn::BytesUtf8Ok, vec![args[0]], bool_ty, span);
+                let value = self.runtime(RuntimeFn::BytesToStr, vec![args[0]], str_ty, span);
+                self.choose_variant(ok, enum_ty, value, None, span)
+            }
             Intrinsic::Env => {
                 let set = self.runtime(RuntimeFn::EnvHas, vec![args[0]], bool_ty, span);
                 let value = self.runtime(RuntimeFn::EnvGet, vec![args[0]], str_ty, span);
@@ -2089,6 +2109,83 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         self.switch_to(ok);
         let loaded = self.emit_value(InstKind::Load(slot), ir_ty, span);
         self.emit_value(InstKind::Extract(loaded, layout.offsets[0]), ty, span)
+    }
+
+    /// `a op b` on operands of type `operand_ty`: `u64` uses the unsigned
+    /// operations, and `i32` and `u8` results are checked to fit.
+    fn int_binary(
+        &mut self,
+        op: BinaryOp,
+        a: ValueId,
+        b: ValueId,
+        operand_ty: Type,
+        span: Span,
+    ) -> ValueId {
+        use brim_ir::BinaryOp as Ir;
+        if operand_ty == Type::U64 {
+            let unsigned = match op {
+                BinaryOp::IntAdd => Some(Ir::UAdd),
+                BinaryOp::IntSub => Some(Ir::USub),
+                BinaryOp::IntMul => Some(Ir::UMul),
+                BinaryOp::IntDiv => Some(Ir::UDiv),
+                BinaryOp::IntRem => Some(Ir::URem),
+                BinaryOp::IntLt => Some(Ir::ULt),
+                BinaryOp::IntLe => Some(Ir::ULe),
+                BinaryOp::IntGt => Some(Ir::UGt),
+                BinaryOp::IntGe => Some(Ir::UGe),
+                _ => None,
+            };
+            if let Some(ir_op) = unsigned {
+                let ty = ir_op.signature().1;
+                return self.emit_value(InstKind::Binary(ir_op, a, b), ty, span);
+            }
+        }
+        let result = self.binary(op, a, b, span);
+        let symbol = match op {
+            BinaryOp::IntAdd => "+",
+            BinaryOp::IntSub => "-",
+            BinaryOp::IntMul => "*",
+            BinaryOp::IntDiv => "/",
+            BinaryOp::IntRem => "%",
+            _ => return result,
+        };
+        self.fit(result, operand_ty, symbol, span)
+    }
+
+    /// An integer converted between integer types: the same number, which
+    /// must fit in `to`.
+    fn int_cast(&mut self, v: ValueId, from: Type, to: Type, span: Span) -> ValueId {
+        let op = match to {
+            Type::I32 => "to_i32",
+            Type::U8 => "to_u8",
+            Type::U64 => "to_u64",
+            _ => "to_int",
+        };
+        // A `u64` above `i64::MAX` looks negative in an `i64`.
+        let (min, max) = match (from, to) {
+            _ if from == to => return v,
+            (Type::U64, Type::I32) => (0, i32::MAX.into()),
+            (Type::U64, Type::I64) | (Type::I64 | Type::I32, Type::U64) => (0, i64::MAX),
+            (Type::U8, Type::U64) | (Type::I32 | Type::U8, Type::I64) => return v,
+            (_, to) => to.int_range().expect("a narrower integer type"),
+        };
+        self.emit_value(
+            InstKind::Unary(brim_ir::UnaryOp::Fit { min, max, op }, v),
+            IrType::I64,
+            span,
+        )
+    }
+
+    /// `v`, checked to be in range for `ty` when that is `i32` or `u8`.
+    fn fit(&mut self, v: ValueId, ty: Type, op: &'static str, span: Span) -> ValueId {
+        match ty.int_range() {
+            Some((min, max)) => self.emit_value(
+                InstKind::Unary(brim_ir::UnaryOp::Fit { min, max, op }, v),
+                IrType::I64,
+                span,
+            ),
+            None => v,
+        }
     }
 
     fn binary(&mut self, op: BinaryOp, a: ValueId, b: ValueId, span: Span) -> ValueId {

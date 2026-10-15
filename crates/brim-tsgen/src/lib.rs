@@ -207,7 +207,7 @@ impl Generator<'_> {
     /// A Brim type in TypeScript. `params` names the type parameters.
     fn ts(&self, ty: Type, params: &[String]) -> String {
         match ty {
-            Type::I64 | Type::F64 => "number".into(),
+            Type::I64 | Type::I32 | Type::U8 | Type::U64 | Type::F64 => "number".into(),
             Type::Bool => "boolean".into(),
             Type::String => "string".into(),
             Type::Void | Type::Error => "null".into(),

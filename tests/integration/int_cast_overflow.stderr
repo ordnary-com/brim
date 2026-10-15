@@ -1,0 +1,5 @@
+error[R0001]: integer overflow in `to_int`
+ --> tests/integration/int_cast_overflow.brim:6:11
+  |
+6 |     print(to_int(big))
+  |           ^^^^^^^^^^^

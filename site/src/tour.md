@@ -61,6 +61,32 @@ accident: `price * count` is an error until you convert one with
 `to_float` or `to_int`. `f64` follows IEEE 754, so `0.1 + 0.2` is not
 exactly `0.3`, and `1.0 / 0.0` is `inf` rather than an error.
 
+For bytes and other fixed sizes there are `u8`, `i32` and `u64`. A
+literal takes the type it needs, and a result that does not fit stops the
+program instead of wrapping around:
+
+```brim
+fn main() {
+    let data: List[u8] = "Hé".bytes()
+    print(data)
+    let mut level: u8 = 250
+    level += 5
+    print(level)
+    let big: u64 = 18446744073709551615
+    print(big / 3)
+    print(to_i32(level) - 300)
+    print(string_from_bytes(data))
+}
+```
+
+```text
+[72, 195, 169]
+255
+6148914691236517205
+-45
+Some("Hé")
+```
+
 ## Functions
 
 ```brim

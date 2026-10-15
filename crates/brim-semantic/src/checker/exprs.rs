@@ -8,6 +8,7 @@
 
 use brim_ast as ast;
 use brim_diagnostics::{Diagnostic, Span};
+use brim_stdlib::Prim;
 
 use super::{Checker, FnCtx, error_expr, plural, supplied};
 use crate::checked::{BinaryOp, CheckedExpr, CheckedExprKind, CheckedPlace, FnId, UnaryOp};
@@ -54,25 +55,29 @@ impl<'a> Checker<'a> {
         let span = expr.span;
         let (kind, ty) = match &expr.kind {
             ast::ExprKind::Float(bits) => (CheckedExprKind::Float(*bits), Type::F64),
-            ast::ExprKind::Int(value) => match i64::try_from(*value) {
-                Ok(v) => (CheckedExprKind::Int(v), Type::I64),
-                Err(_) => {
-                    self.int_out_of_range(*value, span);
-                    return error_expr(span);
+            ast::ExprKind::Int(value) => {
+                // A literal takes the integer type the context expects.
+                let ty = expected.filter(|t| t.is_int()).unwrap_or(Type::I64);
+                match int_literal(*value, false, ty) {
+                    Some(v) => (CheckedExprKind::Int(v), ty),
+                    None => {
+                        self.int_out_of_range(*value, false, ty, span);
+                        return error_expr(span);
+                    }
                 }
-            },
+            }
             ast::ExprKind::Bool(value) => (CheckedExprKind::Bool(*value), Type::Bool),
             ast::ExprKind::Str(value) => (CheckedExprKind::Str(value.clone()), Type::String),
             ast::ExprKind::Name(ident) => return self.check_name(ident, expected, ctx),
             ast::ExprKind::Unary { op, operand, .. } => {
-                return self.check_unary(*op, operand, span, ctx);
+                return self.check_unary(*op, operand, span, expected, ctx);
             }
             ast::ExprKind::Binary {
                 op,
                 op_span,
                 lhs,
                 rhs,
-            } => return self.check_binary(*op, *op_span, lhs, rhs, span, ctx),
+            } => return self.check_binary(*op, *op_span, lhs, rhs, span, expected, ctx),
             ast::ExprKind::Call { callee, args } => {
                 return self.check_call(callee, args, span, expected, ctx);
             }
@@ -1298,19 +1303,52 @@ impl<'a> Checker<'a> {
 
     // ---- operators ------------------------------------------------------------
 
-    fn int_out_of_range(&mut self, value: u64, span: Span) {
+    fn int_out_of_range(&mut self, value: u64, negative: bool, ty: Type, span: Span) {
+        let sign = if negative { "-" } else { "" };
+        let (min, max) = match ty {
+            Type::U64 => ("0".to_string(), u64::MAX.to_string()),
+            ty => {
+                let (min, max) = ty.int_range().unwrap_or((i64::MIN, i64::MAX));
+                (min.to_string(), max.to_string())
+            }
+        };
         self.diags.push(
             Diagnostic::error(format!(
-                "integer literal `{value}` is out of range for `i64`"
+                "integer literal `{sign}{value}` is out of range for `{ty}`"
             ))
             .with_code("E0215")
             .with_primary(span, "")
-            .with_note(format!(
-                "`i64` values range from {} to {}",
-                i64::MIN,
-                i64::MAX
-            )),
+            .with_note(format!("`{ty}` values range from {min} to {max}")),
         );
+    }
+
+    /// An integer literal checked with the type it got from the context
+    /// (`I64` by default) changed to `ty`, when its value fits: `x + 1`
+    /// with `x: u8`. `false` if `expr` is not such a literal.
+    pub(super) fn retype_int_literal(&mut self, expr: &mut CheckedExpr, ty: Type) -> bool {
+        let (magnitude, negative) = match &expr.kind {
+            CheckedExprKind::Int(v) => (v.unsigned_abs(), *v < 0),
+            CheckedExprKind::Unary {
+                op: UnaryOp::IntNeg,
+                operand,
+            } => match operand.kind {
+                CheckedExprKind::Int(v) if v >= 0 => (v.unsigned_abs(), true),
+                _ => return false,
+            },
+            _ => return false,
+        };
+        if expr.ty != Type::I64 {
+            return false;
+        }
+        let Some(v) = int_literal(magnitude, negative, ty) else {
+            return false;
+        };
+        *expr = CheckedExpr {
+            kind: CheckedExprKind::Int(v),
+            ty,
+            span: expr.span,
+        };
+        true
     }
 
     fn check_unary(
@@ -1318,30 +1356,37 @@ impl<'a> Checker<'a> {
         op: ast::UnaryOp,
         operand: &ast::Expr,
         span: Span,
+        expected: Option<Type>,
         ctx: &mut FnCtx,
     ) -> CheckedExpr {
-        // `-9223372036854775808` is i64::MIN, even though the literal alone
-        // does not fit in an i64.
+        let int_expected = expected.filter(|t| t.is_int());
+        // A negative literal is one value: `-9223372036854775808` is
+        // i64::MIN, even though the literal alone does not fit in an i64.
         if op == ast::UnaryOp::Neg
             && let ast::ExprKind::Int(value) = operand.kind
-            && value == i64::MIN.unsigned_abs()
+            && (int_expected.is_some() || value == i64::MIN.unsigned_abs())
         {
+            let ty = int_expected.unwrap_or(Type::I64);
+            let Some(v) = int_literal(value, true, ty) else {
+                self.int_out_of_range(value, true, ty, span);
+                return error_expr(span);
+            };
             return CheckedExpr {
-                kind: CheckedExprKind::Int(i64::MIN),
-                ty: Type::I64,
+                kind: CheckedExprKind::Int(v),
+                ty,
                 span,
             };
         }
-        let operand = self.check_expr(operand, ctx);
+        let operand = self.check_expr_with(operand, int_expected, ctx);
         let (op, ty) = match (op, operand.ty) {
             (_, Type::Error) => return error_expr(span),
-            (ast::UnaryOp::Neg, Type::I64) => (UnaryOp::IntNeg, Type::I64),
+            (ast::UnaryOp::Neg, ty @ (Type::I64 | Type::I32)) => (UnaryOp::IntNeg, ty),
             (ast::UnaryOp::Neg, Type::F64) => (UnaryOp::FloatNeg, Type::F64),
             (ast::UnaryOp::Not, Type::Bool) => (UnaryOp::BoolNot, Type::Bool),
             (op, ty) => {
                 let ty = self.show(ty);
                 let expected = if op == ast::UnaryOp::Neg {
-                    "i64` or `f64"
+                    "i64`, `i32` or `f64"
                 } else {
                     "bool"
                 };
@@ -1352,7 +1397,13 @@ impl<'a> Checker<'a> {
                     ))
                     .with_code("E0209")
                     .with_primary(operand.span, format!("this is `{ty}`"))
-                    .with_note(format!("unary `{}` requires `{expected}`", op.as_str())),
+                    .with_note(
+                        if matches!(operand.ty, Type::U8 | Type::U64) {
+                            format!("`{ty}` is unsigned: it has no negative values")
+                        } else {
+                            format!("unary `{}` requires `{expected}`", op.as_str())
+                        },
+                    ),
                 );
                 return error_expr(span);
             }
@@ -1367,6 +1418,7 @@ impl<'a> Checker<'a> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn check_binary(
         &mut self,
         op: ast::BinaryOp,
@@ -1374,12 +1426,22 @@ impl<'a> Checker<'a> {
         lhs: &ast::Expr,
         rhs: &ast::Expr,
         span: Span,
+        expected: Option<Type>,
         ctx: &mut FnCtx,
     ) -> CheckedExpr {
-        let lhs = self.check_expr(lhs, ctx);
-        // `o == None`: the left side tells what the right side is.
-        let expected = matches!(op, ast::BinaryOp::Eq | ast::BinaryOp::Ne).then_some(lhs.ty);
-        let rhs = self.check_expr_with(rhs, expected, ctx);
+        use ast::BinaryOp as Op;
+        let arithmetic = matches!(op, Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Rem);
+        // `let x: u8 = 1 + 2`: the literals are `u8`s.
+        let lhs_expected = expected.filter(|t| arithmetic && t.is_int());
+        let lhs = self.check_expr_with(lhs, lhs_expected, ctx);
+        // `o == None` and `x + 1`: the left side tells what the right side
+        // is.
+        let rhs_expected = match op {
+            Op::Eq | Op::Ne => Some(lhs.ty),
+            Op::And | Op::Or => None,
+            _ => lhs.ty.is_int().then_some(lhs.ty),
+        };
+        let rhs = self.check_expr_with(rhs, rhs_expected, ctx);
         self.resolve_binary(op, op_span, lhs, rhs, span)
     }
 
@@ -1392,29 +1454,39 @@ impl<'a> Checker<'a> {
         rhs: CheckedExpr,
         span: Span,
     ) -> CheckedExpr {
-        use Type::{Bool, F64, I64, String};
+        use Type::{Bool, F64, String};
         use ast::BinaryOp as Op;
 
         if lhs.ty == Type::Error || rhs.ty == Type::Error {
             return error_expr(span);
         }
+        // `1 + x` with `x: u8`: the literal becomes a `u8`.
+        let (mut lhs, mut rhs) = (lhs, rhs);
+        if lhs.ty != rhs.ty && lhs.ty.is_int() && rhs.ty.is_int() {
+            let rhs_ty = rhs.ty;
+            if !self.retype_int_literal(&mut lhs, rhs_ty) {
+                let lhs_ty = lhs.ty;
+                self.retype_int_literal(&mut rhs, lhs_ty);
+            }
+        }
+        let int = lhs.ty == rhs.ty && lhs.ty.is_int();
         let resolved = match (op, lhs.ty, rhs.ty) {
-            (Op::Add, I64, I64) => Some((BinaryOp::IntAdd, I64)),
-            (Op::Sub, I64, I64) => Some((BinaryOp::IntSub, I64)),
-            (Op::Mul, I64, I64) => Some((BinaryOp::IntMul, I64)),
-            (Op::Div, I64, I64) => Some((BinaryOp::IntDiv, I64)),
-            (Op::Rem, I64, I64) => Some((BinaryOp::IntRem, I64)),
+            (Op::Add, ty, _) if int => Some((BinaryOp::IntAdd, ty)),
+            (Op::Sub, ty, _) if int => Some((BinaryOp::IntSub, ty)),
+            (Op::Mul, ty, _) if int => Some((BinaryOp::IntMul, ty)),
+            (Op::Div, ty, _) if int => Some((BinaryOp::IntDiv, ty)),
+            (Op::Rem, ty, _) if int => Some((BinaryOp::IntRem, ty)),
+            (Op::Eq, _, _) if int => Some((BinaryOp::IntEq, Bool)),
+            (Op::Ne, _, _) if int => Some((BinaryOp::IntNe, Bool)),
+            (Op::Lt, _, _) if int => Some((BinaryOp::IntLt, Bool)),
+            (Op::Le, _, _) if int => Some((BinaryOp::IntLe, Bool)),
+            (Op::Gt, _, _) if int => Some((BinaryOp::IntGt, Bool)),
+            (Op::Ge, _, _) if int => Some((BinaryOp::IntGe, Bool)),
             (Op::Add, String, String) => Some((BinaryOp::StrConcat, String)),
-            (Op::Eq, I64, I64) => Some((BinaryOp::IntEq, Bool)),
-            (Op::Ne, I64, I64) => Some((BinaryOp::IntNe, Bool)),
             (Op::Eq, Bool, Bool) => Some((BinaryOp::BoolEq, Bool)),
             (Op::Ne, Bool, Bool) => Some((BinaryOp::BoolNe, Bool)),
             (Op::Eq, String, String) => Some((BinaryOp::StrEq, Bool)),
             (Op::Ne, String, String) => Some((BinaryOp::StrNe, Bool)),
-            (Op::Lt, I64, I64) => Some((BinaryOp::IntLt, Bool)),
-            (Op::Le, I64, I64) => Some((BinaryOp::IntLe, Bool)),
-            (Op::Gt, I64, I64) => Some((BinaryOp::IntGt, Bool)),
-            (Op::Ge, I64, I64) => Some((BinaryOp::IntGe, Bool)),
             (Op::Lt, String, String) => Some((BinaryOp::StrLt, Bool)),
             (Op::Le, String, String) => Some((BinaryOp::StrLe, Bool)),
             (Op::Gt, String, String) => Some((BinaryOp::StrGt, Bool)),
@@ -1513,9 +1585,19 @@ impl<'a> Checker<'a> {
                         "convert the `i64` with `to_float(...)`, or the `f64` with `to_int(...)`",
                     )
             }
-            Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Rem => {
-                diag.with_note(format!("`{sym}` requires two `i64` or two `f64` operands"))
+            _ if lhs.ty.is_int() && rhs.ty.is_int() => {
+                let to = match lhs.ty {
+                    Type::I32 => "to_i32",
+                    Type::U8 => "to_u8",
+                    Type::U64 => "to_u64",
+                    _ => "to_int",
+                };
+                diag.with_note("Brim never converts between integer types implicitly")
+                    .with_help(format!("convert one side, for example with `{to}(...)`"))
             }
+            Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Rem => diag.with_note(format!(
+                "`{sym}` requires two integers of the same type or two `f64` operands"
+            )),
             Op::Lt | Op::Le | Op::Gt | Op::Ge => diag.with_note(format!(
                 "`{sym}` compares two numbers of the same type or two `string` values"
             )),
@@ -1524,6 +1606,109 @@ impl<'a> Checker<'a> {
             },
         };
         self.diags.push(diag);
+    }
+
+    /// `to_i32(x)`, `to_u8(x)` or `to_u64(x)`.
+    fn check_int_cast(
+        &mut self,
+        name: &str,
+        target: Type,
+        args: &[ast::Expr],
+        span: Span,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        let args: Vec<CheckedExpr> = args.iter().map(|a| self.check_expr(a, ctx)).collect();
+        let [value] = <[CheckedExpr; 1]>::try_from(args).unwrap_or_else(|args| {
+            self.diags.push(
+                Diagnostic::error(format!(
+                    "`{name}` takes 1 argument but {} supplied",
+                    supplied(args.len())
+                ))
+                .with_code("E0205")
+                .with_primary(span, "expected 1 argument"),
+            );
+            [error_expr(span)]
+        });
+        if value.ty == Type::Error {
+            return error_expr(span);
+        }
+        if !value.ty.is_int() {
+            let ty = self.show(value.ty);
+            let mut diag = Diagnostic::error(format!("`{name}` cannot be called with `{ty}`"))
+                .with_code("E0206")
+                .with_primary(value.span, "unsupported argument type")
+                .with_note(format!("`{name}` converts an integer of another type"));
+            if value.ty == Type::F64 {
+                diag = diag.with_help(format!("convert the `f64` with `{name}(to_int(x))`"));
+            }
+            self.diags.push(diag);
+            return error_expr(span);
+        }
+        CheckedExpr {
+            kind: CheckedExprKind::IntCast(Box::new(value)),
+            ty: target,
+            span,
+        }
+    }
+
+    /// Builtins whose argument is a `u64`, which has its own runtime
+    /// functions, and `to_int` of an integer.
+    fn int_builtin(
+        &mut self,
+        name: &str,
+        args: &mut Vec<CheckedExpr>,
+        span: Span,
+    ) -> Option<CheckedExpr> {
+        use brim_runtime::RuntimeFn as R;
+        // `assert_eq(x, 5)` with `x: u8`: the literal becomes a `u8`.
+        if let [a, b] = args.as_mut_slice()
+            && a.ty != b.ty
+            && a.ty.is_int()
+            && b.ty.is_int()
+            && !self.retype_int_literal(b, a.ty)
+        {
+            self.retype_int_literal(a, b.ty);
+        }
+        let builtin = |runtime, args, ty| CheckedExpr {
+            kind: CheckedExprKind::Builtin { runtime, args },
+            ty,
+            span,
+        };
+        match (name, args.as_slice()) {
+            ("to_int", [arg]) if arg.ty.is_int() => Some(CheckedExpr {
+                kind: CheckedExprKind::IntCast(Box::new(args.pop().expect("one"))),
+                ty: Type::I64,
+                span,
+            }),
+            ("print", [arg]) if arg.ty == Type::U64 => {
+                Some(builtin(R::PrintU64, std::mem::take(args), Type::Void))
+            }
+            ("to_string", [arg]) if arg.ty == Type::U64 => {
+                Some(builtin(R::U64ToStr, std::mem::take(args), Type::String))
+            }
+            ("to_float", [arg]) if arg.ty == Type::U64 => {
+                Some(builtin(R::U64ToF64, std::mem::take(args), Type::F64))
+            }
+            ("assert_eq", [a, b]) if a.ty == Type::U64 && b.ty == Type::U64 => {
+                // Compared as text, which also shows the values correctly.
+                let texts = std::mem::take(args)
+                    .into_iter()
+                    .map(|a| {
+                        let span = a.span;
+                        CheckedExpr {
+                            kind: CheckedExprKind::Builtin {
+                                runtime: R::U64ToStr,
+                                args: vec![a],
+                            },
+                            ty: Type::String,
+                            span,
+                        }
+                    })
+                    .collect();
+                Some(builtin(R::AssertEqStr, texts, Type::Void))
+            }
+            _ => None,
+        }
     }
 
     /// `print(value)` or `to_string(value)` for a struct, enum, list or map.
@@ -1598,6 +1783,15 @@ impl<'a> Checker<'a> {
         if self.type_by_name.get(name) == Some(&Def::Box) {
             return self.check_box_new(callee, args, span, expected, ctx);
         }
+        let int_target = match name {
+            "to_i32" => Some(Type::I32),
+            "to_u8" => Some(Type::U8),
+            "to_u64" => Some(Type::U64),
+            _ => None,
+        };
+        if let Some(target) = int_target {
+            return self.check_int_cast(name, target, args, span, ctx);
+        }
         if let Some(result) = self.check_intrinsic_call(callee, args, span, ctx) {
             return result;
         }
@@ -1606,7 +1800,7 @@ impl<'a> Checker<'a> {
         let builtin = brim_stdlib::lookup(name)
             .filter(|b| !brim_stdlib::is_internal(b.name) || self.in_std_module());
         if let Some(builtin) = builtin {
-            let args: Vec<CheckedExpr> = args.iter().map(|a| self.check_expr(a, ctx)).collect();
+            let mut args: Vec<CheckedExpr> = args.iter().map(|a| self.check_expr(a, ctx)).collect();
             let arities = builtin.arities();
             if !arities.contains(&args.len()) {
                 let expected = arities
@@ -1637,9 +1831,17 @@ impl<'a> Checker<'a> {
             {
                 return self.show_value(name, args, span);
             }
+            if let Some(result) = self.int_builtin(name, &mut args, span) {
+                return result;
+            }
+            // `i32` and `u8` values are held as `i64`: they use the `i64`
+            // forms of the builtins.
             let prims = args
                 .iter()
-                .map(|a| a.ty.to_prim())
+                .map(|a| match a.ty {
+                    Type::I32 | Type::U8 => Some(Prim::I64),
+                    ty => ty.to_prim(),
+                })
                 .collect::<Option<Vec<_>>>();
             let overload = prims.as_deref().and_then(|p| builtin.resolve(p));
             let Some(overload) = overload else {
@@ -1725,4 +1927,24 @@ impl<'a> Checker<'a> {
         self.diags.push(diag);
         error_expr(span)
     }
+}
+
+/// The value of an integer literal of magnitude `magnitude` (negated if
+/// `negative`) as a `ty`, held in an `i64` (`u64` keeps its bits); `None`
+/// if it does not fit.
+pub(super) fn int_literal(magnitude: u64, negative: bool, ty: Type) -> Option<i64> {
+    let value = if negative {
+        -i128::from(magnitude)
+    } else {
+        i128::from(magnitude)
+    };
+    let (min, max) = match ty {
+        Type::U64 => (0, i128::from(u64::MAX)),
+        Type::I64 => (i128::from(i64::MIN), i128::from(i64::MAX)),
+        ty => {
+            let (min, max) = ty.int_range()?;
+            (i128::from(min), i128::from(max))
+        }
+    };
+    (min..=max).contains(&value).then_some(value as u64 as i64)
 }

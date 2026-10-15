@@ -406,6 +406,28 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                                 self.checked("llvm.ssub.with.overflow", zero, v, "-", inst.span)?
                             }
                             UnaryOp::BNot => self.builder.build_not(v, "")?.into(),
+                            UnaryOp::Fit { min, max, op } => {
+                                let i64_type = self.context.i64_type();
+                                let below = self.builder.build_int_compare(
+                                    IntPredicate::SLT,
+                                    v,
+                                    i64_type.const_int(*min as u64, true),
+                                    "",
+                                )?;
+                                let above = self.builder.build_int_compare(
+                                    IntPredicate::SGT,
+                                    v,
+                                    i64_type.const_int(*max as u64, true),
+                                    "",
+                                )?;
+                                let outside = self.builder.build_or(below, above, "")?;
+                                self.trap_if(
+                                    outside,
+                                    &RuntimeError::IntegerOverflow { op },
+                                    inst.span,
+                                )?;
+                                v.into()
+                            }
                             UnaryOp::FNeg => unreachable!("handled above"),
                         })
                     }
@@ -646,6 +668,28 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                 self.check_divisor(a, b, "%", span)?;
                 self.builder.build_int_signed_rem(a, b, "")?.into()
             }
+            UAdd => self.checked("llvm.uadd.with.overflow", a, b, "+", span)?,
+            USub => self.checked("llvm.usub.with.overflow", a, b, "-", span)?,
+            UMul => self.checked("llvm.umul.with.overflow", a, b, "*", span)?,
+            UDiv | URem => {
+                let op = if op == UDiv { "/" } else { "%" };
+                let is_zero = self.builder.build_int_compare(
+                    IntPredicate::EQ,
+                    b,
+                    self.context.i64_type().const_zero(),
+                    "",
+                )?;
+                self.trap_if(is_zero, &RuntimeError::DivisionByZero { op }, span)?;
+                if op == "/" {
+                    self.builder.build_int_unsigned_div(a, b, "")?.into()
+                } else {
+                    self.builder.build_int_unsigned_rem(a, b, "")?.into()
+                }
+            }
+            ULt => compare(IntPredicate::ULT)?.into(),
+            ULe => compare(IntPredicate::ULE)?.into(),
+            UGt => compare(IntPredicate::UGT)?.into(),
+            UGe => compare(IntPredicate::UGE)?.into(),
             IEq | BEq => compare(IntPredicate::EQ)?.into(),
             INe | BNe => compare(IntPredicate::NE)?.into(),
             ILt => compare(IntPredicate::SLT)?.into(),
@@ -942,7 +986,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                 AbiType::I64 => self.context.i64_type().into(),
                 AbiType::F64 => self.context.f64_type().into(),
                 AbiType::Bool => self.context.i8_type().into(),
-                AbiType::Str | AbiType::StrList => {
+                AbiType::Str | AbiType::StrList | AbiType::IntList => {
                     self.context.ptr_type(AddressSpace::default()).into()
                 }
                 AbiType::Void => unreachable!("`void` is never a runtime parameter"),

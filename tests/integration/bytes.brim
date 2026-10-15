@@ -1,0 +1,33 @@
+// Bytes are a `List[u8]`.
+
+fn hex(b: u8) -> string {
+    let digits: string = "0123456789abcdef"
+    let n: i64 = to_int(b)
+    return digits.slice(n / 16, n / 16 + 1) + digits.slice(n % 16, n % 16 + 1)
+}
+
+fn main() {
+    let data: List[u8] = "héllo".bytes()
+    print(data)
+    print(data.len())
+    let mut text: string = ""
+    for b in data {
+        text = text + hex(b)
+    }
+    print(text)
+
+    match string_from_bytes(data) {
+        Some(s) => print(s)
+        None => print("not UTF-8")
+    }
+    let broken: List[u8] = [104, 195]
+    print(string_from_bytes(broken))
+    print(string_from_bytes([]))
+
+    let mut built: List[u8] = []
+    built.push(66)
+    built.push(114)
+    built.push(105)
+    built.push(109)
+    print(string_from_bytes(built) == Some("Brim"))
+}

@@ -1,0 +1,9 @@
+// exit: 101
+// A `u8` result above 255 stops the program.
+fn main() {
+    let mut x: u8 = 250
+    for i in 0..10 {
+        x += 1
+        print(x)
+    }
+}

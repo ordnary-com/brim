@@ -1,0 +1,91 @@
+error[E0215]: integer literal `256` is out of range for `u8`
+ --> tests/diagnostics/int_type_errors.brim:2:17
+  |
+2 |     let a: u8 = 256
+  |                 ^^^
+  |
+  = note: `u8` values range from 0 to 255
+
+error[E0215]: integer literal `-2147483649` is out of range for `i32`
+ --> tests/diagnostics/int_type_errors.brim:3:18
+  |
+3 |     let b: i32 = -2147483649
+  |                  ^^^^^^^^^^^
+  |
+  = note: `i32` values range from -2147483648 to 2147483647
+
+error[E0215]: integer literal `-1` is out of range for `u64`
+ --> tests/diagnostics/int_type_errors.brim:4:18
+  |
+4 |     let c: u64 = -1
+  |                  ^^
+  |
+  = note: `u64` values range from 0 to 18446744073709551615
+
+error[E0209]: cannot apply unary `-` to a value of type `u8`
+ --> tests/diagnostics/int_type_errors.brim:8:12
+  |
+8 |     print(-x)
+  |            ^ this is `u8`
+  |
+  = note: `u8` is unsigned: it has no negative values
+
+error[E0209]: cannot apply `+` to `i32` and `i64`
+ --> tests/diagnostics/int_type_errors.brim:9:13
+  |
+9 |     print(y + z)
+  |           - `i32`
+  |             ^ `i32 + i64` is not defined
+  |               - `i64`
+  |
+  = note: Brim never converts between integer types implicitly
+  = help: convert one side, for example with `to_i32(...)`
+
+error[E0206]: `to_u8` cannot be called with `f64`
+  --> tests/diagnostics/int_type_errors.brim:10:17
+   |
+10 |     print(to_u8(1.5))
+   |                 ^^^ unsupported argument type
+   |
+   = note: `to_u8` converts an integer of another type
+   = help: convert the `f64` with `to_u8(to_int(x))`
+
+error[E0206]: `to_i32` cannot be called with `string`
+  --> tests/diagnostics/int_type_errors.brim:11:18
+   |
+11 |     print(to_i32("7"))
+   |                  ^^^ unsupported argument type
+   |
+   = note: `to_i32` converts an integer of another type
+
+error[E0236]: `u8` cannot be a map key
+  --> tests/diagnostics/int_type_errors.brim:12:16
+   |
+12 |     let m: Map[u8, i64] = [:]
+   |                ^^
+   |
+   = note: map keys are `i64`, `bool` or `string`
+
+error[E0215]: integer literal is out of range for `u8`
+  --> tests/diagnostics/int_type_errors.brim:14:9
+   |
+14 |         300 => print(1)
+   |         ^^^
+
+error[E0215]: integer literal `1000` is out of range for `u8`
+  --> tests/diagnostics/int_type_errors.brim:17:30
+   |
+17 |     print(string_from_bytes([1000]))
+   |                              ^^^^
+   |
+   = note: `u8` values range from 0 to 255
+
+error[E0206]: mismatched types
+  --> tests/diagnostics/int_type_errors.brim:18:29
+   |
+18 |     print(string_from_bytes("abc"))
+   |                             ^^^^^ expected `List[u8]`, found `string`
+   |
+   = note: `string_from_bytes` reads UTF-8 bytes
+
+error: could not compile tests/diagnostics/int_type_errors.brim due to 11 errors

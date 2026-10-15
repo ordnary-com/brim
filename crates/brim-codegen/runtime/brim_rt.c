@@ -162,6 +162,16 @@ void brim_rt_print_i64(int64_t value) {
     printf("%" PRId64 "\n", value);
 }
 
+void brim_rt_print_u64(int64_t value) {
+    printf("%" PRIu64 "\n", (uint64_t)value);
+}
+
+BrimStr *brim_rt_u64_to_str(int64_t value);
+
+double brim_rt_u64_to_f64(int64_t value) {
+    return (double)(uint64_t)value;
+}
+
 void brim_rt_print_bool(uint8_t value) {
     fputs(value ? "true\n" : "false\n", stdout);
 }
@@ -240,6 +250,14 @@ uint8_t brim_rt_str_eq(const BrimStr *a, const BrimStr *b) {
 BrimStr *brim_rt_i64_to_str(int64_t value) {
     char buf[32];
     int len = snprintf(buf, sizeof buf, "%" PRId64, value);
+    BrimStr *s = str_alloc(len);
+    memcpy(s->data, buf, (size_t)len);
+    return s;
+}
+
+BrimStr *brim_rt_u64_to_str(int64_t value) {
+    char buf[32];
+    int len = snprintf(buf, sizeof buf, "%" PRIu64, (uint64_t)value);
     BrimStr *s = str_alloc(len);
     memcpy(s->data, buf, (size_t)len);
     return s;
@@ -1142,6 +1160,46 @@ BrimList *brim_rt_str_chars(const BrimStr *s) {
         i += n;
     }
     return l;
+}
+
+BrimList *brim_rt_str_bytes(const BrimStr *s) {
+    BrimList *l = NULL;
+    for (int64_t i = 0; i < s->len; i++) {
+        int64_t b = (uint8_t)s->data[i];
+        l = brim_rt_list_push(l, &b, (int64_t)sizeof b, NULL, NULL);
+    }
+    return l;
+}
+
+/* The bytes of a `List[u8]`, in a buffer the caller frees. */
+static char *list_bytes(const BrimList *l, int64_t *len) {
+    *len = brim_rt_list_len(l);
+    char *data = malloc((size_t)(*len > 0 ? *len : 1));
+    if (data == NULL) {
+        fatal("out of memory");
+    }
+    for (int64_t i = 0; i < *len; i++) {
+        data[i] = (char)*(int64_t *)(l->data + i * l->elem_size);
+    }
+    return data;
+}
+
+static int valid_utf8(const char *data, int64_t len);
+
+uint8_t brim_rt_bytes_utf8_ok(const BrimList *l) {
+    int64_t len;
+    char *data = list_bytes(l, &len);
+    int ok = valid_utf8(data, len);
+    free(data);
+    return (uint8_t)ok;
+}
+
+BrimStr *brim_rt_bytes_to_str(const BrimList *l) {
+    int64_t len;
+    char *data = list_bytes(l, &len);
+    BrimStr *s = str_from(data, len);
+    free(data);
+    return s;
 }
 
 BrimList *brim_rt_str_split(const BrimStr *s, const BrimStr *sep) {

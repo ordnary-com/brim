@@ -27,9 +27,9 @@
             <Keywords name="Folders in comment, middle"></Keywords>
             <Keywords name="Folders in comment, close"></Keywords>
             <Keywords name="Keywords1">fn let mut return if else while for in match break continue struct enum impl pub import as</Keywords>
-            <Keywords name="Keywords2">i64 f64 bool string void Option Result List Map Box</Keywords>
+            <Keywords name="Keywords2">i64 i32 u8 u64 f64 bool string void Option Result List Map Box</Keywords>
             <Keywords name="Keywords3">true false self Some None Ok Err</Keywords>
-            <Keywords name="Keywords4">print eprint to_string to_float to_int read_line read_file write_file args env exit assert assert_eq</Keywords>
+            <Keywords name="Keywords4">print eprint to_string to_float to_int to_i32 to_u8 to_u64 string_from_bytes read_line read_file write_file args env exit assert assert_eq</Keywords>
             <Keywords name="Keywords5">async await const loop trait type use</Keywords>
             <Keywords name="Keywords6"></Keywords>
             <Keywords name="Keywords7"></Keywords>

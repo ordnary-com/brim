@@ -12,7 +12,7 @@
 
 use std::fmt::{self, Display, Formatter};
 
-use crate::{Const, Function, Inst, InstKind, Module, Terminator, ValueId};
+use crate::{Const, Function, Inst, InstKind, Module, Terminator, UnaryOp, ValueId};
 
 fn list(values: &[ValueId]) -> String {
     values
@@ -94,6 +94,9 @@ impl Display for InstDisplay<'_> {
             InstKind::Const(Const::Str(v)) => write!(f, "const str {v:?}"),
             InstKind::Load(slot) => write!(f, "load {slot}"),
             InstKind::Store(slot, value) => write!(f, "store {slot}, {value}"),
+            InstKind::Unary(UnaryOp::Fit { min, max, .. }, v) => {
+                write!(f, "fit {v}, {min}..={max}")
+            }
             InstKind::Unary(op, v) => write!(f, "{} {v}", op.mnemonic()),
             InstKind::Binary(op, a, b) => write!(f, "{} {a}, {b}", op.mnemonic()),
             InstKind::Call(func, args) => {

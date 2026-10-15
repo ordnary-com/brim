@@ -1,0 +1,68 @@
+// `i32`, `u8` and `u64`: literals take the type the context needs,
+// arithmetic stays in range or stops, and conversions check the value.
+
+struct Pixel {
+    r: u8
+    g: u8
+    b: u8
+}
+
+fn brighter(p: Pixel, by: u8) -> Pixel {
+    return Pixel { r: p.r + by, g: p.g + by, b: p.b + by }
+}
+
+fn checksum(data: List[u8]) -> u8 {
+    let mut sum: i64 = 0
+    for b in data {
+        sum = (sum + to_int(b)) % 256
+    }
+    return to_u8(sum)
+}
+
+fn kind(n: u8) -> string {
+    match n {
+        0 => return "zero"
+        1 | 2 | 3 => return "small"
+        255 => return "max"
+        _ => return "other"
+    }
+}
+
+fn main() {
+    let a: i32 = 2000000000
+    let b: i32 = -147483648
+    print(a + b)
+    print(-a)
+    print(a / 7)
+    print(to_int(a) * 2)
+
+    let p: Pixel = Pixel { r: 10, g: 20, b: 30 }
+    print(brighter(p, 5))
+    print(p == Pixel { r: 10, g: 20, b: 30 })
+    print(checksum([200, 100, 7]))
+    print(kind(0))
+    print(kind(2))
+    print(kind(255))
+    print(kind(42))
+
+    let big: u64 = 18446744073709551615
+    print(big)
+    print(big / 2)
+    print(big - 1 > 1)
+    print(to_string(big % 1000))
+    print(to_float(big))
+    let small: u64 = 3
+    print(small * 7)
+    print(to_u64(42) == small * 14)
+    print([big, small])
+
+    let mut counter: u8 = 250
+    counter += 5
+    print(counter)
+    print(to_i32(to_u8(7)) - 10)
+    print(to_u8(to_i32(-1) + 2))
+    assert_eq(counter, 255)
+    assert_eq(small, 3)
+    let x: u8 = 1 + 2
+    print(x)
+}

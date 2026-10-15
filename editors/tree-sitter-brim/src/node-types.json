@@ -3137,6 +3137,10 @@
     "named": false
   },
   {
+    "type": "i32",
+    "named": false
+  },
+  {
     "type": "i64",
     "named": false
   },
@@ -3203,6 +3207,14 @@
   {
     "type": "type_identifier",
     "named": true
+  },
+  {
+    "type": "u64",
+    "named": false
+  },
+  {
+    "type": "u8",
+    "named": false
   },
   {
     "type": "visibility",

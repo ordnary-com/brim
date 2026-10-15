@@ -1,0 +1,19 @@
+fn main() {
+    let a: u8 = 256
+    let b: i32 = -2147483649
+    let c: u64 = -1
+    let x: u8 = 3
+    let y: i32 = 4
+    let z: i64 = 5
+    print(-x)
+    print(y + z)
+    print(to_u8(1.5))
+    print(to_i32("7"))
+    let m: Map[u8, i64] = [:]
+    match x {
+        300 => print(1)
+        _ => print(2)
+    }
+    print(string_from_bytes([1000]))
+    print(string_from_bytes("abc"))
+}

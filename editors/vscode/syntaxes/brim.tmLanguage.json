@@ -71,7 +71,7 @@
     },
     "types": {
       "patterns": [
-        { "name": "support.type.primitive.brim", "match": "\\b(i64|f64|bool|string|void)\\b" },
+        { "name": "support.type.primitive.brim", "match": "\\b(i64|i32|u8|u64|f64|bool|string|void)\\b" },
         { "name": "support.type.builtin.brim", "match": "\\b(Option|Result|List|Map|Box)\\b" },
         { "name": "support.constant.builtin.brim", "match": "\\b(Some|None|Ok|Err)\\b" },
         { "name": "entity.name.type.brim", "match": "\\b[A-Z][A-Za-z0-9_]*\\b" }
@@ -81,7 +81,7 @@
       "patterns": [
         {
           "name": "support.function.builtin.brim",
-          "match": "\\b(print|eprint|to_string|to_float|to_int|read_line|read_file|write_file|args|env|exit|assert|assert_eq)\\b(?=\\s*\\()"
+          "match": "\\b(print|eprint|to_string|to_float|to_int|to_i32|to_u8|to_u64|string_from_bytes|read_line|read_file|write_file|args|env|exit|assert|assert_eq)\\b(?=\\s*\\()"
         },
         {
           "name": "entity.name.function.call.brim",

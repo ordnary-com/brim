@@ -142,7 +142,7 @@ impl Type {
             brim_runtime::AbiType::Bool => Type::Bool,
             brim_runtime::AbiType::Str => Type::Str,
             brim_runtime::AbiType::Void => Type::Void,
-            brim_runtime::AbiType::StrList => return None,
+            brim_runtime::AbiType::StrList | brim_runtime::AbiType::IntList => return None,
         })
     }
 }
@@ -387,6 +387,13 @@ pub enum UnaryOp {
     FNeg,
     /// Boolean not.
     BNot,
+    /// The `i64` operand unchanged, if `min <= operand <= max`; otherwise
+    /// an integer overflow in `op`. Keeps `i32` and `u8` values in range.
+    Fit {
+        min: i64,
+        max: i64,
+        op: &'static str,
+    },
 }
 
 /// Binary operations. Integer arithmetic is checked: overflow and division
@@ -406,6 +413,17 @@ pub enum BinaryOp {
     IGe,
     BEq,
     BNe,
+    /// `u64` operations on the bits of an `i64`: arithmetic traps when the
+    /// result is outside `0..2^64`, comparisons are unsigned.
+    UAdd,
+    USub,
+    UMul,
+    UDiv,
+    URem,
+    ULt,
+    ULe,
+    UGt,
+    UGe,
     /// IEEE 754 arithmetic on `f64`: no run-time errors (`1.0 / 0.0` is
     /// `inf`). `FRem` is the remainder with the sign of the dividend.
     FAdd,
@@ -426,7 +444,7 @@ impl UnaryOp {
     /// `(operand type, result type)`.
     pub fn signature(self) -> (Type, Type) {
         match self {
-            UnaryOp::INeg => (Type::I64, Type::I64),
+            UnaryOp::INeg | UnaryOp::Fit { .. } => (Type::I64, Type::I64),
             UnaryOp::FNeg => (Type::F64, Type::F64),
             UnaryOp::BNot => (Type::Bool, Type::Bool),
         }
@@ -437,6 +455,7 @@ impl UnaryOp {
             UnaryOp::INeg => "ineg",
             UnaryOp::FNeg => "fneg",
             UnaryOp::BNot => "bnot",
+            UnaryOp::Fit { .. } => "fit",
         }
     }
 }
@@ -446,8 +465,10 @@ impl BinaryOp {
     pub fn signature(self) -> (Type, Type) {
         use BinaryOp::*;
         match self {
-            IAdd | ISub | IMul | IDiv | IRem => (Type::I64, Type::I64),
-            IEq | INe | ILt | ILe | IGt | IGe => (Type::I64, Type::Bool),
+            IAdd | ISub | IMul | IDiv | IRem | UAdd | USub | UMul | UDiv | URem => {
+                (Type::I64, Type::I64)
+            }
+            IEq | INe | ILt | ILe | IGt | IGe | ULt | ULe | UGt | UGe => (Type::I64, Type::Bool),
             BEq | BNe => (Type::Bool, Type::Bool),
             FAdd | FSub | FMul | FDiv | FRem => (Type::F64, Type::F64),
             FEq | FNe | FLt | FLe | FGt | FGe => (Type::F64, Type::Bool),
@@ -470,6 +491,15 @@ impl BinaryOp {
             IGe => "ige",
             BEq => "beq",
             BNe => "bne",
+            UAdd => "uadd",
+            USub => "usub",
+            UMul => "umul",
+            UDiv => "udiv",
+            URem => "urem",
+            ULt => "ult",
+            ULe => "ule",
+            UGt => "ugt",
+            UGe => "uge",
             FAdd => "fadd",
             FSub => "fsub",
             FMul => "fmul",

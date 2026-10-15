@@ -43,9 +43,72 @@ pub fn neg(a: i64) -> Result<i64, RuntimeError> {
         .ok_or(RuntimeError::IntegerOverflow { op: "-" })
 }
 
+/// `a` if `min <= a <= max`: keeps `i32` and `u8` results in range.
+pub fn fit(a: i64, min: i64, max: i64, op: &'static str) -> Result<i64, RuntimeError> {
+    if (min..=max).contains(&a) {
+        Ok(a)
+    } else {
+        Err(RuntimeError::IntegerOverflow { op })
+    }
+}
+
+// `u64` arithmetic on the bits of an `i64`.
+
+fn unsigned(
+    a: i64,
+    b: i64,
+    op: &'static str,
+    f: fn(u64, u64) -> Option<u64>,
+) -> Result<i64, RuntimeError> {
+    f(a as u64, b as u64)
+        .map(|r| r as i64)
+        .ok_or(RuntimeError::IntegerOverflow { op })
+}
+
+pub fn uadd(a: i64, b: i64) -> Result<i64, RuntimeError> {
+    unsigned(a, b, "+", u64::checked_add)
+}
+
+pub fn usub(a: i64, b: i64) -> Result<i64, RuntimeError> {
+    unsigned(a, b, "-", u64::checked_sub)
+}
+
+pub fn umul(a: i64, b: i64) -> Result<i64, RuntimeError> {
+    unsigned(a, b, "*", u64::checked_mul)
+}
+
+pub fn udiv(a: i64, b: i64) -> Result<i64, RuntimeError> {
+    if b == 0 {
+        return Err(RuntimeError::DivisionByZero { op: "/" });
+    }
+    Ok(((a as u64) / (b as u64)) as i64)
+}
+
+pub fn urem(a: i64, b: i64) -> Result<i64, RuntimeError> {
+    if b == 0 {
+        return Err(RuntimeError::DivisionByZero { op: "%" });
+    }
+    Ok(((a as u64) % (b as u64)) as i64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsigned_and_narrow_arithmetic() {
+        let max = u64::MAX as i64;
+        assert_eq!(uadd(max - 1, 1), Ok(max));
+        assert_eq!(uadd(max, 1), Err(RuntimeError::IntegerOverflow { op: "+" }));
+        assert_eq!(usub(0, 1), Err(RuntimeError::IntegerOverflow { op: "-" }));
+        assert_eq!(udiv(max, 2), Ok(i64::MAX));
+        assert_eq!(urem(7, 0), Err(RuntimeError::DivisionByZero { op: "%" }));
+        assert_eq!(fit(255, 0, 255, "+"), Ok(255));
+        assert_eq!(
+            fit(256, 0, 255, "+"),
+            Err(RuntimeError::IntegerOverflow { op: "+" })
+        );
+    }
 
     #[test]
     fn ordinary_arithmetic() {

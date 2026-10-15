@@ -52,6 +52,12 @@ pub struct TypeId(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
     I64,
+    /// The smaller and unsigned integers. `i32` and `u8` are held as `i64`
+    /// in IR, with a range check after every operation; `u64` keeps its
+    /// bits in an IR `i64` and uses the unsigned operations.
+    I32,
+    U8,
+    U64,
     F64,
     Bool,
     String,
@@ -72,6 +78,9 @@ impl Type {
     pub fn from_name(name: &str) -> Option<Type> {
         Some(match name {
             "i64" => Type::I64,
+            "i32" => Type::I32,
+            "u8" => Type::U8,
+            "u64" => Type::U64,
             "f64" => Type::F64,
             "bool" => Type::Bool,
             "string" => Type::String,
@@ -80,9 +89,27 @@ impl Type {
         })
     }
 
+    /// Whether this is one of the integer types.
+    pub fn is_int(self) -> bool {
+        matches!(self, Type::I64 | Type::I32 | Type::U8 | Type::U64)
+    }
+
+    /// The smallest and largest value of an integer type held in an `i64`
+    /// (`u64` is not: its values above `i64::MAX` look negative).
+    pub fn int_range(self) -> Option<(i64, i64)> {
+        match self {
+            Type::I32 => Some((i32::MIN.into(), i32::MAX.into())),
+            Type::U8 => Some((0, 255)),
+            _ => None,
+        }
+    }
+
     pub fn to_prim(self) -> Option<Prim> {
         Some(match self {
             Type::I64 => Prim::I64,
+            Type::I32 => Prim::I32,
+            Type::U8 => Prim::U8,
+            Type::U64 => Prim::U64,
             Type::F64 => Prim::F64,
             Type::Bool => Prim::Bool,
             Type::String => Prim::String,
@@ -94,6 +121,9 @@ impl Type {
     pub fn from_prim(prim: Prim) -> Type {
         match prim {
             Prim::I64 => Type::I64,
+            Prim::I32 => Type::I32,
+            Prim::U8 => Type::U8,
+            Prim::U64 => Type::U64,
             Prim::F64 => Type::F64,
             Prim::Bool => Type::Bool,
             Prim::String => Type::String,
@@ -106,6 +136,9 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Type::I64 => "i64",
+            Type::I32 => "i32",
+            Type::U8 => "u8",
+            Type::U64 => "u64",
             Type::F64 => "f64",
             Type::Bool => "bool",
             Type::String => "string",

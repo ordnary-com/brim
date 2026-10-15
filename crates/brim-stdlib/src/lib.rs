@@ -21,6 +21,9 @@ use brim_runtime::RuntimeFn;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Prim {
     I64,
+    I32,
+    U8,
+    U64,
     F64,
     Bool,
     String,
@@ -31,6 +34,9 @@ impl fmt::Display for Prim {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Prim::I64 => "i64",
+            Prim::I32 => "i32",
+            Prim::U8 => "u8",
+            Prim::U64 => "u64",
             Prim::F64 => "f64",
             Prim::Bool => "bool",
             Prim::String => "string",
@@ -385,7 +391,7 @@ mod tests {
 
     fn abi(p: Prim) -> AbiType {
         match p {
-            Prim::I64 => AbiType::I64,
+            Prim::I64 | Prim::I32 | Prim::U8 | Prim::U64 => AbiType::I64,
             Prim::F64 => AbiType::F64,
             Prim::Bool => AbiType::Bool,
             Prim::String => AbiType::Str,
