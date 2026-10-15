@@ -32,6 +32,7 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <inttypes.h>
 #include <math.h>
 #include <stdint.h>
@@ -42,9 +43,12 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <signal.h>
+#include <spawn.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -1798,6 +1802,158 @@ _Noreturn void brim_rt_exit(int64_t code) {
     exit((int)(code & 0xff));
 }
 
+/* ---- std.process ----------------------------------------------------------- */
+
+extern char **environ;
+
+static int64_t process_code;
+static BrimStr *process_stdout;
+static BrimStr *process_stderr;
+
+static void set_process_output(int64_t code, BrimStr *out, BrimStr *err) {
+    process_code = code;
+    brim_rt_release(process_stdout);
+    brim_rt_release(process_stderr);
+    process_stdout = out;
+    process_stderr = err;
+}
+
+static int has_nul(const BrimStr *s) {
+    return s->len > 0 && memchr(s->data, 0, (size_t)s->len) != NULL;
+}
+
+/* Reads both pipes until they close, so neither can fill up and block. */
+static void read_pipes(int out_fd, int err_fd, Buffer *out, Buffer *err) {
+    struct pollfd fds[2] = {{out_fd, POLLIN, 0}, {err_fd, POLLIN, 0}};
+    Buffer *bufs[2] = {out, err};
+    int open = 2;
+    char chunk[65536];
+    while (open > 0) {
+        if (poll(fds, 2, -1) < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            break;
+        }
+        for (int i = 0; i < 2; i++) {
+            if (fds[i].fd < 0 || fds[i].revents == 0) {
+                continue;
+            }
+            ssize_t n = read(fds[i].fd, chunk, sizeof chunk);
+            if (n > 0) {
+                buffer_add(bufs[i], chunk, (int64_t)n);
+            } else if (n == 0 || errno != EINTR) {
+                close(fds[i].fd);
+                fds[i].fd = -1;
+                open--;
+            }
+        }
+    }
+    for (int i = 0; i < 2; i++) {
+        if (fds[i].fd >= 0) {
+            close(fds[i].fd);
+        }
+    }
+}
+
+/* As brim_runtime::process_run. */
+int64_t brim_rt_process_run(const BrimStr *cmd, BrimList *args) {
+    set_error(NULL);
+    set_process_output(-1, NULL, NULL);
+    int64_t argc = brim_rt_list_len(args);
+    int bad = has_nul(cmd);
+    for (int64_t i = 0; i < argc; i++) {
+        bad = bad || has_nul(*(BrimStr **)elem_at(args, i));
+    }
+    if (bad) {
+        fs_error("run", cmd, EINVAL);
+        return -1;
+    }
+    char **argv = malloc(sizeof(char *) * (size_t)(argc + 2));
+    if (argv == NULL) {
+        fatal("out of memory");
+    }
+    argv[0] = c_string(cmd);
+    for (int64_t i = 0; i < argc; i++) {
+        argv[i + 1] = c_string(*(BrimStr **)elem_at(args, i));
+    }
+    argv[argc + 1] = NULL;
+    int out_pipe[2] = {-1, -1};
+    int err_pipe[2] = {-1, -1};
+    int error = 0;
+    pid_t pid = 0;
+    if (pipe(out_pipe) != 0 || pipe(err_pipe) != 0) {
+        error = errno;
+    } else {
+        posix_spawn_file_actions_t actions;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
+        posix_spawn_file_actions_adddup2(&actions, out_pipe[1], 1);
+        posix_spawn_file_actions_adddup2(&actions, err_pipe[1], 2);
+        for (int i = 0; i < 2; i++) {
+            posix_spawn_file_actions_addclose(&actions, out_pipe[i]);
+            posix_spawn_file_actions_addclose(&actions, err_pipe[i]);
+        }
+        error = posix_spawnp(&pid, argv[0], &actions, NULL, argv, environ);
+        posix_spawn_file_actions_destroy(&actions);
+    }
+    for (int64_t i = 0; i <= argc; i++) {
+        free(argv[i]);
+    }
+    free(argv);
+    if (out_pipe[1] >= 0) {
+        close(out_pipe[1]);
+    }
+    if (err_pipe[1] >= 0) {
+        close(err_pipe[1]);
+    }
+    if (error != 0) {
+        if (out_pipe[0] >= 0) {
+            close(out_pipe[0]);
+        }
+        if (err_pipe[0] >= 0) {
+            close(err_pipe[0]);
+        }
+        fs_error("run", cmd, error);
+        return -1;
+    }
+    Buffer out = {0};
+    Buffer err = {0};
+    read_pipes(out_pipe[0], err_pipe[0], &out, &err);
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+    }
+    int64_t code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+    if (!valid_utf8(out.data, out.len) || !valid_utf8(err.data, err.len)) {
+        free(out.data);
+        free(err.data);
+        Buffer b = {0};
+        buffer_add(&b, "cannot run \"", 12);
+        buffer_add(&b, cmd->data, cmd->len);
+        buffer_add(&b, "\": output is not valid UTF-8", 28);
+        set_error(buffer_finish(&b));
+        return -1;
+    }
+    set_process_output(code, buffer_finish(&out), buffer_finish(&err));
+    return code;
+}
+
+BrimStr *brim_rt_process_stdout(void) {
+    if (process_stdout == NULL) {
+        return &EMPTY_STR;
+    }
+    brim_rt_retain(process_stdout);
+    return process_stdout;
+}
+
+BrimStr *brim_rt_process_stderr(void) {
+    if (process_stderr == NULL) {
+        return &EMPTY_STR;
+    }
+    brim_rt_retain(process_stderr);
+    return process_stderr;
+}
+
 /* ---- sockets (std.net) ---------------------------------------------------- */
 /* The same functions and error reasons as brim-runtime's net.rs, which the
  * interpreter uses. Handles start at 1 and are never reused. */
@@ -2632,6 +2788,7 @@ int main(int argc, char **argv) {
         return 101;
     }
     set_error(NULL);
+    set_process_output(0, NULL, NULL);
     if (checking && live_strings != 0) {
         fprintf(stderr, "error: brim runtime check: %" PRId64 " string(s) or list(s) leaked\n",
                 live_strings);

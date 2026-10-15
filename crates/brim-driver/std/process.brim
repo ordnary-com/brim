@@ -1,0 +1,56 @@
+// Running other programs:
+//
+//   import std.process
+//
+//   let out = process.run("git", ["status", "--short"])?
+//   if out.success() {
+//       print(out.stdout)
+//   } else {
+//       eprint(out.stderr)
+//   }
+//
+// The program is looked up in `PATH` unless the name contains a `/`. It
+// gets no input and runs in the working directory; `run` waits until it
+// has finished. Errors are messages such as `cannot run "gti": not found`.
+
+// What a finished program wrote, and how it ended.
+pub struct Output {
+    // The exit code: 0 for success, or 128 plus the number of the signal
+    // that stopped the program.
+    pub code: i64,
+    pub stdout: string,
+    pub stderr: string,
+}
+
+impl Output {
+    // Whether the program exited with code 0.
+    pub fn success(self) -> bool {
+        return self.code == 0
+    }
+}
+
+// Runs `cmd` with `args` and waits for it. An exit code other than 0 is
+// still `Ok`: check `success()` or `code`.
+pub fn run(cmd: string, args: List[string]) -> Result[Output, string] {
+    let code = __process_run(cmd, args)
+    let error = __last_error()
+    if !error.is_empty() {
+        return Err(error)
+    }
+    return Ok(Output { code: code, stdout: __process_stdout(), stderr: __process_stderr() })
+}
+
+// The standard output of `cmd` with `args` if it succeeds; otherwise an
+// error with what it wrote to standard error.
+pub fn output(cmd: string, args: List[string]) -> Result[string, string] {
+    let out = run(cmd, args)?
+    if !out.success() {
+        let message = f"\"{cmd}\" exited with code {out.code}"
+        let detail = out.stderr.trim()
+        if detail.is_empty() {
+            return Err(message)
+        }
+        return Err(message + ": " + detail)
+    }
+    return Ok(out.stdout)
+}

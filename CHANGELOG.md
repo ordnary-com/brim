@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- `std.process`: `run(cmd, args)` gives the exit code and the standard output and error as strings; `output(cmd, args)` gives the output of a program that succeeds. Both read the two streams at once, so large output does not block.
 - `std.fs`: `exists`, `is_dir`, `is_file`, `list`, `create_dir`, `remove`, `remove_all`, `rename`, `size`, `modified`, `read`, `write` and `append`, with the same messages in the interpreter and native code.
 - Methods on `Option` (`is_some`, `is_none`, `unwrap_or`, `map`) and `Result` (`is_ok`, `is_err`, `unwrap_or`, `ok`, `map`), from the prelude.
 - `std.random`: `int(low, high)`, `float()`, `bool()`, `choice`, `shuffle` and `seed(n)`. The generator (xoshiro256**) is the same in the interpreter and the C runtime, so seeded programs print the same numbers in both.

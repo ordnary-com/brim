@@ -642,6 +642,43 @@ comes up. `float()` is from 0 up to 1; `bool()`, `choice(list)` and
 every run; with it they are the same, which tests need. The generator is
 not meant for passwords or keys.
 
+## Running programs: std.process
+
+`process.run(cmd, args)` starts a program, waits until it has finished and
+gives a `process.Output`: the exit code and everything it wrote to
+standard output and standard error, as strings. The program is looked up in
+`PATH` unless its name contains a `/`; the arguments reach it as they are,
+without a shell in between. It gets no input.
+
+| Function | Result | |
+|----------|--------|---|
+| `run(cmd, args)` | `Result[Output, string]` | `Err` only if the program cannot start or writes text that is not UTF-8 |
+| `output(cmd, args)` | `Result[string, string]` | the standard output if the exit code is 0; otherwise an error with the standard error |
+| `out.success()` | `bool` | whether `out.code` is 0 |
+
+`out.code` is the exit code, or 128 plus the number of the signal that
+stopped the program (137 for `kill -9`).
+
+```brim
+import std.process
+
+fn main() {
+    match process.run("sh", ["-c", "echo hello; exit 3"]) {
+        Ok(out) => print(f"{out.code} {out.stdout.trim()}")
+        Err(message) => print(message)
+    }
+    match process.output("no-such-program", []) {
+        Ok(text) => print(text)
+        Err(message) => print(message)
+    }
+}
+```
+
+```text
+3 hello
+cannot run "no-such-program": not found
+```
+
 ## Time and logging: std.time, std.log
 
 ```brim

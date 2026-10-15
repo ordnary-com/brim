@@ -1,0 +1,21 @@
+code 0, success true
+stdout: hello
+stderr: careful
+code 7, success false
+stdout: 
+stderr: 
+code 137, success false
+stdout: 
+stderr: 
+error: cannot run "brim-no-such-program": not found
+error: cannot run "sh": output is not valid UTF-8
+code 0, success true
+stdout: two words||$HOME|
+stderr: 
+80000 80000
+code 0, success true
+stdout: 
+stderr: 
+fine
+"sh" exited with code 3: broken
+"sh" exited with code 4

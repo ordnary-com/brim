@@ -336,6 +336,49 @@ pub fn fs_error(verb: &str, path: &str, error: &io::Error) -> String {
     format!("cannot {verb} \"{path}\": {reason}")
 }
 
+/// What `std.process.run` gives: the exit code (128 plus the signal for a
+/// program a signal stopped), standard output and standard error.
+#[derive(Debug, Default)]
+pub struct ProcessOutput {
+    pub code: i64,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// Runs `cmd` with `args` in `cwd`, with no input, and waits for it. The
+/// error is a message such as `cannot run "x": not found`.
+pub fn process_run(
+    cwd: &std::path::Path,
+    cmd: &str,
+    args: &[&str],
+) -> Result<ProcessOutput, String> {
+    let out = std::process::Command::new(cmd)
+        .args(args)
+        .current_dir(cwd)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| fs_error("run", cmd, &e))?;
+    let code = match out.status.code() {
+        Some(code) => i64::from(code),
+        #[cfg(unix)]
+        None => {
+            use std::os::unix::process::ExitStatusExt;
+            128 + i64::from(out.status.signal().unwrap_or(0))
+        }
+        #[cfg(not(unix))]
+        None => 128,
+    };
+    let text = |bytes: Vec<u8>| {
+        String::from_utf8(bytes)
+            .map_err(|_| format!("cannot run \"{cmd}\": output is not valid UTF-8"))
+    };
+    Ok(ProcessOutput {
+        code,
+        stdout: text(out.stdout)?,
+        stderr: text(out.stderr)?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

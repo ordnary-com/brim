@@ -283,6 +283,15 @@ runtime_fns! {
     /// std.fs: adds text at the end of a file, creating it if needed; the
     /// number of bytes. Sets the last error.
     FsAppend = "brim_rt_fs_append" (Str, Str) -> I64;
+    /// std.process: runs a program with arguments, with no input, and waits
+    /// for it; the exit code, or 128 plus the signal that stopped it. Keeps
+    /// what it wrote for `ProcessStdout` and `ProcessStderr`. Sets the last
+    /// error if it cannot start or writes text that is not UTF-8.
+    ProcessRun = "brim_rt_process_run" (Str, StrList) -> I64;
+    /// std.process: the standard output of the last `ProcessRun`.
+    ProcessStdout = "brim_rt_process_stdout" () -> Str;
+    /// std.process: the standard error of the last `ProcessRun`.
+    ProcessStderr = "brim_rt_process_stderr" () -> Str;
     /// std.random: make the numbers that follow repeatable.
     RandomSeed = "brim_rt_random_seed" (I64) -> Void;
     /// std.random: a number from the first argument up to the second.

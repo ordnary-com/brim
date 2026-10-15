@@ -486,6 +486,24 @@ pub const BUILTINS: &[Builtin] = &[
         }],
     },
     Builtin {
+        name: "__process_stdout",
+        summary: "std.process: the standard output of the last program run.",
+        overloads: &[Overload {
+            params: &[],
+            ret: Prim::String,
+            runtime: RuntimeFn::ProcessStdout,
+        }],
+    },
+    Builtin {
+        name: "__process_stderr",
+        summary: "std.process: the standard error of the last program run.",
+        overloads: &[Overload {
+            params: &[],
+            ret: Prim::String,
+            runtime: RuntimeFn::ProcessStderr,
+        }],
+    },
+    Builtin {
         name: "__random_seed",
         summary: "std.random: make the numbers that follow repeatable.",
         overloads: &[Overload {

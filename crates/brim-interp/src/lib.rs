@@ -372,6 +372,7 @@ pub fn run_function(
     let mut state = State {
         host,
         last_error: String::new(),
+        process: brim_runtime::ProcessOutput::default(),
         sockets: brim_runtime::net::Sockets::default(),
     };
     let result = execute(module, &mut state, limits, &mut stack, &mut cache);
@@ -401,6 +402,8 @@ struct State<'h, 'a> {
     host: &'h mut Host<'a>,
     /// The error of the last I/O function (`LastError`); empty on success.
     last_error: String,
+    /// The output of the last `ProcessRun`.
+    process: brim_runtime::ProcessOutput,
     /// Open sockets (`std.net`).
     sockets: brim_runtime::net::Sockets,
 }
@@ -1000,6 +1003,25 @@ fn call_runtime(
                 }
             }
         }
+        RuntimeFn::ProcessRun => {
+            let list = args[1].list();
+            let argv: Vec<&str> = list.iter().map(Value::str).collect();
+            match r::process_run(&state.host.cwd, s(0), &argv) {
+                Ok(out) => {
+                    state.last_error.clear();
+                    state.process = out;
+                }
+                Err(e) => {
+                    state.last_error = e;
+                    state.process.code = -1;
+                    state.process.stdout.clear();
+                    state.process.stderr.clear();
+                }
+            }
+            Some(Value::I64(state.process.code))
+        }
+        RuntimeFn::ProcessStdout => str_value(BrimStr::from(state.process.stdout.as_str())),
+        RuntimeFn::ProcessStderr => str_value(BrimStr::from(state.process.stderr.as_str())),
         RuntimeFn::Args => Some(str_list(
             state
                 .host

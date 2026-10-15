@@ -107,6 +107,8 @@ pub(super) fn intrinsic_function(name: &str) -> Option<(Intrinsic, &'static [Typ
         "env" => (Intrinsic::Env, STR, Ret::OptionStr),
         "from_code_point" => (Intrinsic::FromCodePoint, &[Type::I64], Ret::OptionStr),
         "__fs_list" => (Intrinsic::FsList, STR, Ret::StrList),
+        // The second parameter is a `List[string]`, see `check_intrinsic_call`.
+        "__process_run" => (Intrinsic::ProcessRun, STR, Ret::I64),
         _ => return None,
     })
 }
@@ -288,7 +290,11 @@ impl<'a> Checker<'a> {
             return None;
         }
         let (op, params, ret) = intrinsic_function(&callee.name)?;
-        let Some(checked) = self.fixed_args(&callee.name, params, args, span, ctx) else {
+        let params = match op {
+            Intrinsic::ProcessRun => vec![Type::String, self.list_of(Type::String)],
+            _ => params.to_vec(),
+        };
+        let Some(checked) = self.fixed_args(&callee.name, &params, args, span, ctx) else {
             return Some(error_expr(span));
         };
         let ty = self.ret_type(ret);

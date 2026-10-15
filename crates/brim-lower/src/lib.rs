@@ -2332,6 +2332,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             }
             Intrinsic::Args => self.runtime(RuntimeFn::Args, vec![], ty, span),
             Intrinsic::FsList => self.runtime(RuntimeFn::FsList, args, ty, span),
+            Intrinsic::ProcessRun => self.runtime(RuntimeFn::ProcessRun, args, ty, span),
         }
     }
 

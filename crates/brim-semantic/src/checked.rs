@@ -532,6 +532,9 @@ pub enum Intrinsic {
     /// std.fs: `__fs_list(dir)`, the names in a directory (sets the last
     /// error).
     FsList,
+    /// std.process: `__process_run(cmd, args)`, the exit code (sets the last
+    /// error).
+    ProcessRun,
     /// `s.find(t)`: `Option[i64]`.
     StrFind,
     /// `s.parse_int()`: `Option[i64]`.
