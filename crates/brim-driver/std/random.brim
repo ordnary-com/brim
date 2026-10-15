@@ -1,0 +1,56 @@
+// Random numbers:
+//
+//   import std.random
+//
+//   let die = random.int(1, 7)            // 1 to 6
+//   let x = random.float()                // 0 up to 1
+//   let card = random.choice(cards)       // Option
+//   let deck = random.shuffle(cards)
+//
+// The numbers are not for passwords or keys. `random.seed(n)` makes the
+// numbers that follow the same on every run, for tests; without it they
+// differ each time.
+
+// Makes the numbers that follow repeatable.
+pub fn seed(n: i64) {
+    __random_seed(n)
+}
+
+// A whole number from `low` up to, but not including, `high`, each as
+// likely, like the range `low..high`. `low` when `high <= low`.
+pub fn int(low: i64, high: i64) -> i64 {
+    return __random_range(low, high)
+}
+
+// A number from 0 up to, but not including, 1.
+pub fn float() -> f64 {
+    return __random_float()
+}
+
+// `true` or `false`, each half of the time.
+pub fn bool() -> bool {
+    return __random_range(0, 2) == 1
+}
+
+// A random element of `xs`, or `None` when it is empty.
+pub fn choice[T](xs: List[T]) -> Option[T] {
+    if xs.is_empty() {
+        return None
+    }
+    return Some(xs[__random_range(0, xs.len())])
+}
+
+// A copy of `xs` in random order (every order as likely).
+pub fn shuffle[T](xs: List[T]) -> List[T] {
+    let mut out = xs
+    // Fisher-Yates: each position gets one of the elements not placed yet.
+    let mut i = out.len() - 1
+    while i > 0 {
+        let j = __random_range(0, i + 1)
+        let picked = out[j]
+        out[j] = out[i]
+        out[i] = picked
+        i -= 1
+    }
+    return out
+}

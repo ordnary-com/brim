@@ -258,6 +258,12 @@ runtime_fns! {
     CharCode = "brim_rt_char_code" (Str) -> I64;
     /// Milliseconds since 1970-01-01T00:00:00Z (the wall clock).
     TimeNowMillis = "brim_rt_time_now_millis" () -> I64;
+    /// std.random: make the numbers that follow repeatable.
+    RandomSeed = "brim_rt_random_seed" (I64) -> Void;
+    /// std.random: a number from the first argument up to the second.
+    RandomRange = "brim_rt_random_range" (I64, I64) -> I64;
+    /// std.random: a number from 0 up to 1.
+    RandomFloat = "brim_rt_random_float" () -> F64;
     /// Milliseconds on a clock that never goes back, for durations.
     TimeMonotonicMillis = "brim_rt_time_monotonic_millis" () -> I64;
     /// Waits this many milliseconds.

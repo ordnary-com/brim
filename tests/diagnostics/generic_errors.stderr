@@ -83,6 +83,6 @@ error[E0231]: `Option` has no method `len`
 29 |     print(x.len())
    |             ^^^ unknown method
    |
-   = note: `Option` is built in and has no methods; use `match`
+   = note: `Option` has the methods `is_some`, `is_none`, `unwrap_or` and `map` (`Option`), or `is_ok`, `is_err`, `unwrap_or`, `ok` and `map` (`Result`); for anything else, use `match`
 
 error: could not compile tests/diagnostics/generic_errors.brim due to 10 errors

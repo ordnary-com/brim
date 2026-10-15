@@ -1006,6 +1006,12 @@ fn call_runtime(
                 }
             }
         }
+        RuntimeFn::RandomSeed => {
+            r::random::seed(args[0].i64());
+            None
+        }
+        RuntimeFn::RandomRange => Some(Value::I64(r::random::range(args[0].i64(), args[1].i64()))),
+        RuntimeFn::RandomFloat => Some(float(r::random::float())),
         RuntimeFn::TimeNowMillis => Some(Value::I64(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

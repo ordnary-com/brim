@@ -402,6 +402,9 @@ go
 `Option[T]` is a value that may be absent (`Some(x)` or `None`);
 `Result[T, E]` is the outcome of something that can fail (`Ok(x)` or
 `Err(e)`). Inspect them with `match`, or pass a failure on with `?`.
+Their methods: `is_some()`, `is_none()`, `unwrap_or(fallback)` and
+`map(f)` on an `Option`; `is_ok()`, `is_err()`, `unwrap_or(fallback)`,
+`ok()` and `map(f)` on a `Result`.
 
 ```brim
 fn half(n: i64) -> Result[i64, string] {
@@ -581,6 +584,32 @@ fn age_next_year(text: string) -> Result[i64, string] {
 
 `examples/http/notes.brim` combines `std.http` and `std.json` into a small
 JSON API.
+
+## Random numbers: std.random
+
+```brim
+import std.random
+
+fn main() {
+    random.seed(42)
+    let die = random.int(1, 7)
+    print(die >= 1 && die <= 6)
+    print(random.shuffle([1, 2, 3]).sorted())
+    print(random.choice(["a", "b"]).is_some())
+}
+```
+
+```text
+true
+[1, 2, 3]
+true
+```
+
+`int(low, high)` is like the range `low..high`: `high` itself never
+comes up. `float()` is from 0 up to 1; `bool()`, `choice(list)` and
+`shuffle(list)` do what they say. Without `seed(n)` the numbers differ on
+every run; with it they are the same, which tests need. The generator is
+not meant for passwords or keys.
 
 ## Time and logging: std.time, std.log
 

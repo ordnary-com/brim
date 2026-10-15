@@ -4,6 +4,6 @@ error[E0242]: the standard library has no module `std.nope`
 1 | import std.nope
   | ^^^^^^^^^^^^^^^
   |
-  = note: its modules are `std.http`, `std.json`, `std.log`, `std.net`, `std.time`
+  = note: its modules are `std.http`, `std.json`, `std.log`, `std.net`, `std.random`, `std.time`
 
 error: could not compile tests/diagnostics/std_missing.brim due to 1 error

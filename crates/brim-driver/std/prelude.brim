@@ -25,6 +25,74 @@ pub fn clamp[T: Ord](x: T, low: T, high: T) -> T {
     return min(max(x, low), high)
 }
 
+// ---- Option and Result ---------------------------------------------------
+
+// Whether there is a value.
+pub fn option_is_some[T](o: Option[T]) -> bool {
+    return match o {
+        Some(_) => true
+        None => false
+    }
+}
+
+// Whether there is no value.
+pub fn option_is_none[T](o: Option[T]) -> bool {
+    return !option_is_some(o)
+}
+
+// The value, or `fallback` when there is none.
+pub fn option_unwrap_or[T](o: Option[T], fallback: T) -> T {
+    return match o {
+        Some(x) => x
+        None => fallback
+    }
+}
+
+// `Some(f(x))` for `Some(x)`; `None` stays `None`.
+pub fn option_map[T, U](o: Option[T], f: fn(T) -> U) -> Option[U] {
+    return match o {
+        Some(x) => Some(f(x))
+        None => None
+    }
+}
+
+// Whether it is `Ok`.
+pub fn result_is_ok[T, E](r: Result[T, E]) -> bool {
+    return match r {
+        Ok(_) => true
+        Err(_) => false
+    }
+}
+
+// Whether it is `Err`.
+pub fn result_is_err[T, E](r: Result[T, E]) -> bool {
+    return !result_is_ok(r)
+}
+
+// The `Ok` value, or `fallback` for an `Err`.
+pub fn result_unwrap_or[T, E](r: Result[T, E], fallback: T) -> T {
+    return match r {
+        Ok(x) => x
+        Err(_) => fallback
+    }
+}
+
+// The `Ok` value as an `Option`; the error is dropped.
+pub fn result_ok[T, E](r: Result[T, E]) -> Option[T] {
+    return match r {
+        Ok(x) => Some(x)
+        Err(_) => None
+    }
+}
+
+// `Ok(f(x))` for `Ok(x)`; an `Err` stays as it is.
+pub fn result_map[T, E, U](r: Result[T, E], f: fn(T) -> U) -> Result[U, E] {
+    return match r {
+        Ok(x) => Ok(f(x))
+        Err(e) => Err(e)
+    }
+}
+
 // ---- strings -------------------------------------------------------------
 
 // The number of characters (Unicode code points) in `s`; `len()` counts

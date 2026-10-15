@@ -1,0 +1,29 @@
+// std.random with a seed gives the same numbers on every run, in the
+// interpreter and in native code.
+import std.random
+
+fn main() {
+    random.seed(2026)
+    let mut rolls: List[i64] = []
+    for i in 0..10 {
+        rolls.push(random.int(1, 7))
+    }
+    print(rolls)
+    print(rolls.all(fn(r: i64) -> bool { return r >= 1 && r <= 6 }))
+    print(random.float())
+    print(random.bool())
+    print(random.choice(["red", "green", "blue"]))
+    let empty: List[i64] = []
+    print(random.choice(empty))
+    let deck = random.shuffle([1, 2, 3, 4, 5, 6, 7, 8])
+    print(deck)
+    print(deck.sorted() == [1, 2, 3, 4, 5, 6, 7, 8])
+    print(random.int(5, 5))
+    print(random.int(-9223372036854775808, 9223372036854775807) < 9223372036854775807)
+
+    // The same seed, the same numbers.
+    random.seed(7)
+    let a = random.int(0, 1000000)
+    random.seed(7)
+    print(random.int(0, 1000000) == a)
+}

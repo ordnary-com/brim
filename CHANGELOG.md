@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Methods on `Option` (`is_some`, `is_none`, `unwrap_or`, `map`) and `Result` (`is_ok`, `is_err`, `unwrap_or`, `ok`, `map`), from the prelude.
+- `std.random`: `int(low, high)`, `float()`, `bool()`, `choice`, `shuffle` and `seed(n)`. The generator (xoshiro256**) is the same in the interpreter and the C runtime, so seeded programs print the same numbers in both.
 - Strings: `StringBuilder` (in the prelude: `new`, `add`, `add_line`, `is_empty`, `build`), `s.code_points()`, `s.char_count()` and `from_code_point(n)`. The prelude's public types are known in every module.
 - `Set[T]`: `Set()`, `Set(list)`, `add`, `remove`, `contains`, `len`, `to_list`, `union`, `intersection`, `difference`, `is_subset`, `for x in set`, `==` and `print` (`{1, 2}`). The built-in trait `Key` lets generic code use maps and sets; map keys can now be any integer type.
 - Math: `abs`, `sqrt`, `floor`, `ceil`, `round` and `pow` (overflow and `abs(i64::MIN)` are `R0001`), and in the prelude `min`, `max`, `clamp`, `PI` and `E`. Native programs now link with libm.

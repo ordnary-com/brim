@@ -509,7 +509,7 @@ impl<'a> Checker<'a> {
         diag = match suggest::similar(&name.name, names.iter().copied()) {
             Some(similar) => diag.with_help(format!("did you mean `{similar}`?")),
             None if built_in => diag.with_note(format!(
-                "`{type_name}` is built in and has no methods; use `match`"
+                "`{type_name}` has the methods `is_some`, `is_none`, `unwrap_or` and `map` (`Option`), or `is_ok`, `is_err`, `unwrap_or`, `ok` and `map` (`Result`); for anything else, use `match`"
             )),
             None => diag.with_help(format!("add it in an `impl {type_name} {{ ... }}` block")),
         };
@@ -714,6 +714,17 @@ impl<'a> Checker<'a> {
             return None;
         }
         let Some(&id) = self.methods.get(&(def, name.name.clone())) else {
+            // `Option` and `Result` get their methods from the prelude.
+            let prelude_kind = match def {
+                Def::Enum(crate::EnumId(0)) => Some("option"),
+                Def::Enum(crate::EnumId(1)) => Some("result"),
+                _ => None,
+            };
+            if let Some(kind) = prelude_kind
+                && let Some(result) = self.prelude_method(kind, base, name, args, span, ctx)
+            {
+                return Some(result);
+            }
             let receiver = self.check_expr(base, ctx);
             // `button.on_click(3)`: a field holding a function.
             if let Some((_, args_of)) = self.as_struct(receiver.ty)

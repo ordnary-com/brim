@@ -1,0 +1,15 @@
+true
+true
+4
+0
+Some("<4>")
+None
+true
+true
+42
+-1
+Some(21)
+None
+Ok(10.5)
+Err("not a number: x")
+2

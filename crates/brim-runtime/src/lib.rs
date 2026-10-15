@@ -23,6 +23,7 @@ pub mod abi;
 pub mod float;
 pub mod net;
 pub mod ops;
+pub mod random;
 
 use std::fmt;
 use std::io::{self, Write};

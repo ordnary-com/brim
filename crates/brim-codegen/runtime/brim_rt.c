@@ -2046,6 +2046,78 @@ char *brim_rt_internal_c_string(const BrimStr *s) {
 
 /* ---- time (std.time) ------------------------------------------------------- */
 
+/* ---- std.random: xoshiro256**, as brim_runtime::random ------------------ */
+
+static uint64_t random_state[4];
+static int random_ready = 0;
+
+static uint64_t splitmix64(uint64_t *x) {
+    *x += 0x9e3779b97f4a7c15ULL;
+    uint64_t z = *x;
+    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+    return z ^ (z >> 31);
+}
+
+static void random_seed_with(uint64_t seed) {
+    for (int i = 0; i < 4; i++) {
+        random_state[i] = splitmix64(&seed);
+    }
+    random_ready = 1;
+}
+
+static uint64_t rotl64(uint64_t x, int k) {
+    return (x << k) | (x >> (64 - k));
+}
+
+static uint64_t random_next(void) {
+    if (!random_ready) {
+        uint64_t seed = 0;
+        FILE *f = fopen("/dev/urandom", "rb");
+        if (f == NULL || fread(&seed, sizeof seed, 1, f) != 1) {
+            struct timespec t;
+            clock_gettime(CLOCK_REALTIME, &t);
+            seed = (uint64_t)t.tv_sec * 1000000000ULL + (uint64_t)t.tv_nsec;
+        }
+        if (f != NULL) {
+            fclose(f);
+        }
+        random_seed_with(seed);
+    }
+    uint64_t *s = random_state;
+    uint64_t result = rotl64(s[1] * 5, 7) * 9;
+    uint64_t t = s[1] << 17;
+    s[2] ^= s[0];
+    s[3] ^= s[1];
+    s[1] ^= s[2];
+    s[0] ^= s[3];
+    s[2] ^= t;
+    s[3] = rotl64(s[3], 45);
+    return result;
+}
+
+void brim_rt_random_seed(int64_t n) {
+    random_seed_with((uint64_t)n);
+}
+
+int64_t brim_rt_random_range(int64_t low, int64_t high) {
+    if (high <= low) {
+        return low;
+    }
+    uint64_t span = (uint64_t)high - (uint64_t)low;
+    uint64_t threshold = (0 - span) % span;
+    for (;;) {
+        uint64_t r = random_next();
+        if (r >= threshold) {
+            return (int64_t)((uint64_t)low + r % span);
+        }
+    }
+}
+
+double brim_rt_random_float(void) {
+    return (double)(random_next() >> 11) * (1.0 / 9007199254740992.0);
+}
+
 int64_t brim_rt_time_now_millis(void) {
     struct timespec t;
     clock_gettime(CLOCK_REALTIME, &t);

@@ -17,6 +17,7 @@ pub const STD_MODULES: &[(&str, &str)] = &[
     ("std.log", include_str!("../std/log.brim")),
     ("std.net", include_str!("../std/net.brim")),
     ("std.prelude", include_str!("../std/prelude.brim")),
+    ("std.random", include_str!("../std/random.brim")),
     ("std.time", include_str!("../std/time.brim")),
 ];
 

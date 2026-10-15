@@ -329,6 +329,18 @@ fn total(a: string, b: string) -> Result[i64, string] {
 }
 ```
 
+**Methods** (from the prelude):
+
+| On | Method | Result | |
+|----|--------|--------|---|
+| `Option[T]` | `is_some()`, `is_none()` | `bool` | |
+| `Option[T]` | `unwrap_or(fallback)` | `T` | the value, or `fallback` |
+| `Option[T]` | `map(f)` | `Option[U]` | `Some(f(x))`, or `None` |
+| `Result[T, E]` | `is_ok()`, `is_err()` | `bool` | |
+| `Result[T, E]` | `unwrap_or(fallback)` | `T` | the `Ok` value, or `fallback` |
+| `Result[T, E]` | `ok()` | `Option[T]` | the `Ok` value; the error is dropped |
+| `Result[T, E]` | `map(f)` | `Result[U, E]` | `Ok(f(x))`, or the same `Err` |
+
 ### 5.5 Lists
 
 `List[T]` holds any number of values of type `T`, in order. `[1, 2, 3]` creates one; `[]` is an empty list and needs a known element type (`let xs: List[i64] = []`, `E0226`).
@@ -879,6 +891,7 @@ Some of the standard library is written in Brim and built into the compiler. Its
 | `std.net` | TCP: `listen(host, port) -> Result[Listener, string]`, `connect(host, port) -> Result[Conn, string]`; `Listener.accept()`, `port()`, `close()`; `Conn.read_line()`, `read_until(delimiter)`, `read_exact(count)`, `read_all()`, `write(text)`, `set_timeout(millis)`, `port()`, `close()` |
 | `std.time` | `now() -> Time` (the system clock), `from_unix_millis`, `from_unix_seconds`; `Time.iso()` (`2026-10-15T08:30:01.123Z`), `date()`, `http_date()`, `parts() -> DateTime` (year, month, day, hour, minute, second, millisecond, weekday), `unix_seconds()`, `add_millis`, `add_seconds`; `millis()` (a monotonic clock for durations), `sleep(millis)`. All in UTC |
 | `std.log` | `info(message)`, `warn(message)`, `error(message)`: a line on standard error with the time and level |
+| `std.random` | `int(low, high)` (from `low` up to, not including, `high`; `low` when `high <= low`), `float()` (0 up to 1), `bool()`, `choice(list) -> Option[T]`, `shuffle(list) -> List[T]`, `seed(n)`. The generator is xoshiro256**: fast, not for passwords or keys. After `seed(n)` the numbers are the same on every run, in the interpreter and native code alike; without it they come from the operating system's randomness |
 | `std.json` | `enum Json { Null, Bool(bool), Number(string), Str(string), Array(List[Json]), Object(Map[string, Json]) }`; `parse(text) -> Result[Json, string]`, `stringify(value)`, `pretty(value)`, `quote(text)`; building: `null()`, `from_bool`, `from_int`, `from_float`, `from_string`, `array`, `object`; reading: `Json.get(key)`, `at(index)`, `as_string()`, `as_int()`, `as_float()`, `as_bool()`, `as_array()`, `as_object()`, `is_null()`, `kind()` |
 | `std.http` | HTTP/1.1. Server: `serve(host, port) -> Result[Server, string]`, `Server.next() -> Result[Request, string]`, `Request.respond(Response)`, `Request.header(name)`, `Request.param(name)`. Client: `get(url)`, `post(url, content_type, body)`, `request(method, url, headers, body)`, each `-> Result[Response, string]`. Responses: `text`, `json`, `html`, `response`, `redirect`, `not_found`, `Response.with_header`, `header`, `ok`. URLs: `encode`, `decode` |
 

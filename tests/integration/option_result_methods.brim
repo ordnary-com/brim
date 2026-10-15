@@ -1,0 +1,33 @@
+// Methods of Option and Result.
+
+fn parse(text: string) -> Result[i64, string] {
+    return match text.parse_int() {
+        Some(n) => Ok(n)
+        None => Err(f"not a number: {text}")
+    }
+}
+
+fn main() {
+    let some: Option[i64] = Some(4)
+    let none: Option[i64] = None
+    print(some.is_some())
+    print(none.is_none())
+    print(some.unwrap_or(0))
+    print(none.unwrap_or(0))
+    print(some.map(fn(x: i64) -> string { return f"<{x}>" }))
+    print(none.map(fn(x: i64) -> i64 { return x * 2 }))
+
+    let good = parse("21")
+    let bad = parse("x")
+    print(good.is_ok())
+    print(bad.is_err())
+    print(good.unwrap_or(-1) * 2)
+    print(bad.unwrap_or(-1))
+    print(good.ok())
+    print(bad.ok())
+    print(good.map(fn(n: i64) -> f64 { return to_float(n) / 2.0 }))
+    print(bad.map(fn(n: i64) -> i64 { return n }))
+    print(["1", "x", "3"].map(parse).filter(fn(r: Result[i64, string]) -> bool {
+        return r.is_ok()
+    }).len())
+}

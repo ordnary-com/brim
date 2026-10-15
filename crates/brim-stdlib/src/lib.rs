@@ -405,6 +405,33 @@ pub const BUILTINS: &[Builtin] = &[
         }],
     },
     Builtin {
+        name: "__random_seed",
+        summary: "std.random: make the numbers that follow repeatable.",
+        overloads: &[Overload {
+            params: &[Prim::I64],
+            ret: Prim::Void,
+            runtime: RuntimeFn::RandomSeed,
+        }],
+    },
+    Builtin {
+        name: "__random_range",
+        summary: "std.random: a number from low up to high.",
+        overloads: &[Overload {
+            params: &[Prim::I64, Prim::I64],
+            ret: Prim::I64,
+            runtime: RuntimeFn::RandomRange,
+        }],
+    },
+    Builtin {
+        name: "__random_float",
+        summary: "std.random: a number from 0 up to 1.",
+        overloads: &[Overload {
+            params: &[],
+            ret: Prim::F64,
+            runtime: RuntimeFn::RandomFloat,
+        }],
+    },
+    Builtin {
         name: "__time_now_millis",
         summary: "std.time: the wall clock in milliseconds.",
         overloads: &[Overload {
