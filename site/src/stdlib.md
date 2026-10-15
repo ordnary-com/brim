@@ -668,6 +668,73 @@ generic code that encodes or decodes a `T` needs `T: Data`.
 `examples/http/notes.brim` combines `std.http` and `std.json` into a small
 JSON API.
 
+## Databases: std.postgres
+
+`std.postgres` talks to a PostgreSQL server. Parameters go in the SQL as
+`$1`, `$2`, ... and travel separately, so values never become SQL text.
+`query_as` reads each row into a struct whose fields are the columns.
+
+```brim
+import std.postgres
+
+struct Note {
+    id: i64
+    text: string
+}
+
+fn notes(url: string) -> Result[List[Note], string] {
+    let db = postgres.connect(url)?
+    db.execute("insert into notes (text) values ($1)", [postgres.text("milk")])?
+    let found: List[Note] = db.query_as("select id, text from notes where id > $1", [postgres.int(0)])?
+    db.close()
+    return Ok(found)
+}
+```
+
+| | |
+|---|---|
+| `postgres.connect(url)` | `postgres://user:password@host:port/database` |
+| `db.query(sql, params)` | `Result[Rows, string]`: `columns`, `rows`, `affected` |
+| `db.execute(sql, params)` | the number of rows changed |
+| `db.query_as(sql, params)` | `Result[List[T], string]` for any `T: Data` |
+| `db.transaction(work)` | runs `work(db)`; commits on `Ok`, rolls back on `Err` |
+| `row.get(column)` | `Option[string]`; `None` for NULL |
+| `row.text(column)`, `int`, `float`, `bool` | `Result`s |
+| `postgres.null()`, `int(n)`, `float(x)`, `text(s)`, `bool(b)`, `json_value(v)` | parameters |
+
+Logins use SCRAM-SHA-256, MD5 or a plain password. The connection is not
+encrypted: connect over localhost, a private network or a tunnel. Errors
+read like `postgres: ERROR: relation "x" does not exist [42P01]`.
+
+## Hashes and encodings: std.crypto, std.base64
+
+| | |
+|---|---|
+| `crypto.sha256(bytes)`, `crypto.sha256_hex(text)` | SHA-256 |
+| `crypto.hmac_sha256(key, message)` | HMAC-SHA-256 |
+| `crypto.pbkdf2_sha256(password, salt, iterations, length)` | a key from a password, also for storing passwords |
+| `crypto.md5(bytes)` | only where another system needs it |
+| `crypto.random_bytes(n)` | secure random bytes, for keys and tokens |
+| `crypto.hex(bytes)`, `crypto.equal(a, b)` | hex digits; a comparison that does not leak where secrets differ |
+| `base64.encode(bytes)`, `base64.decode(text)` | RFC 4648; `encode_text` and `decode_text` for strings |
+
+Bytes are `List[u8]`: `text.bytes()` and `string_from_bytes(bytes)` convert.
+
+```brim
+import std.base64
+import std.crypto
+
+fn main() {
+    print(crypto.sha256_hex("abc"))
+    print(base64.encode_text("hello"))
+}
+```
+
+```text
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+aGVsbG8=
+```
+
 ## Random numbers: std.random
 
 ```brim

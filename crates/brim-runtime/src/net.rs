@@ -188,6 +188,26 @@ impl Sockets {
         String::from_utf8(text).map_err(|_| "data is not valid UTF-8".into())
     }
 
+    /// Exactly `count` bytes.
+    pub fn read_bytes(&mut self, handle: i64, count: i64) -> Result<Vec<u8>, NetError> {
+        let count = usize::try_from(count).map_err(|_| "invalid length".to_string())?;
+        let conn = self.conn(handle)?;
+        while conn.buffer.len() < count {
+            if fill(conn)? == 0 {
+                return Err(CLOSED_EARLY.into());
+            }
+        }
+        Ok(conn.buffer.drain(..count).collect())
+    }
+
+    pub fn write_bytes(&mut self, handle: i64, data: &[u8]) -> Result<i64, NetError> {
+        self.conn(handle)?
+            .stream
+            .write_all(data)
+            .map_err(|e| reason(&e))?;
+        Ok(data.len() as i64)
+    }
+
     /// Everything until the other side closes the connection.
     pub fn read_all(&mut self, handle: i64) -> Result<String, NetError> {
         let conn = self.conn(handle)?;

@@ -299,6 +299,21 @@ runtime_fns! {
     ProcessStdout = "brim_rt_process_stdout" () -> Str;
     /// std.process: the standard error of the last `ProcessRun`.
     ProcessStderr = "brim_rt_process_stderr" () -> Str;
+    /// std.crypto: the SHA-256 hash of bytes.
+    Sha256 = "brim_rt_sha256" (IntList) -> IntList;
+    /// std.crypto: HMAC-SHA-256 of a message (second) with a key (first).
+    HmacSha256 = "brim_rt_hmac_sha256" (IntList, IntList) -> IntList;
+    /// std.crypto: PBKDF2-HMAC-SHA-256 of a password and a salt, with a
+    /// number of iterations and a length in bytes.
+    Pbkdf2Sha256 = "brim_rt_pbkdf2_sha256" (IntList, IntList, I64, I64) -> IntList;
+    /// std.crypto: the MD5 hash of bytes.
+    Md5 = "brim_rt_md5" (IntList) -> IntList;
+    /// std.crypto: bytes from the operating system's secure random source.
+    RandomBytes = "brim_rt_random_bytes" (I64) -> IntList;
+    /// std.net: exactly this many bytes. Sets the last error.
+    NetReadBytes = "brim_rt_net_read_bytes" (I64, I64) -> IntList;
+    /// std.net: writes bytes; returns how many. Sets the last error.
+    NetWriteBytes = "brim_rt_net_write_bytes" (I64, IntList) -> I64;
     /// std.random: make the numbers that follow repeatable.
     RandomSeed = "brim_rt_random_seed" (I64) -> Void;
     /// std.random: a number from the first argument up to the second.

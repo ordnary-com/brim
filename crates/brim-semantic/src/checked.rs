@@ -559,6 +559,14 @@ pub enum Intrinsic {
     /// `serve_api(module, request)`: the first argument is the module's
     /// index as an `Int`, the second the `http.Request`.
     ServeApi,
+    /// std.crypto and std.net: functions on bytes (`List[u8]`).
+    Sha256,
+    HmacSha256,
+    Pbkdf2Sha256,
+    Md5,
+    RandomBytes,
+    NetReadBytes,
+    NetWriteBytes,
     /// std.json: `__to_json(value)`, a value as a `Json`.
     ToJson,
     /// std.json: `__from_json(json)`, a `Result[T, string]` of the

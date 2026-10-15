@@ -1,0 +1,114 @@
+// Base64 (RFC 4648), the standard alphabet with `=` padding:
+//
+//   import std.base64
+//
+//   let text = base64.encode("hello".bytes())       // "aGVsbG8="
+//   let bytes = base64.decode(text)?
+//   print(string_from_bytes(bytes))
+//
+// `encode_text` and `decode_text` do the same for strings.
+
+const ALPHABET: string = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+pub fn encode(data: List[u8]) -> string {
+    let mut out = StringBuilder.new()
+    let mut i = 0
+    while i < data.len() {
+        let b0 = to_int(data[i])
+        let b1 = if i + 1 < data.len() {
+            to_int(data[i + 1])
+        } else {
+            0
+        }
+        let b2 = if i + 2 < data.len() {
+            to_int(data[i + 2])
+        } else {
+            0
+        }
+        let n = b0 * 65536 + b1 * 256 + b2
+        out.add(letter(n / 262144))
+        out.add(letter(n / 4096 % 64))
+        if i + 1 < data.len() {
+            out.add(letter(n / 64 % 64))
+        } else {
+            out.add("=")
+        }
+        if i + 2 < data.len() {
+            out.add(letter(n % 64))
+        } else {
+            out.add("=")
+        }
+        i += 3
+    }
+    return out.build()
+}
+
+// The UTF-8 bytes of `text`, encoded.
+pub fn encode_text(text: string) -> string {
+    return encode(text.bytes())
+}
+
+// The bytes of base64 text; spaces and line breaks are skipped.
+pub fn decode(text: string) -> Result[List[u8], string] {
+    let mut values: List[i64] = []
+    let mut padding = 0
+    for c in text.chars() {
+        if c == " " || c == "\n" || c == "\r" || c == "\t" {
+            continue
+        }
+        if c == "=" {
+            padding += 1
+            continue
+        }
+        if padding > 0 {
+            return Err("base64: data after the padding")
+        }
+        match ALPHABET.find(c) {
+            Some(v) => values.push(v)
+            None => return Err(f"base64: invalid character \"{c}\"")
+        }
+    }
+    if (values.len() + padding) % 4 != 0 || padding > 2 || values.len() % 4 == 1 {
+        return Err("base64: the length is not a multiple of 4")
+    }
+    let mut out: List[u8] = []
+    let mut i = 0
+    while i < values.len() {
+        let left = values.len() - i
+        let v0 = values[i]
+        let v1 = values[i + 1]
+        let v2 = if left > 2 {
+            values[i + 2]
+        } else {
+            0
+        }
+        let v3 = if left > 3 {
+            values[i + 3]
+        } else {
+            0
+        }
+        let n = v0 * 262144 + v1 * 4096 + v2 * 64 + v3
+        out.push(to_u8(n / 65536))
+        if left > 2 {
+            out.push(to_u8(n / 256 % 256))
+        }
+        if left > 3 {
+            out.push(to_u8(n % 256))
+        }
+        i += 4
+    }
+    return Ok(out)
+}
+
+// Decoded bytes as a string, which must be UTF-8.
+pub fn decode_text(text: string) -> Result[string, string] {
+    let bytes = decode(text)?
+    match string_from_bytes(bytes) {
+        Some(s) => return Ok(s)
+        None => return Err("base64: the data is not UTF-8 text")
+    }
+}
+
+fn letter(n: i64) -> string {
+    return ALPHABET.slice(n, n + 1)
+}

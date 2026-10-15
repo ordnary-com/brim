@@ -2352,6 +2352,13 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             Intrinsic::Args => self.runtime(RuntimeFn::Args, vec![], ty, span),
             Intrinsic::FsList => self.runtime(RuntimeFn::FsList, args, ty, span),
             Intrinsic::ProcessRun => self.runtime(RuntimeFn::ProcessRun, args, ty, span),
+            Intrinsic::Sha256 => self.runtime(RuntimeFn::Sha256, args, ty, span),
+            Intrinsic::HmacSha256 => self.runtime(RuntimeFn::HmacSha256, args, ty, span),
+            Intrinsic::Md5 => self.runtime(RuntimeFn::Md5, args, ty, span),
+            Intrinsic::Pbkdf2Sha256 => self.runtime(RuntimeFn::Pbkdf2Sha256, args, ty, span),
+            Intrinsic::RandomBytes => self.runtime(RuntimeFn::RandomBytes, args, ty, span),
+            Intrinsic::NetReadBytes => self.runtime(RuntimeFn::NetReadBytes, args, ty, span),
+            Intrinsic::NetWriteBytes => self.runtime(RuntimeFn::NetWriteBytes, args, ty, span),
             Intrinsic::ServeApi => {
                 let module = api_module.expect("the module's index");
                 self.serve_api(module, args[1], span)

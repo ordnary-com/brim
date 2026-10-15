@@ -20,6 +20,7 @@
 //! that they do.
 
 pub mod abi;
+pub mod crypto;
 pub mod float;
 pub mod net;
 pub mod ops;

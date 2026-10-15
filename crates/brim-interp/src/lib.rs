@@ -793,6 +793,13 @@ fn fs_call(
     }
 }
 
+/// Bytes as a `List[u8]`.
+fn byte_list(data: &[u8]) -> Value {
+    Value::List(Rc::new(
+        data.iter().map(|b| Value::I64(i64::from(*b))).collect(),
+    ))
+}
+
 /// A `List[u8]` as bytes.
 fn bytes(list: &Value) -> Vec<u8> {
     list.list().iter().map(|b| b.i64() as u8).collect()
@@ -925,6 +932,37 @@ fn call_runtime(
                 .and_then(char::from_u32)
                 .map_or(String::new(), String::from),
         )),
+        RuntimeFn::Sha256 => Some(byte_list(&r::crypto::sha256(&bytes(args[0])))),
+        RuntimeFn::HmacSha256 => Some(byte_list(&r::crypto::hmac_sha256(
+            &bytes(args[0]),
+            &bytes(args[1]),
+        ))),
+        RuntimeFn::Md5 => Some(byte_list(&r::crypto::md5(&bytes(args[0])))),
+        RuntimeFn::Pbkdf2Sha256 => Some(byte_list(&r::crypto::pbkdf2_sha256(
+            &bytes(args[0]),
+            &bytes(args[1]),
+            args[2].i64(),
+            args[3].i64(),
+        ))),
+        RuntimeFn::RandomBytes => {
+            let n = usize::try_from(args[0].i64()).unwrap_or(0);
+            Some(byte_list(&r::crypto::random_bytes(n)))
+        }
+        RuntimeFn::NetReadBytes => net(
+            state,
+            |n| n.read_bytes(args[0].i64(), args[1].i64()),
+            Value::List(Rc::default()),
+            |b| byte_list(&b),
+        ),
+        RuntimeFn::NetWriteBytes => {
+            let data = bytes(args[1]);
+            net(
+                state,
+                |n| n.write_bytes(args[0].i64(), &data),
+                Value::I64(0),
+                Value::I64,
+            )
+        }
         RuntimeFn::StrBytes => Some(Value::List(Rc::new(
             s(0).bytes().map(|b| Value::I64(i64::from(b))).collect(),
         ))),

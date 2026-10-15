@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- `std.postgres`: a PostgreSQL client written in Brim. `connect(url)`, `query` and `execute` with `$1` parameters, `query_as` into structs (through `Data`), `transaction`, and logins with SCRAM-SHA-256, MD5 or a plain password. A CI job runs it against a real server.
+- `std.crypto` (SHA-256, HMAC-SHA-256, PBKDF2, MD5, secure random bytes, hex, a constant-time comparison) and `std.base64`, the same in the interpreter and native code.
+- `Conn.read_bytes(count)` and `Conn.write_bytes(bytes)` in `std.net`, for binary protocols.
 - HTTP keep-alive: the server keeps connections open for the next request (HTTP/1.1 unless `connection: close`) and waits for new and kept connections at once, so a quiet client keeps no one else out; quiet connections close after five seconds. `Listener.next_ready(idle_millis)` and `Listener.keep(conn)` in `std.net` do this for other servers.
 - API functions: the built-in `serve_api(module, request)` serves the `pub fn`s of a module at `POST /api/<name>`, with parameters and results as JSON (200, 422 for `Err`, 400, 404, 405). `brim gen ts --angular` writes an Angular service per served module, with a typed method per function. `examples/http/api` shows both.
 - `http.new_request(method, path, body)` for testing handlers, and `net.closed()`.

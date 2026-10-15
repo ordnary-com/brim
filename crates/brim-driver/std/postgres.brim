@@ -1,0 +1,766 @@
+// A PostgreSQL client:
+//
+//   import std.postgres
+//
+//   let db = postgres.connect("postgres://app:secret@127.0.0.1:5432/notes")?
+//   db.execute("insert into notes (text) values ($1)", [postgres.text("milk")])?
+//   for row in db.query("select id, text from notes", [])?.rows {
+//       print(row.int("id")? + ": " + row.text("text")?)
+//   }
+//   // Or straight into a struct whose fields are the columns:
+//   let notes: List[Note] = db.query_as("select id, text from notes", [])?
+//
+// Parameters are `$1`, `$2`, ... in the SQL and `Value`s in the list, so
+// values never become part of the SQL text. Logins use SCRAM-SHA-256, MD5
+// or a plain password, whatever the server asks for. Connections are not
+// encrypted: use it on the same machine, a private network or a tunnel.
+import std.base64
+import std.crypto
+import std.json
+import std.net
+
+// A connection to a database.
+pub struct Client {
+    conn: net.Conn,
+}
+
+// A parameter of a query.
+pub enum Value {
+    Null,
+    Int(i64),
+    Float(f64),
+    Text(string),
+    Bool(bool),
+    // For `json` and `jsonb` columns.
+    Json(json.Json),
+}
+
+pub fn null() -> Value {
+    return Value.Null
+}
+
+pub fn int(n: i64) -> Value {
+    return Value.Int(n)
+}
+
+pub fn float(x: f64) -> Value {
+    return Value.Float(x)
+}
+
+pub fn text(s: string) -> Value {
+    return Value.Text(s)
+}
+
+pub fn bool(b: bool) -> Value {
+    return Value.Bool(b)
+}
+
+// A value as JSON text, for `json` and `jsonb` columns.
+pub fn json_value[T: Data](value: T) -> Value {
+    return Value.Json(json.to_json(value))
+}
+
+// The result of a query.
+pub struct Rows {
+    // The names of the columns.
+    pub columns: List[string],
+    pub rows: List[Row],
+    // How many rows the statement inserted, changed, deleted or returned.
+    pub affected: i64,
+}
+
+// One row of a result. Values arrive as text; the methods read them as
+// other types.
+pub struct Row {
+    pub columns: List[string],
+    // `None` for SQL NULL.
+    pub values: List[Option[string]],
+    // The type of each column (Postgres type OIDs).
+    types: List[i64],
+}
+
+impl Row {
+    // A column's value as text; `None` for NULL or an unknown column.
+    pub fn get(self, column: string) -> Option[string] {
+        let i = self.columns.index_of(column)?
+        return self.values[i]
+    }
+
+    // Whether a column is NULL.
+    pub fn is_null(self, column: string) -> bool {
+        match self.columns.index_of(column) {
+            Some(i) => return self.values[i].is_none()
+            None => return false
+        }
+    }
+
+    pub fn text(self, column: string) -> Result[string, string] {
+        match self.columns.index_of(column) {
+            Some(i) => {
+                match self.values[i] {
+                    Some(value) => return Ok(value)
+                    None => return Err(f"column \"{column}\" is NULL")
+                }
+            }
+            None => return Err(f"no column \"{column}\"")
+        }
+    }
+
+    pub fn int(self, column: string) -> Result[i64, string] {
+        let value = self.text(column)?
+        match value.parse_int() {
+            Some(n) => return Ok(n)
+            None => return Err(f"column \"{column}\" is not a whole number: {value}")
+        }
+    }
+
+    pub fn float(self, column: string) -> Result[f64, string] {
+        let value = self.text(column)?
+        match value.parse_float() {
+            Some(x) => return Ok(x)
+            None => return Err(f"column \"{column}\" is not a number: {value}")
+        }
+    }
+
+    pub fn bool(self, column: string) -> Result[bool, string] {
+        let value = self.text(column)?
+        if value == "t" || value == "true" {
+            return Ok(true)
+        }
+        if value == "f" || value == "false" {
+            return Ok(false)
+        }
+        return Err(f"column \"{column}\" is not a bool: {value}")
+    }
+
+    // The row as a JSON object: numbers, bools, `json` columns and NULL
+    // as themselves, everything else as strings.
+    pub fn to_json(self) -> json.Json {
+        let mut members: Map[string, json.Json] = [:]
+        for i in 0..self.columns.len() {
+            members[self.columns[i]] = column_json(self.values[i], self.types[i])
+        }
+        return json.object(members)
+    }
+}
+
+// Connects with a URL: `postgres://user:password@host:port/database`. The
+// port is 5432 unless given, and the database the user's name.
+pub fn connect(url: string) -> Result[Client, string] {
+    let mut rest = url
+    if rest.starts_with("postgres://") {
+        rest = rest.slice(11, rest.len())
+    } else if rest.starts_with("postgresql://") {
+        rest = rest.slice(13, rest.len())
+    } else {
+        return Err("postgres: the URL must start with postgres://")
+    }
+    match rest.find("?") {
+        Some(at) => rest = rest.slice(0, at)
+        None => {}
+    }
+    let mut user = ""
+    let mut password = ""
+    match rest.find("@") {
+        Some(at) => {
+            let login = rest.slice(0, at)
+            rest = rest.slice(at + 1, rest.len())
+            match login.find(":") {
+                Some(colon) => {
+                    user = decode(login.slice(0, colon))?
+                    password = decode(login.slice(colon + 1, login.len()))?
+                }
+                None => user = decode(login)?
+            }
+        }
+        None => {}
+    }
+    let mut database = ""
+    match rest.find("/") {
+        Some(at) => {
+            database = decode(rest.slice(at + 1, rest.len()))?
+            rest = rest.slice(0, at)
+        }
+        None => {}
+    }
+    let mut host = rest
+    let mut port = 5432
+    match rest.find(":") {
+        Some(at) => {
+            host = rest.slice(0, at)
+            match rest.slice(at + 1, rest.len()).parse_int() {
+                Some(p) => port = p
+                None => return Err("postgres: the port is not a number")
+            }
+        }
+        None => {}
+    }
+    if host.is_empty() {
+        host = "127.0.0.1"
+    }
+    if user.is_empty() {
+        return Err("postgres: the URL needs a user name")
+    }
+    if database.is_empty() {
+        database = user
+    }
+    return connect_to(host, port, user, password, database)
+}
+
+// Connects to `host` and `port` as `user`, to `database`.
+pub fn connect_to(host: string, port: i64, user: string, password: string, database: string) -> Result[Client, string] {
+    let conn = net.connect(host, port)?
+    let client = Client { conn: conn }
+    match client.start(user, password, database) {
+        Ok(_) => return Ok(client)
+        Err(e) => {
+            conn.close()
+            return Err(e)
+        }
+    }
+}
+
+impl Client {
+    // Runs a query and returns its rows.
+    pub fn query(self, sql: string, params: List[Value]) -> Result[Rows, string] {
+        let mut out = Message.new()
+        // Parse: an unnamed statement; the server infers the types.
+        out.text("")
+        out.text(sql)
+        out.i16(params.len())
+        for _ in params {
+            out.i32(0)
+        }
+        out.end("P")
+        // Bind: text parameters, text results.
+        out.text("")
+        out.text("")
+        out.i16(0)
+        out.i16(params.len())
+        for param in params {
+            match encode_value(param) {
+                Some(value) => {
+                    let bytes = value.bytes()
+                    out.i32(bytes.len())
+                    out.bytes(bytes)
+                }
+                None => out.i32(-1)
+            }
+        }
+        out.i16(0)
+        out.end("B")
+        out.byte(80)
+        out.text("")
+        out.end("D")
+        out.text("")
+        out.i32(0)
+        out.end("E")
+        out.end("S")
+        self.conn.write_bytes(out.data)?
+        return self.results()
+    }
+
+    // Runs a statement and returns how many rows it changed.
+    pub fn execute(self, sql: string, params: List[Value]) -> Result[i64, string] {
+        let rows = self.query(sql, params)?
+        return Ok(rows.affected)
+    }
+
+    // Runs a query and reads each row into a `T` whose fields are the
+    // columns, as `json.from_json` reads an object.
+    pub fn query_as[T: Data](self, sql: string, params: List[Value]) -> Result[List[T], string] {
+        let rows = self.query(sql, params)?
+        let mut out: List[T] = []
+        for i in 0..rows.rows.len() {
+            let value: Result[T, string] = json.from_json(rows.rows[i].to_json())
+            match value {
+                Ok(value) => out.push(value)
+                Err(e) => {
+                    let what = e.replace("at $.", "column ")
+                    return Err(f"postgres: row {i + 1}: {what}")
+                }
+            }
+        }
+        return Ok(out)
+    }
+
+    // Runs `work` in a transaction: committed if it returns `Ok`, rolled
+    // back if it returns `Err`.
+    pub fn transaction[T](self, work: fn(Client) -> Result[T, string]) -> Result[T, string] {
+        self.execute("BEGIN", [])?
+        match work(self) {
+            Ok(value) => {
+                self.execute("COMMIT", [])?
+                return Ok(value)
+            }
+            Err(e) => {
+                self.execute("ROLLBACK", [])?
+                return Err(e)
+            }
+        }
+    }
+
+    // Ends the connection.
+    pub fn close(self) {
+        let mut out = Message.new()
+        out.end("X")
+        match self.conn.write_bytes(out.data) {
+            Ok(_) => {}
+            Err(_) => {}
+        }
+        self.conn.close()
+    }
+
+    // The startup message and the login.
+    fn start(self, user: string, password: string, database: string) -> Result[bool, string] {
+        let mut out = Message.new()
+        out.i32(196608)
+        out.text("user")
+        out.text(user)
+        out.text("database")
+        out.text(database)
+        out.text("client_encoding")
+        out.text("UTF8")
+        out.byte(0)
+        self.conn.write_bytes(out.untyped())?
+        let mut scram = Scram { password: password, nonce: "", first_bare: "", server_signature: [] }
+        loop {
+            let message = self.read()?
+            let mut r = Reader { data: message.body, pos: 0 }
+            match message.kind {
+                "R" => {
+                    let code = r.i32()?
+                    if code == 3 {
+                        self.send_password(password)?
+                    } else if code == 5 {
+                        let salt = r.take(4)?
+                        let inner = crypto.hex(crypto.md5((password + user).bytes()))
+                        let mut salted = inner.bytes()
+                        for b in salt {
+                            salted.push(b)
+                        }
+                        self.send_password("md5" + crypto.hex(crypto.md5(salted)))?
+                    } else if code == 10 {
+                        let mut found = false
+                        let mut mechanism = r.text()?
+                        while !mechanism.is_empty() {
+                            if mechanism == "SCRAM-SHA-256" {
+                                found = true
+                            }
+                            mechanism = r.text()?
+                        }
+                        if !found {
+                            return Err("postgres: the server offers no login this client knows")
+                        }
+                        let first = scram.first()
+                        let mut out = Message.new()
+                        out.text("SCRAM-SHA-256")
+                        out.i32(first.len())
+                        out.bytes(first.bytes())
+                        out.end("p")
+                        self.conn.write_bytes(out.data)?
+                    } else if code == 11 {
+                        let server_first = r.rest_text()?
+                        let last = scram.last(server_first)?
+                        let mut out = Message.new()
+                        out.bytes(last.bytes())
+                        out.end("p")
+                        self.conn.write_bytes(out.data)?
+                    } else if code == 12 {
+                        scram.check(r.rest_text()?)?
+                    } else if code != 0 {
+                        return Err(f"postgres: unsupported login method {code}")
+                    }
+                }
+                "E" => return Err(error_text(message.body))
+                "Z" => return Ok(true)
+                _ => {}
+            }
+        }
+    }
+
+    fn send_password(self, password: string) -> Result[i64, string] {
+        let mut out = Message.new()
+        out.text(password)
+        out.end("p")
+        return self.conn.write_bytes(out.data)
+    }
+
+    // One message from the server: its type letter and body.
+    fn read(self) -> Result[Incoming, string] {
+        let head = self.conn.read_bytes(5)?
+        let kind = string_from_bytes([head[0]]).unwrap_or("?")
+        let mut r = Reader { data: head, pos: 1 }
+        let length = r.i32()?
+        let body = self.conn.read_bytes(length - 4)?
+        return Ok(Incoming { kind: kind, body: body })
+    }
+
+    // The messages that answer a query, up to ReadyForQuery.
+    fn results(self) -> Result[Rows, string] {
+        let mut columns: List[string] = []
+        let mut types: List[i64] = []
+        let mut rows: List[Row] = []
+        let mut affected = 0
+        let mut failure = ""
+        loop {
+            let message = self.read()?
+            let mut r = Reader { data: message.body, pos: 0 }
+            match message.kind {
+                "T" => {
+                    let n = r.i16()?
+                    for _ in 0..n {
+                        columns.push(r.text()?)
+                        r.skip(6)
+                        types.push(r.i32()?)
+                        r.skip(8)
+                    }
+                }
+                "D" => {
+                    let n = r.i16()?
+                    let mut values: List[Option[string]] = []
+                    for _ in 0..n {
+                        let length = r.i32()?
+                        if length < 0 {
+                            values.push(None)
+                        } else {
+                            let bytes = r.take(length)?
+                            match string_from_bytes(bytes) {
+                                Some(text) => values.push(Some(text))
+                                None => return Err("postgres: a value is not UTF-8 text")
+                            }
+                        }
+                    }
+                    rows.push(Row { columns: columns, values: values, types: types })
+                }
+                "C" => {
+                    let tag = r.text()?
+                    let words = tag.split(" ")
+                    affected = words[words.len() - 1].parse_int().unwrap_or(0)
+                }
+                "E" => failure = error_text(message.body)
+                "Z" => {
+                    if !failure.is_empty() {
+                        return Err(failure)
+                    }
+                    return Ok(Rows { columns: columns, rows: rows, affected: affected })
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+// ---- messages ----------------------------------------------------------
+
+struct Incoming {
+    kind: string,
+    body: List[u8],
+}
+
+// Messages being written: each `end` closes one.
+struct Message {
+    data: List[u8],
+    // Where the current message's body starts.
+    start: i64,
+}
+
+impl Message {
+    fn new() -> Message {
+        return Message { data: [], start: 0 }
+    }
+
+    fn byte(mut self, b: i64) {
+        self.data.push(to_u8(b))
+    }
+
+    fn i16(mut self, n: i64) {
+        self.byte(n / 256 % 256)
+        self.byte(n % 256)
+    }
+
+    fn i32(mut self, n: i64) {
+        let mut u = n
+        if u < 0 {
+            u += 4294967296
+        }
+        self.byte(u / 16777216 % 256)
+        self.byte(u / 65536 % 256)
+        self.byte(u / 256 % 256)
+        self.byte(u % 256)
+    }
+
+    // A NUL-terminated string.
+    fn text(mut self, s: string) {
+        for b in s.bytes() {
+            self.data.push(b)
+        }
+        self.data.push(0)
+    }
+
+    fn bytes(mut self, data: List[u8]) {
+        for b in data {
+            self.data.push(b)
+        }
+    }
+
+    // Ends a message of type `kind`: the type letter and the length go in
+    // front of the body written since the last `end`.
+    fn end(mut self, kind: string) {
+        let body = self.data.slice(self.start, self.data.len())
+        let mut out = self.data.slice(0, self.start)
+        out.push(kind.bytes()[0])
+        let mut length = Message.new()
+        length.i32(body.len() + 4)
+        for b in length.data {
+            out.push(b)
+        }
+        for b in body {
+            out.push(b)
+        }
+        self.data = out
+        self.start = out.len()
+    }
+
+    // The startup message, which has no type letter.
+    fn untyped(self) -> List[u8] {
+        let mut length = Message.new()
+        length.i32(self.data.len() + 4)
+        let mut out = length.data
+        for b in self.data {
+            out.push(b)
+        }
+        return out
+    }
+}
+
+// Reads a message body.
+struct Reader {
+    data: List[u8],
+    pos: i64,
+}
+
+impl Reader {
+    fn take(mut self, n: i64) -> Result[List[u8], string] {
+        if n < 0 || self.pos + n > self.data.len() {
+            return Err("postgres: a message from the server is too short")
+        }
+        let out = self.data.slice(self.pos, self.pos + n)
+        self.pos += n
+        return Ok(out)
+    }
+
+    fn skip(mut self, n: i64) {
+        self.pos += n
+    }
+
+    fn i16(mut self) -> Result[i64, string] {
+        let b = self.take(2)?
+        return Ok(to_int(b[0]) * 256 + to_int(b[1]))
+    }
+
+    fn i32(mut self) -> Result[i64, string] {
+        let b = self.take(4)?
+        let n = to_int(b[0]) * 16777216 + to_int(b[1]) * 65536 + to_int(b[2]) * 256 + to_int(b[3])
+        if n >= 2147483648 {
+            return Ok(n - 4294967296)
+        }
+        return Ok(n)
+    }
+
+    // A NUL-terminated string.
+    fn text(mut self) -> Result[string, string] {
+        let start = self.pos
+        while self.pos < self.data.len() && self.data[self.pos] != 0 {
+            self.pos += 1
+        }
+        if self.pos >= self.data.len() {
+            return Err("postgres: a message from the server is cut off")
+        }
+        let bytes = self.data.slice(start, self.pos)
+        self.pos += 1
+        return utf8(bytes)
+    }
+
+    // The rest of the body as text.
+    fn rest_text(mut self) -> Result[string, string] {
+        let bytes = self.take(self.data.len() - self.pos)?
+        return utf8(bytes)
+    }
+}
+
+fn utf8(bytes: List[u8]) -> Result[string, string] {
+    match string_from_bytes(bytes) {
+        Some(text) => return Ok(text)
+        None => return Err("postgres: text from the server is not UTF-8")
+    }
+}
+
+// "postgres: ERROR: relation "x" does not exist [42P01]", from an
+// ErrorResponse.
+fn error_text(body: List[u8]) -> string {
+    let mut r = Reader { data: body, pos: 0 }
+    let mut severity = "ERROR"
+    let mut code = ""
+    let mut message = ""
+    let mut detail = ""
+    while r.pos < body.len() && body[r.pos] != 0 {
+        let field = to_int(body[r.pos])
+        r.skip(1)
+        let value = r.text().unwrap_or("")
+        if field == 83 {
+            severity = value
+        } else if field == 67 {
+            code = value
+        } else if field == 77 {
+            message = value
+        } else if field == 68 {
+            detail = value
+        }
+    }
+    let mut out = f"postgres: {severity}: {message}"
+    if !detail.is_empty() {
+        out = out + f" ({detail})"
+    }
+    if !code.is_empty() {
+        out = out + f" [{code}]"
+    }
+    return out
+}
+
+// A parameter as the text Postgres reads; `None` for NULL.
+fn encode_value(value: Value) -> Option[string] {
+    match value {
+        Value.Null => return None
+        Value.Int(n) => return Some(to_string(n))
+        Value.Float(x) => return Some(to_string(x))
+        Value.Text(s) => return Some(s)
+        Value.Bool(b) => return Some(if b {
+            "true"
+        } else {
+            "false"
+        })
+        Value.Json(j) => return Some(json.stringify(j))
+    }
+}
+
+// A column's value as JSON, by its type: bool 16, integers 20, 21, 23 and
+// 26, numbers 700, 701 and 1700, JSON 114 and 3802.
+fn column_json(value: Option[string], type_oid: i64) -> json.Json {
+    let text = match value {
+        Some(t) => t
+        None => return json.null()
+    }
+    if type_oid == 16 {
+        return json.from_bool(text == "t")
+    }
+    if type_oid == 20 || type_oid == 21 || type_oid == 23 || type_oid == 26 {
+        return json.Json.Number(text)
+    }
+    if type_oid == 700 || type_oid == 701 || type_oid == 1700 {
+        match text.parse_float() {
+            Some(_) => return json.Json.Number(text)
+            None => return json.null()
+        }
+    }
+    if type_oid == 114 || type_oid == 3802 {
+        return json.parse(text).unwrap_or(json.from_string(text))
+    }
+    return json.from_string(text)
+}
+
+fn decode(text: string) -> Result[string, string] {
+    let decoded = __url_decode(text, false)
+    let error = __last_error()
+    if !error.is_empty() {
+        return Err("postgres: " + error)
+    }
+    return Ok(decoded)
+}
+
+// ---- SCRAM-SHA-256 (RFC 5802, RFC 7677) --------------------------------
+
+struct Scram {
+    password: string,
+    nonce: string,
+    first_bare: string,
+    server_signature: List[u8],
+}
+
+impl Scram {
+    // The client-first message.
+    fn first(mut self) -> string {
+        self.nonce = base64.encode(crypto.random_bytes(18))
+        self.first_bare = "n=,r=" + self.nonce
+        return "n,," + self.first_bare
+    }
+
+    // The client-final message for the server-first message.
+    fn last(mut self, server_first: string) -> Result[string, string] {
+        let mut nonce = ""
+        let mut salt_text = ""
+        let mut iterations = 0
+        for part in server_first.split(",") {
+            if part.starts_with("r=") {
+                nonce = part.slice(2, part.len())
+            } else if part.starts_with("s=") {
+                salt_text = part.slice(2, part.len())
+            } else if part.starts_with("i=") {
+                iterations = part.slice(2, part.len()).parse_int().unwrap_or(0)
+            }
+        }
+        if !nonce.starts_with(self.nonce) || iterations < 1 {
+            return Err("postgres: the server's login answer is not valid")
+        }
+        let salt = base64_bytes(salt_text)?
+        let salted = crypto.pbkdf2_sha256(self.password.bytes(), salt, iterations, 32)
+        let client_key = crypto.hmac_sha256(salted, "Client Key".bytes())
+        let stored_key = crypto.sha256(client_key)
+        let without_proof = "c=biws,r=" + nonce
+        let auth = self.first_bare + "," + server_first + "," + without_proof
+        let signature = crypto.hmac_sha256(stored_key, auth.bytes())
+        let mut proof: List[u8] = []
+        for i in 0..client_key.len() {
+            proof.push(xor(client_key[i], signature[i]))
+        }
+        let server_key = crypto.hmac_sha256(salted, "Server Key".bytes())
+        self.server_signature = crypto.hmac_sha256(server_key, auth.bytes())
+        return Ok(without_proof + ",p=" + base64.encode(proof))
+    }
+
+    // Checks the server-final message, which proves the server knows the
+    // password too.
+    fn check(self, server_final: string) -> Result[bool, string] {
+        if !server_final.starts_with("v=") {
+            return Err("postgres: the server's login answer is not valid")
+        }
+        let signature = base64_bytes(server_final.slice(2, server_final.len()))?
+        if !crypto.equal(signature, self.server_signature) {
+            return Err("postgres: the server could not prove it knows the password")
+        }
+        return Ok(true)
+    }
+}
+
+fn xor(a: u8, b: u8) -> u8 {
+    let mut x = to_int(a)
+    let mut y = to_int(b)
+    let mut out = 0
+    let mut bit = 1
+    for _ in 0..8 {
+        if x % 2 != y % 2 {
+            out += bit
+        }
+        x = x / 2
+        y = y / 2
+        bit = bit * 2
+    }
+    return to_u8(out)
+}
+
+fn base64_bytes(text: string) -> Result[List[u8], string] {
+    match base64.decode(text) {
+        Ok(bytes) => return Ok(bytes)
+        Err(_) => return Err("postgres: the server sent bad base64")
+    }
+}

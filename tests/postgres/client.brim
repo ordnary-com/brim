@@ -1,0 +1,67 @@
+// std.postgres against a real server, whose URL is in BRIM_TEST_POSTGRES.
+// Temporary tables keep runs apart and leave nothing behind.
+import std.json
+import std.postgres
+
+struct Note {
+    id: i64
+    text: string
+    done: bool
+    score: Option[f64]
+}
+
+fn run(url: string) -> Result[bool, string] {
+    let db = postgres.connect(url)?
+    db.execute("create temp table notes (id serial primary key, text text not null, done bool not null default false, score double precision, tags jsonb)", [])?
+    let tags: List[string] = ["a", "b"]
+    print(db.execute("insert into notes (text, score, tags) values ($1, $2, $3), ($4, $5, $6)", [
+        postgres.text("milk"),
+        postgres.float(1.5),
+        postgres.json_value(tags),
+        postgres.text("tea \"green\" é"),
+        postgres.null(),
+        postgres.null(),
+    ])?)
+    let rows = db.query("select id, text, done, score, tags from notes order by id", [])?
+    print(rows.columns)
+    for row in rows.rows {
+        print(f"{row.int("id")?} {row.text("text")?} {row.bool("done")?} {row.get("score")} {row.is_null("tags")}")
+        print(json.stringify(row.to_json()))
+    }
+    let notes: List[Note] = db.query_as("select id, text, done, score from notes order by id", [])?
+    print(notes)
+    print(db.execute("update notes set done = $1 where id = $2", [postgres.bool(true), postgres.int(1)])?)
+    print(db.query("select $1::int + $2::int as sum, $3::text as t", [postgres.int(40), postgres.int(2), postgres.text("x")])?.rows[0].int("sum")?)
+    match db.query("select * from no_such_table", []) {
+        Ok(_) => print("?")
+        Err(e) => print(e)
+    }
+    // The connection works after an error.
+    print(db.query("select 1 as one", [])?.rows[0].get("one"))
+    let rolled_back = db.transaction(fn(tx: postgres.Client) -> Result[i64, string] {
+        tx.execute("insert into notes (text) values ('rolled back')", [])?
+        return Err("changed my mind")
+    })
+    print(rolled_back)
+    let committed = db.transaction(fn(tx: postgres.Client) -> Result[i64, string] {
+        return tx.execute("insert into notes (text) values ('kept')", [])
+    })
+    print(committed)
+    print(db.query("select count(*) as n from notes", [])?.rows[0].int("n")?)
+    let missing: Result[List[Note], string] = db.query_as("select id, text from notes", [])
+    print(missing)
+    db.close()
+    return Ok(true)
+}
+
+fn main() {
+    match env("BRIM_TEST_POSTGRES") {
+        Some(url) => {
+            match run(url) {
+                Ok(_) => print("done")
+                Err(e) => print("error: " + e)
+            }
+        }
+        None => print("BRIM_TEST_POSTGRES is not set")
+    }
+}

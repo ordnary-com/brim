@@ -61,8 +61,8 @@ Still open from this phase: debug information, Windows, cross-compilation, and l
 - **Done:** `Map[K, V]` with `i64`, `bool` or `string` keys, insertion-ordered, with the same value semantics.
 - **Done:** methods in `impl` blocks, with `self`, `mut self` and type-level methods, also for generic types.
 - **Done:** a first standard library: string methods and comparison, standard input and error, files, command-line arguments, environment variables and exit codes.
-- More of the standard library: formatting, time, processes, directories; later networking and HTTP for backend services.
-- Standard library modules: I/O, files, formatting, environment, processes; later networking and HTTP for backend services.
+- **Done:** standard library modules for backend services: `std.fs`, `std.process`, `std.time`, `std.log`, `std.random`, `std.net`, `std.http` (client, server with keep-alive, API functions), `std.json` (with typed `encode` and `decode`), `std.postgres`, `std.crypto` and `std.base64`.
+- Open: handling requests concurrently, which waits for concurrency in the language; TLS for `std.postgres` and HTTP servers.
 
 ## Phase 6: Package manager and project tooling (done, first version)
 

@@ -148,6 +148,32 @@ fn integration_programs() {
     run_suite("tests/integration", "run", 0);
 }
 
+/// `tests/postgres`: programs that need a Postgres server. They run only
+/// when `BRIM_TEST_POSTGRES` holds its URL (CI starts a server for them),
+/// and natively too with the `llvm` feature.
+#[test]
+fn postgres_programs() {
+    if std::env::var_os("BRIM_TEST_POSTGRES").is_none() {
+        eprintln!("skipped: set BRIM_TEST_POSTGRES to a postgres:// URL to run these");
+        return;
+    }
+    run_suite("tests/postgres", "run", 0);
+    #[cfg(feature = "llvm")]
+    for program in programs("tests/postgres") {
+        let interpreted = brim(&["run", &program]);
+        let native = run_native(&program, false).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            native.stdout, interpreted.stdout,
+            "{program}: native stdout differs"
+        );
+        assert_eq!(
+            native.code, interpreted.code,
+            "{program}: {}",
+            native.stderr
+        );
+    }
+}
+
 /// The `main.brim` of every program in `tests/modules`, each a directory of
 /// modules.
 fn module_programs() -> Vec<String> {

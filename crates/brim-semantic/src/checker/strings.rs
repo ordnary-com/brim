@@ -109,6 +109,18 @@ pub(super) fn intrinsic_function(name: &str) -> Option<(Intrinsic, &'static [Typ
         "__fs_list" => (Intrinsic::FsList, STR, Ret::StrList),
         // The second parameter is a `List[string]`, see `check_intrinsic_call`.
         "__process_run" => (Intrinsic::ProcessRun, STR, Ret::I64),
+        // `List[u8]` parameters are filled in by `check_intrinsic_call`.
+        "__sha256" => (Intrinsic::Sha256, &[], Ret::ByteList),
+        "__hmac_sha256" => (Intrinsic::HmacSha256, &[], Ret::ByteList),
+        "__md5" => (Intrinsic::Md5, &[], Ret::ByteList),
+        "__pbkdf2_sha256" => (Intrinsic::Pbkdf2Sha256, &[], Ret::ByteList),
+        "__random_bytes" => (Intrinsic::RandomBytes, &[Type::I64], Ret::ByteList),
+        "__net_read_bytes" => (
+            Intrinsic::NetReadBytes,
+            &[Type::I64, Type::I64],
+            Ret::ByteList,
+        ),
+        "__net_write_bytes" => (Intrinsic::NetWriteBytes, &[], Ret::I64),
         _ => return None,
     })
 }
@@ -503,8 +515,13 @@ impl<'a> Checker<'a> {
             return Some(self.check_json_intrinsic(callee, args, span, expected, ctx));
         }
         let (op, params, ret) = intrinsic_function(&callee.name)?;
+        let bytes = self.list_of(Type::U8);
         let params = match op {
             Intrinsic::ProcessRun => vec![Type::String, self.list_of(Type::String)],
+            Intrinsic::Sha256 | Intrinsic::Md5 => vec![bytes],
+            Intrinsic::HmacSha256 => vec![bytes, bytes],
+            Intrinsic::Pbkdf2Sha256 => vec![bytes, bytes, Type::I64, Type::I64],
+            Intrinsic::NetWriteBytes => vec![Type::I64, bytes],
             _ => params.to_vec(),
         };
         let Some(checked) = self.fixed_args(&callee.name, &params, args, span, ctx) else {

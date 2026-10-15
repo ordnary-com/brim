@@ -1,0 +1,25 @@
+// std.crypto and std.base64: known test vectors (FIPS 180-4, RFC 1321,
+// RFC 4231, RFC 8018, RFC 4648) and errors.
+
+import std.base64
+import std.crypto
+
+fn main() {
+    print(crypto.sha256_hex(""))
+    print(crypto.sha256_hex("abc"))
+    print(crypto.hex(crypto.hmac_sha256("Jefe".bytes(), "what do ya want for nothing?".bytes())))
+    print(crypto.hex(crypto.md5("The quick brown fox jumps over the lazy dog".bytes())))
+    print(crypto.random_bytes(16).len())
+    for s in ["", "f", "fo", "foo", "foob", "fooba", "foobar"] {
+        let e = base64.encode_text(s)
+        print(f"{e} {base64.decode_text(e)}")
+    }
+    print(base64.decode("Zm9v!"))
+    print(base64.decode("Zg="))
+    print(base64.decode("Zg==Zg=="))
+    print(crypto.equal([1, 2], [1, 2]))
+    print(crypto.equal([1, 2], [1, 3]))
+    print(crypto.hex(crypto.pbkdf2_sha256("passwd".bytes(), "salt".bytes(), 1, 64)))
+    print(crypto.hex(crypto.pbkdf2_sha256("password".bytes(), "salt".bytes(), 4096, 32)))
+    print(crypto.hex([0, 1, 171, 255]))
+}

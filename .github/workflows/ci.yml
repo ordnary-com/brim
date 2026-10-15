@@ -86,6 +86,31 @@ jobs:
             "target/native/$(basename "$f" .brim)"
           done
 
+  postgres:
+    name: Postgres client
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: brim
+          POSTGRES_PASSWORD: brimpass
+          POSTGRES_DB: brimtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      BRIM_TEST_POSTGRES: postgres://brim:brimpass@127.0.0.1:5432/brimtest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked -p brim-cli --test fixtures postgres_programs -- --nocapture
+
   editors:
     name: Editor support
     runs-on: ubuntu-latest

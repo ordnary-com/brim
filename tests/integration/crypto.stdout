@@ -1,0 +1,20 @@
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843
+9e107d9d372bb6826bd81d3542a419d6
+16
+ Ok("")
+Zg== Ok("f")
+Zm8= Ok("fo")
+Zm9v Ok("foo")
+Zm9vYg== Ok("foob")
+Zm9vYmE= Ok("fooba")
+Zm9vYmFy Ok("foobar")
+Err("base64: invalid character \"!\"")
+Err("base64: the length is not a multiple of 4")
+Err("base64: data after the padding")
+true
+false
+55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc49ca9cccf179b645991664b39d77ef317c71b845b1e30bd509112041d3a19783
+c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a
+0001abff

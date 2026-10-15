@@ -91,6 +91,18 @@ impl Listener {
 }
 
 impl Conn {
+    // Exactly `count` bytes, for binary protocols.
+    pub fn read_bytes(self, count: i64) -> Result[List[u8], string] {
+        let data = __net_read_bytes(self.handle, count)
+        return checked(data, "cannot read")
+    }
+
+    // Writes bytes; the number written.
+    pub fn write_bytes(self, data: List[u8]) -> Result[i64, string] {
+        let n = __net_write_bytes(self.handle, data)
+        return checked(n, "cannot write")
+    }
+
     // The text before `delimiter`, which is read and dropped. Waits until
     // the delimiter arrives.
     pub fn read_until(self, delimiter: string) -> Result[string, string] {

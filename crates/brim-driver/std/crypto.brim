@@ -1,0 +1,71 @@
+// Hashes and secure random bytes:
+//
+//   import std.crypto
+//
+//   print(crypto.sha256_hex("hello"))
+//   let mac = crypto.hmac_sha256("secret".bytes(), "message".bytes())
+//   let token = crypto.hex(crypto.random_bytes(16))
+//
+// Bytes are `List[u8]`; `text.bytes()` gives a string's UTF-8 bytes. MD5
+// is only for systems that still ask for it.
+
+// The SHA-256 hash of bytes (32 bytes).
+pub fn sha256(data: List[u8]) -> List[u8] {
+    return __sha256(data)
+}
+
+// The SHA-256 hash of a string's UTF-8 bytes, as 64 hex digits.
+pub fn sha256_hex(text: string) -> string {
+    return hex(__sha256(text.bytes()))
+}
+
+// HMAC-SHA-256 of `message` with `key` (32 bytes).
+pub fn hmac_sha256(key: List[u8], message: List[u8]) -> List[u8] {
+    return __hmac_sha256(key, message)
+}
+
+// PBKDF2 with HMAC-SHA-256 (RFC 8018): a key of `length` bytes from a
+// password and a salt, made slow by `iterations` rounds. Also a way to
+// store passwords: keep the salt, the count and the result.
+pub fn pbkdf2_sha256(password: List[u8], salt: List[u8], iterations: i64, length: i64) -> List[u8] {
+    return __pbkdf2_sha256(password, salt, iterations, length)
+}
+
+// The MD5 hash of bytes (16 bytes). MD5 is broken: use it only where
+// another system requires it.
+pub fn md5(data: List[u8]) -> List[u8] {
+    return __md5(data)
+}
+
+// `n` bytes from the operating system's secure random source, for keys,
+// tokens and nonces (unlike std.random).
+pub fn random_bytes(n: i64) -> List[u8] {
+    return __random_bytes(n)
+}
+
+// Bytes as lower-case hex digits: `[1, 171]` is `"01ab"`.
+pub fn hex(data: List[u8]) -> string {
+    let digits = "0123456789abcdef"
+    let mut out = StringBuilder.new()
+    for b in data {
+        let n = to_int(b)
+        out.add(digits.slice(n / 16, n / 16 + 1))
+        out.add(digits.slice(n % 16, n % 16 + 1))
+    }
+    return out.build()
+}
+
+// Whether two byte lists are equal, taking as long whatever the first
+// difference, so comparing a secret does not tell where it differs.
+pub fn equal(a: List[u8], b: List[u8]) -> bool {
+    if a.len() != b.len() {
+        return false
+    }
+    let mut diff = 0
+    for i in 0..a.len() {
+        if a[i] != b[i] {
+            diff += 1
+        }
+    }
+    return diff == 0
+}

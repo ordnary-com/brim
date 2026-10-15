@@ -1237,6 +1237,19 @@ static char *list_bytes(const BrimList *l, int64_t *len) {
     return data;
 }
 
+/* A `List[u8]` of `len` bytes. */
+static BrimList *bytes_list(const uint8_t *data, int64_t len) {
+    if (len == 0) {
+        return NULL;
+    }
+    BrimList *l = list_alloc((int64_t)sizeof(int64_t), NULL, len);
+    for (int64_t i = 0; i < len; i++) {
+        ((int64_t *)l->data)[i] = data[i];
+    }
+    l->len = len;
+    return l;
+}
+
 static int valid_utf8(const char *data, int64_t len);
 
 uint8_t brim_rt_bytes_utf8_ok(const BrimList *l) {
@@ -2245,6 +2258,33 @@ BrimStr *brim_rt_net_read_exact(int64_t handle, int64_t count) {
     return socket_take(s, count, 0);
 }
 
+BrimList *brim_rt_net_read_bytes(int64_t handle, int64_t count) {
+    net_start();
+    Socket *s = socket_get(handle, 0);
+    if (s == NULL) {
+        net_fail("invalid socket");
+        return NULL;
+    }
+    if (count < 0) {
+        net_fail("invalid length");
+        return NULL;
+    }
+    while (s->len < count) {
+        int64_t n = socket_fill(s);
+        if (n < 0) {
+            return NULL;
+        }
+        if (n == 0) {
+            net_fail(CLOSED_EARLY);
+            return NULL;
+        }
+    }
+    BrimList *l = bytes_list((const uint8_t *)s->buf, count);
+    memmove(s->buf, s->buf + count, (size_t)(s->len - count));
+    s->len -= count;
+    return l;
+}
+
 BrimStr *brim_rt_net_read_all(int64_t handle) {
     net_start();
     Socket *s = socket_get(handle, 0);
@@ -2284,6 +2324,32 @@ int64_t brim_rt_net_write(int64_t handle, const BrimStr *text) {
         sent += n;
     }
     return text->len;
+}
+
+int64_t brim_rt_net_write_bytes(int64_t handle, const BrimList *bytes) {
+    net_start();
+    Socket *s = socket_get(handle, 0);
+    if (s == NULL) {
+        net_fail("invalid socket");
+        return 0;
+    }
+    int64_t len;
+    char *data = list_bytes(bytes, &len);
+    int64_t sent = 0;
+    while (sent < len) {
+        ssize_t n = send(s->fd, data + sent, (size_t)(len - sent), 0);
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            free(data);
+            net_fail(net_reason(errno));
+            return 0;
+        }
+        sent += n;
+    }
+    free(data);
+    return len;
 }
 
 /* Connections given back to a listener (HTTP keep-alive), oldest first:
@@ -2639,6 +2705,281 @@ char *brim_rt_internal_c_string(const BrimStr *s) {
 }
 
 /* ---- time (std.time) ------------------------------------------------------- */
+
+/* ---- std.crypto: as brim_runtime::crypto ---------------------------------- */
+
+static uint32_t rotr32(uint32_t x, int n) {
+    return (x >> n) | (x << (32 - n));
+}
+
+static uint32_t rotl32(uint32_t x, int n) {
+    return (x << n) | (x >> (32 - n));
+}
+
+/* The message with MD-style padding: big-endian length for SHA-256,
+ * little-endian for MD5. The caller frees it. */
+static uint8_t *hash_pad(const uint8_t *data, int64_t len, int big_endian, int64_t *padded_len) {
+    int64_t total = len + 1;
+    while (total % 64 != 56) {
+        total++;
+    }
+    total += 8;
+    uint8_t *out = calloc((size_t)total, 1);
+    if (out == NULL) {
+        fatal("out of memory");
+    }
+    if (len > 0) {
+        memcpy(out, data, (size_t)len);
+    }
+    out[len] = 0x80;
+    uint64_t bits = (uint64_t)len * 8;
+    for (int i = 0; i < 8; i++) {
+        int shift = big_endian ? 56 - 8 * i : 8 * i;
+        out[total - 8 + i] = (uint8_t)(bits >> shift);
+    }
+    *padded_len = total;
+    return out;
+}
+
+static void sha256_raw(const uint8_t *data, int64_t len, uint8_t out[32]) {
+    static const uint32_t k[64] = {
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2};
+    uint32_t h[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+                     0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+    int64_t total;
+    uint8_t *m = hash_pad(data, len, 1, &total);
+    for (int64_t block = 0; block < total; block += 64) {
+        uint32_t w[64];
+        for (int i = 0; i < 16; i++) {
+            const uint8_t *b = m + block + 4 * i;
+            w[i] = (uint32_t)b[0] << 24 | (uint32_t)b[1] << 16 | (uint32_t)b[2] << 8 | b[3];
+        }
+        for (int i = 16; i < 64; i++) {
+            uint32_t s0 = rotr32(w[i - 15], 7) ^ rotr32(w[i - 15], 18) ^ (w[i - 15] >> 3);
+            uint32_t s1 = rotr32(w[i - 2], 17) ^ rotr32(w[i - 2], 19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+        }
+        uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+        for (int i = 0; i < 64; i++) {
+            uint32_t s1 = rotr32(e, 6) ^ rotr32(e, 11) ^ rotr32(e, 25);
+            uint32_t ch = (e & f) ^ (~e & g);
+            uint32_t t1 = hh + s1 + ch + k[i] + w[i];
+            uint32_t s0 = rotr32(a, 2) ^ rotr32(a, 13) ^ rotr32(a, 22);
+            uint32_t maj = (a & b) ^ (a & c) ^ (b & c);
+            uint32_t t2 = s0 + maj;
+            hh = g;
+            g = f;
+            f = e;
+            e = d + t1;
+            d = c;
+            c = b;
+            b = a;
+            a = t1 + t2;
+        }
+        h[0] += a;
+        h[1] += b;
+        h[2] += c;
+        h[3] += d;
+        h[4] += e;
+        h[5] += f;
+        h[6] += g;
+        h[7] += hh;
+    }
+    free(m);
+    for (int i = 0; i < 8; i++) {
+        out[4 * i] = (uint8_t)(h[i] >> 24);
+        out[4 * i + 1] = (uint8_t)(h[i] >> 16);
+        out[4 * i + 2] = (uint8_t)(h[i] >> 8);
+        out[4 * i + 3] = (uint8_t)h[i];
+    }
+}
+
+static void hmac_sha256_raw(const uint8_t *key, int64_t key_len, const uint8_t *msg,
+                            int64_t msg_len, uint8_t out[32]) {
+    uint8_t block[64] = {0};
+    if (key_len > 64) {
+        sha256_raw(key, key_len, block);
+    } else if (key_len > 0) {
+        memcpy(block, key, (size_t)key_len);
+    }
+    uint8_t *inner = malloc((size_t)(64 + msg_len));
+    if (inner == NULL) {
+        fatal("out of memory");
+    }
+    for (int i = 0; i < 64; i++) {
+        inner[i] = block[i] ^ 0x36;
+    }
+    if (msg_len > 0) {
+        memcpy(inner + 64, msg, (size_t)msg_len);
+    }
+    uint8_t outer[96];
+    for (int i = 0; i < 64; i++) {
+        outer[i] = block[i] ^ 0x5c;
+    }
+    sha256_raw(inner, 64 + msg_len, outer + 64);
+    free(inner);
+    sha256_raw(outer, 96, out);
+}
+
+static void md5_raw(const uint8_t *data, int64_t len, uint8_t out[16]) {
+    static const int s[64] = {7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+                              5, 9,  14, 20, 5, 9,  14, 20, 5, 9,  14, 20, 5, 9,  14, 20,
+                              4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+                              6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21};
+    uint32_t k[64];
+    for (int i = 0; i < 64; i++) {
+        k[i] = (uint32_t)(fabs(sin((double)(i + 1))) * 4294967296.0);
+    }
+    uint32_t h[4] = {0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476};
+    int64_t total;
+    uint8_t *m = hash_pad(data, len, 0, &total);
+    for (int64_t block = 0; block < total; block += 64) {
+        uint32_t w[16];
+        for (int i = 0; i < 16; i++) {
+            const uint8_t *b = m + block + 4 * i;
+            w[i] = (uint32_t)b[3] << 24 | (uint32_t)b[2] << 16 | (uint32_t)b[1] << 8 | b[0];
+        }
+        uint32_t a = h[0], b = h[1], c = h[2], d = h[3];
+        for (int i = 0; i < 64; i++) {
+            uint32_t f;
+            int g;
+            switch (i / 16) {
+            case 0:
+                f = (b & c) | (~b & d);
+                g = i;
+                break;
+            case 1:
+                f = (d & b) | (~d & c);
+                g = (5 * i + 1) % 16;
+                break;
+            case 2:
+                f = b ^ c ^ d;
+                g = (3 * i + 5) % 16;
+                break;
+            default:
+                f = c ^ (b | ~d);
+                g = (7 * i) % 16;
+            }
+            f = f + a + k[i] + w[g];
+            a = d;
+            d = c;
+            c = b;
+            b = b + rotl32(f, s[i]);
+        }
+        h[0] += a;
+        h[1] += b;
+        h[2] += c;
+        h[3] += d;
+    }
+    free(m);
+    for (int i = 0; i < 4; i++) {
+        out[4 * i] = (uint8_t)h[i];
+        out[4 * i + 1] = (uint8_t)(h[i] >> 8);
+        out[4 * i + 2] = (uint8_t)(h[i] >> 16);
+        out[4 * i + 3] = (uint8_t)(h[i] >> 24);
+    }
+}
+
+BrimList *brim_rt_sha256(const BrimList *l) {
+    int64_t len;
+    char *data = list_bytes(l, &len);
+    uint8_t out[32];
+    sha256_raw((const uint8_t *)data, len, out);
+    free(data);
+    return bytes_list(out, 32);
+}
+
+BrimList *brim_rt_hmac_sha256(const BrimList *key, const BrimList *msg) {
+    int64_t key_len, msg_len;
+    char *k = list_bytes(key, &key_len);
+    char *m = list_bytes(msg, &msg_len);
+    uint8_t out[32];
+    hmac_sha256_raw((const uint8_t *)k, key_len, (const uint8_t *)m, msg_len, out);
+    free(k);
+    free(m);
+    return bytes_list(out, 32);
+}
+
+BrimList *brim_rt_pbkdf2_sha256(const BrimList *password, const BrimList *salt,
+                                int64_t iterations, int64_t length) {
+    if (length <= 0) {
+        return NULL;
+    }
+    int64_t pass_len, salt_len;
+    char *pass = list_bytes(password, &pass_len);
+    char *s = list_bytes(salt, &salt_len);
+    uint8_t *out = malloc((size_t)length);
+    uint8_t *first = malloc((size_t)(salt_len + 4));
+    if (out == NULL || first == NULL) {
+        fatal("out of memory");
+    }
+    if (salt_len > 0) {
+        memcpy(first, s, (size_t)salt_len);
+    }
+    int64_t done = 0;
+    for (uint32_t block = 1; done < length; block++) {
+        first[salt_len] = (uint8_t)(block >> 24);
+        first[salt_len + 1] = (uint8_t)(block >> 16);
+        first[salt_len + 2] = (uint8_t)(block >> 8);
+        first[salt_len + 3] = (uint8_t)block;
+        uint8_t u[32], t[32];
+        hmac_sha256_raw((const uint8_t *)pass, pass_len, first, salt_len + 4, u);
+        memcpy(t, u, 32);
+        for (int64_t i = 1; i < iterations; i++) {
+            uint8_t next[32];
+            hmac_sha256_raw((const uint8_t *)pass, pass_len, u, 32, next);
+            memcpy(u, next, 32);
+            for (int j = 0; j < 32; j++) {
+                t[j] ^= u[j];
+            }
+        }
+        int64_t take = length - done < 32 ? length - done : 32;
+        memcpy(out + done, t, (size_t)take);
+        done += take;
+    }
+    BrimList *l = bytes_list(out, length);
+    free(out);
+    free(first);
+    free(pass);
+    free(s);
+    return l;
+}
+
+BrimList *brim_rt_md5(const BrimList *l) {
+    int64_t len;
+    char *data = list_bytes(l, &len);
+    uint8_t out[16];
+    md5_raw((const uint8_t *)data, len, out);
+    free(data);
+    return bytes_list(out, 16);
+}
+
+BrimList *brim_rt_random_bytes(int64_t n) {
+    if (n <= 0) {
+        return NULL;
+    }
+    uint8_t *data = malloc((size_t)n);
+    if (data == NULL) {
+        fatal("out of memory");
+    }
+    FILE *f = fopen("/dev/urandom", "rb");
+    if (f == NULL || fread(data, 1, (size_t)n, f) != (size_t)n) {
+        fatal("cannot read /dev/urandom");
+    }
+    fclose(f);
+    BrimList *l = bytes_list(data, n);
+    free(data);
+    return l;
+}
 
 /* ---- std.random: xoshiro256**, as brim_runtime::random ------------------ */
 
