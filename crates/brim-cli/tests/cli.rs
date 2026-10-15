@@ -691,6 +691,27 @@ fn gen_ts_matches_the_example() {
 }
 
 #[test]
+fn doc_writes_pages() {
+    let dir = scratch("doc");
+    let out = brim(&[
+        "doc",
+        "examples/http/api",
+        "-o",
+        &dir.join("api").display().to_string(),
+    ]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let notes = fs::read_to_string(dir.join("api/notes.html")).unwrap();
+    assert!(notes.contains("id=\"add_note\""), "{notes}");
+    assert!(dir.join("api/main.html").is_file());
+    assert!(dir.join("api/index.html").is_file());
+
+    let out = brim(&["doc", "--std", "-o", &dir.join("std").display().to_string()]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let json = fs::read_to_string(dir.join("std/std.json.html")).unwrap();
+    assert!(json.contains("id=\"decode\""), "{json}");
+}
+
+#[test]
 fn gen_ts_angular_matches_the_example() {
     let out = brim(&["gen", "ts", "--angular", "examples/http/api"]);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));

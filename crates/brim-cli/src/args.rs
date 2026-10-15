@@ -53,6 +53,14 @@ pub enum Command {
         /// `--angular`: also an Angular service for the API functions.
         angular: bool,
     },
+    /// `brim doc [PATH]`: HTML documentation from the doc comments.
+    Doc {
+        input: Option<PathBuf>,
+        /// `-o`/`--output`: the directory to write.
+        output: Option<PathBuf>,
+        /// `--std`: the standard library instead of a program.
+        std: bool,
+    },
     /// `brim lsp`: the language server, on standard input and output.
     Lsp,
     /// `brim update [PATH]`: newest commits for git dependencies.
@@ -82,7 +90,7 @@ impl fmt::Display for UsageError {
 }
 
 const COMMANDS: &[&str] = &[
-    "check", "run", "build", "test", "new", "fmt", "update", "gen", "lsp", "help", "version",
+    "check", "run", "build", "test", "new", "fmt", "update", "gen", "doc", "lsp", "help", "version",
 ];
 
 /// Parses the arguments after the program name.
@@ -170,6 +178,14 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
                 command: Some("gen"),
             }),
         },
+        "doc" => {
+            let parsed = CommandArgs::parse("doc", rest)?;
+            Ok(parsed.help.unwrap_or(Command::Doc {
+                input: parsed.input,
+                output: parsed.output,
+                std: parsed.std,
+            }))
+        }
         "lsp" => match rest.first().map(String::as_str) {
             None => Ok(Command::Lsp),
             Some("-h" | "--help") => Ok(Command::Help(Some("lsp".into()))),
@@ -240,6 +256,8 @@ struct CommandArgs {
     release: bool,
     /// `gen ts` only: `--angular`.
     angular: bool,
+    /// `doc` only: `--std`.
+    std: bool,
     /// `run` only: positional arguments after the path.
     program_args: Vec<String>,
     help: Option<Command>,
@@ -249,13 +267,14 @@ impl CommandArgs {
     fn parse(command: &'static str, args: &[String]) -> Result<Self, UsageError> {
         let allow_emit = command == "check";
         let is_build = command == "build";
-        let has_output = is_build || command == "gen";
+        let has_output = is_build || command == "gen" || command == "doc";
         let mut parsed = CommandArgs {
             input: None,
             emit: None,
             output: None,
             release: false,
             angular: false,
+            std: false,
             program_args: Vec::new(),
             help: None,
         };
@@ -280,6 +299,8 @@ impl CommandArgs {
                         let value = iter.next().ok_or_else(|| UsageError {
                             message: if is_build {
                                 format!("`{arg}` needs a value: the executable's path")
+                            } else if command == "doc" {
+                                format!("`{arg}` needs a value: the directory to write")
                             } else {
                                 format!("`{arg}` needs a value: the file to write")
                             },
@@ -292,6 +313,7 @@ impl CommandArgs {
                     }
                     "--release" if is_build => parsed.release = true,
                     "--angular" if command == "gen" => parsed.angular = true,
+                    "--std" if command == "doc" => parsed.std = true,
                     other => {
                         return Err(UsageError {
                             message: format!("unknown option `{other}` for `brim {command}`"),
@@ -342,6 +364,7 @@ Commands:
   fmt [PATH...]  Format source files
   update [PATH]  Update the git dependencies in brim.lock
   gen ts [PATH]  Generate TypeScript types for the program's API
+  doc [PATH]     Write HTML documentation from the doc comments
   lsp            Run the language server for editors
   help [COMMAND] Show help for a command
   version        Show the compiler version
@@ -434,6 +457,23 @@ Usage: brim new <PATH>
 
 Options:
   -h, --help  Show help
+"
+        }
+        "doc" => {
+            "\
+Write HTML documentation from the doc comments
+
+Usage: brim doc [OPTIONS] [PATH]
+
+Documents the `pub` items of the program's own modules: the `//` comment
+lines right above each item, and the comment at the top of each file. In a
+comment, `code` is code and lines indented by two or more spaces are code
+examples. Writes `target/doc` in a project, `doc` next to a single file.
+
+Options:
+  -o, --output <DIR>  Write to DIR
+      --std           Document the standard library instead
+  -h, --help          Show help
 "
         }
         "gen" => {
@@ -613,6 +653,14 @@ mod tests {
             })
         );
         assert_eq!(
+            p(&["doc", "--std", "-o", "out"]),
+            Ok(Command::Doc {
+                input: None,
+                output: Some("out".into()),
+                std: true,
+            })
+        );
+        assert_eq!(
             p(&["gen", "ts", "--angular"]),
             Ok(Command::GenTs {
                 input: None,
@@ -650,7 +698,7 @@ mod tests {
         let msg = |args: &[&str]| p(args).unwrap_err().message;
         assert_eq!(
             msg(&["frobnicate"]),
-            "unknown command `frobnicate` (available: check, run, build, test, new, fmt, update, gen, lsp, help, version)"
+            "unknown command `frobnicate` (available: check, run, build, test, new, fmt, update, gen, doc, lsp, help, version)"
         );
         assert_eq!(
             msg(&["check", "a.brim", "b.brim"]),

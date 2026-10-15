@@ -2,7 +2,9 @@
 
 Everything here is always available: there is nothing to import. The
 [language specification](docs/language-spec.md) (sections 5.4 to 5.6 and
-10) is the precise reference.
+10) is the precise reference, and the [API reference](std/index.html),
+made with `brim doc --std`, lists every function and type of the `std`
+modules with its documentation.
 
 ## Output and input
 

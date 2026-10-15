@@ -108,6 +108,7 @@ pub fn run(args: &[String], ctx: &mut Context<'_>) -> i32 {
             output,
             angular,
         } => gen_ts(input.as_deref(), output.as_deref(), angular, ctx),
+        Command::Doc { input, output, std } => doc(input.as_deref(), output.as_deref(), std, ctx),
     };
     match result {
         Ok(()) => exit::SUCCESS,
@@ -344,6 +345,102 @@ fn gen_ts(
             Ok(())
         }
     }
+}
+
+fn doc(input: Option<&Path>, output: Option<&Path>, std: bool, ctx: &mut Context<'_>) -> CmdResult {
+    // The parsed modules with their texts, and the title.
+    let mut parsed: Vec<(String, brim_ast::Program, String, usize)> = Vec::new();
+    let (title, default_dir) = if std {
+        for (name, text) in brim_driver::STD_MODULES {
+            let (program, diags) = brim_parser::parse(text);
+            if brim_diagnostics::has_errors(&diags) {
+                let _ = writeln!(ctx.stderr, "error: {name} does not parse");
+                return Err(exit::INTERNAL);
+            }
+            parsed.push(((*name).to_string(), program, (*text).to_string(), 0));
+        }
+        ("Brim standard library".to_string(), PathBuf::from("doc"))
+    } else {
+        let input = load_input(input, ctx)?;
+        let cwd = ctx.cwd.clone();
+        let loaded = brim_driver::load(&input.file, input.packages.as_ref(), &mut |path| {
+            std::fs::read(cwd.join(path))
+        });
+        if brim_diagnostics::has_errors(&loaded.diags) {
+            report(&loaded.diags, &loaded.map, ctx);
+            return Err(exit::COMPILE_ERROR);
+        }
+        let dependencies: Vec<&str> = input
+            .packages
+            .iter()
+            .flat_map(|g| &g.packages[1..])
+            .map(brim_package::Package::name)
+            .collect();
+        let package = input.packages.as_ref().map_or_else(
+            || {
+                Path::new(input.file.name())
+                    .file_stem()
+                    .map_or("program".to_string(), |s| s.to_string_lossy().into_owned())
+            },
+            |g| g.packages[0].name().to_string(),
+        );
+        for (i, module) in loaded.modules.iter().enumerate() {
+            let first = module.name.split('.').next().unwrap_or_default();
+            if first == "std" || dependencies.contains(&first) {
+                continue;
+            }
+            // The root module by its file's name: `main`.
+            let name = if module.name.is_empty() {
+                Path::new(input.file.name())
+                    .file_stem()
+                    .map_or("main".to_string(), |s| s.to_string_lossy().into_owned())
+            } else {
+                module.name.clone()
+            };
+            let text = loaded.map.files()[i].text().to_string();
+            // The modules' spans are offsets into the whole program.
+            let base = loaded.map.base(i);
+            parsed.push((name, module.program.clone(), text, base));
+        }
+        let dir = match &input.packages {
+            Some(_) => input
+                .default_output
+                .parent()
+                .map_or(PathBuf::from("target"), Path::to_path_buf)
+                .join("doc"),
+            None => input
+                .default_output
+                .parent()
+                .map_or(PathBuf::from("doc"), |p| p.join("doc")),
+        };
+        (package, dir)
+    };
+    let modules: Vec<brim_doc::Module> = parsed
+        .iter()
+        .map(|(name, program, text, base)| brim_doc::Module {
+            name: name.clone(),
+            program,
+            text,
+            base: *base,
+        })
+        .collect();
+    let files = brim_doc::generate(&modules, &title);
+    let dir = output.map_or(default_dir, Path::to_path_buf);
+    let full = ctx.cwd.join(&dir);
+    for (name, contents) in &files {
+        let written =
+            std::fs::create_dir_all(&full).and_then(|()| std::fs::write(full.join(name), contents));
+        if let Err(e) = written {
+            let shown = dir.join(name).display().to_string();
+            return Err(input_error(
+                ctx,
+                &shown,
+                Diagnostic::error(format!("cannot write file: {e}")),
+            ));
+        }
+    }
+    let _ = writeln!(ctx.stderr, "wrote {}", dir.join("index.html").display());
+    Ok(())
 }
 
 fn update(input: Option<&Path>, ctx: &mut Context<'_>) -> CmdResult {

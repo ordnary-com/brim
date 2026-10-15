@@ -7,9 +7,9 @@ name: Site
 on:
   push:
     branches: [main]
-    paths: ["site/**", "docs/**", ".github/workflows/site.yml"]
+    paths: ["site/**", "docs/**", "crates/brim-driver/std/**", "crates/brim-doc/**", ".github/workflows/site.yml"]
   pull_request:
-    paths: ["site/**", "docs/**"]
+    paths: ["site/**", "docs/**", "crates/brim-driver/std/**", "crates/brim-doc/**"]
   workflow_dispatch:
 
 permissions:
@@ -35,6 +35,10 @@ jobs:
             | tar xz -C "$HOME/bin"
           echo "$HOME/bin" >> "$GITHUB_PATH"
       - run: mdbook build site
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Add the standard library reference (brim doc --std)
+        run: cargo run -q --locked -p brim-cli -- doc --std -o site/book/docs/std
       - name: Add the landing page
         run: |
           cp site/landing/* site/book/

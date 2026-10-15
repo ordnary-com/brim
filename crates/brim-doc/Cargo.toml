@@ -1,0 +1,19 @@
+[package]
+name = "brim-doc"
+description = "HTML documentation for Brim packages, from their doc comments"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+brim-ast.workspace = true
+brim-diagnostics.workspace = true
+
+[dev-dependencies]
+brim-parser.workspace = true
+
+[lints]
+workspace = true

@@ -86,6 +86,29 @@ A function that returns `Err(error)` answers with status 422, and the
 is on another origin. `examples/http/api` is a complete service with its
 generated client.
 
+## Documentation: brim doc
+
+`brim doc` writes HTML documentation for a program's own modules: a page
+per module with every `pub` struct, enum, trait, constant, function and
+method, its signature and the `//` comment right above it, and an index
+with a search box. The comment at the top of a file documents the module.
+In comments, `code` is code, and lines indented by two or more spaces are
+code examples:
+
+```brim
+// Notes, kept in a file.
+//
+//   let note = notes.add_note("milk")?
+
+// Adds a note and returns it with its `id`.
+pub fn add_note(text: string) -> Result[Note, NoteError] {
+    ...
+}
+```
+
+A project's documentation goes to `target/doc` (`-o DIR` picks another
+place); `brim doc --std` documents the standard library.
+
 ## Editors
 
 `brim lsp` is a language server: it shows errors as you type, completes
