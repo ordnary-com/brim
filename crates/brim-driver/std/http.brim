@@ -22,6 +22,11 @@
 // Header names are kept in lower case. Every connection is closed after
 // one request and its response. `https://` requests go through libcurl,
 // which native programs then link with.
+//
+// `serve_api(module, request)` answers requests for a module's `pub fn`s,
+// `POST /api/<name>` with the parameters as a JSON object; see the
+// section on API functions below.
+import std.json as js
 import std.net
 
 // A request a server received.
@@ -60,6 +65,19 @@ struct Refusal {
 
 fn refuse(status: i64, message: string) -> Refusal {
     return Refusal { status: status, message: message }
+}
+
+// A request that did not come over a connection, for testing a handler:
+// `respond` on it fails.
+pub fn new_request(method: string, path: string, body: string) -> Request {
+    return Request {
+        method: method,
+        path: path,
+        query: [:],
+        headers: [:],
+        body: body,
+        conn: net.closed(),
+    }
 }
 
 // ---- responses ---------------------------------------------------------
@@ -291,6 +309,63 @@ fn send(conn: net.Conn, r: Response, head_only: bool) -> Result[i64, string] {
         out = out + r.body
     }
     return conn.write(out)
+}
+
+// ---- API functions -----------------------------------------------------
+//
+// The built-in `serve_api(module, request)` answers a request for one of
+// the module's `pub fn`s: `POST /api/create_note` with the body
+// `{"text": "milk"}` calls `create_note(text: "milk")`. The result is the
+// response's JSON body with status 200; a function that returns
+// `Err(error)` gives 422 with `error` as the body. A wrong method (405), an
+// unknown function (404) or parameters that do not fit (400) give
+// `{"error": "..."}`. `brim gen ts --angular` writes the matching client.
+
+// What calling an API function gave.
+enum ApiOutcome {
+    // Its result, or `Ok`'s value.
+    Done(js.Json),
+    // The value of the `Err` it returned.
+    Failed(js.Json),
+    // There is no API function with that name.
+    Unknown,
+    // The parameters do not fit the function.
+    BadRequest(string),
+}
+
+// Called by the code `serve_api` generates; `call` calls a function of the
+// module by name.
+fn api_serve(request: Request, call: fn(string, Map[string, js.Json]) -> ApiOutcome) -> Response {
+    if !request.path.starts_with("/api/") {
+        return api_error(404, "no such page")
+    }
+    let name = request.path.slice(5, request.path.len())
+    if request.method != "POST" {
+        return api_error(405, "API functions are called with POST").with_header("allow", "POST")
+    }
+    let mut params: Map[string, js.Json] = [:]
+    if !request.body.trim().is_empty() {
+        match js.parse(request.body) {
+            Ok(value) => {
+                match value.as_object() {
+                    Some(members) => params = members
+                    None => return api_error(400, "the body must be a JSON object of parameters")
+                }
+            }
+            Err(e) => return api_error(400, "the body is not JSON: " + e)
+        }
+    }
+    match call(name, params) {
+        ApiOutcome.Done(value) => return json(200, js.stringify(value))
+        ApiOutcome.Failed(error) => return json(422, js.stringify(error))
+        ApiOutcome.Unknown => return api_error(404, f"no API function \"{name}\"")
+        ApiOutcome.BadRequest(message) => return api_error(400, message)
+    }
+}
+
+fn api_error(status: i64, message: string) -> Response {
+    let body = js.object(["error": js.from_string(message)])
+    return json(status, js.stringify(body))
 }
 
 // ---- clients -----------------------------------------------------------

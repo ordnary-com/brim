@@ -1,0 +1,11 @@
+// exit: 1
+import std.http
+import bad_api
+
+fn main() {
+    let request = http.new_request("POST", "/api/x", "")
+    print(serve_api(bad_api, request).status)
+    print(serve_api(request).status)
+    print(serve_api(main, request).status)
+    print(serve_api(bad_api, "request").status)
+}

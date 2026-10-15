@@ -1,0 +1,53 @@
+error[E0205]: `serve_api` takes 2 arguments but 1 was supplied
+ --> tests/modules/api_errors/main.brim:8:11
+  |
+8 |     print(serve_api(request).status)
+  |           ^^^^^^^^^^^^^^^^^^ expected a module and an `http.Request`
+
+error[E0206]: the first argument of `serve_api` must be a module
+ --> tests/modules/api_errors/main.brim:9:21
+  |
+9 |     print(serve_api(main, request).status)
+  |                     ^^^^ not an imported module
+  |
+  = help: import the module with the API functions and pass its name: `serve_api(api, request)`
+
+error[E0206]: mismatched types
+  --> tests/modules/api_errors/main.brim:10:30
+   |
+10 |     print(serve_api(bad_api, "request").status)
+   |                              ^^^^^^^^^ expected `http.Request`, found `string`
+
+error[E0255]: parameter `f` of API function `takes_function` cannot be sent as JSON
+ --> tests/modules/api_errors/bad_api.brim:5:23
+  |
+5 | pub fn takes_function(f: fn(i64) -> i64) -> i64 {
+  |                       ^^^^^^^^^^^^^^^^^ `fn(i64) -> i64` does not implement `Data`
+ ::: tests/modules/api_errors/main.brim:7:21
+  |
+7 |     print(serve_api(bad_api, request).status)
+  |                     ------- `bad_api` is served here
+
+error[E0255]: the result of API function `gives_holder` cannot be sent as JSON
+ --> tests/modules/api_errors/bad_api.brim:9:26
+  |
+9 | pub fn gives_holder() -> Holder {
+  |                          ^^^^^^ `Holder` does not implement `Data`
+ ::: tests/modules/api_errors/main.brim:7:21
+  |
+7 |     print(serve_api(bad_api, request).status)
+  |                     ------- `bad_api` is served here
+
+error[E0255]: API function `generic` cannot be generic
+  --> tests/modules/api_errors/bad_api.brim:13:8
+   |
+13 | pub fn generic[T](value: T) -> T {
+   |        ^^^^^^^
+  ::: tests/modules/api_errors/main.brim:7:21
+   |
+ 7 |     print(serve_api(bad_api, request).status)
+   |                     ------- `bad_api` is served here
+   |
+   = help: make it non-public, or move it out of the API module
+
+error: could not compile tests/modules/api_errors/main.brim due to 6 errors

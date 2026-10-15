@@ -1,0 +1,37 @@
+pub struct Note {
+    pub id: i64,
+    pub text: string,
+}
+
+pub enum NoteError {
+    Empty
+    TooLong(i64)
+}
+
+pub fn create_note(text: string) -> Result[Note, NoteError] {
+    if text.is_empty() {
+        return Err(NoteError.Empty)
+    }
+    if text.len() > 10 {
+        return Err(NoteError.TooLong(text.len()))
+    }
+    return Ok(Note { id: 1, text: text })
+}
+
+pub fn list_notes() -> List[Note] {
+    return [Note { id: 1, text: "milk" }, Note { id: 2, text: "tea" }]
+}
+
+pub fn add(a: i64, b: i64) -> i64 {
+    return a + b
+}
+
+pub fn ping() {
+}
+
+pub fn find(id: i64) -> Option[Note] {
+    if id == 1 {
+        return Some(Note { id: 1, text: "milk" })
+    }
+    return None
+}

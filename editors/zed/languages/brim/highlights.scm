@@ -28,7 +28,7 @@
 (value_call_expression function: (identifier) @function)
 ((call_expression function: (identifier) @function)
   (#any-of? @function
-    "print" "eprint" "to_string" "to_float" "to_int" "to_i32" "to_u8" "to_u64" "string_from_bytes" "from_code_point" "abs" "sqrt" "floor" "ceil" "round" "pow" "min" "max" "clamp" "read_line" "read_file" "write_file" "args" "env" "exit"
+    "print" "eprint" "to_string" "to_float" "to_int" "to_i32" "to_u8" "to_u64" "string_from_bytes" "from_code_point" "serve_api" "abs" "sqrt" "floor" "ceil" "round" "pow" "min" "max" "clamp" "read_line" "read_file" "write_file" "args" "env" "exit"
     "assert" "assert_eq"))
 ((call_expression function: (identifier) @constructor)
   (#any-of? @constructor "Some" "Ok" "Err"))

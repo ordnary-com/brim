@@ -118,6 +118,7 @@ Guidelines for writing diagnostics:
 | E0249 | A constant whose value is not computed from literals, or that is defined in terms of itself |
 | E0250 | An `if` used as a value without `else`, or a block used as a value that does not end with one |
 | E0251 | A `let` pattern that does not match every value |
+| E0255 | An API function (a `pub fn` of a module served with `serve_api`) that is generic, or whose parameters or result do not implement `Data` |
 
 ### Warnings
 
@@ -175,6 +176,7 @@ error[R0001]: integer overflow in `*`
 | Code  | Meaning |
 |-------|---------|
 | G0001 | Two exported types have the same name |
+| G0002 | `brim gen ts --angular` for a program that serves no module with `serve_api` |
 
 ## Exit codes of `brim`
 

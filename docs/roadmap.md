@@ -72,7 +72,7 @@ Still open from this phase: debug information, Windows, cross-compilation, and l
 - **Done:** `[dependencies]` from directories and git repositories, `brim.lock`, `brim update`.
 - A package registry with version requirements.
 - **Done:** API contracts for web frontends: `brim gen ts` writes TypeScript types for a program's `pub` types.
-- Later: a JSON encoder and decoder with the same mapping, and a generated TypeScript client for Angular.
+- **Done:** `json.encode` and `json.decode` with the same mapping, `serve_api(module, request)` for a module's `pub fn`s, and `brim gen ts --angular` for the matching Angular client.
 
 ## Phase 7: Editor support and production readiness (done, first version)
 

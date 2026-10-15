@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- API functions: the built-in `serve_api(module, request)` serves the `pub fn`s of a module at `POST /api/<name>`, with parameters and results as JSON (200, 422 for `Err`, 400, 404, 405). `brim gen ts --angular` writes an Angular service per served module, with a typed method per function. `examples/http/api` shows both.
+- `http.new_request(method, path, body)` for testing handlers, and `net.closed()`.
 - Typed JSON: `json.encode(value)` and `json.decode(text)` (and `to_json`, `from_json`) for every type that implements the new built-in trait `Data`, which is every type without functions in it. The shapes match `brim gen ts`, and decoding errors give the path: `at $.tags[1]: expected a string, found a number`.
 - `?` passes the expected type on to its operand, so `let note: Note = json.decode(text)?` needs no other annotation.
 - `xs.sum()` for lists of numbers.

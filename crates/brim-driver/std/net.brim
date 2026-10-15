@@ -21,6 +21,11 @@ pub struct Conn {
     handle: i64,
 }
 
+// A connection that is not open: reading from it and writing to it fail.
+pub fn closed() -> Conn {
+    return Conn { handle: -1 }
+}
+
 // `value`, or the runtime's last error with `what` in front.
 fn checked[T](value: T, what: string) -> Result[T, string] {
     let error: string = __last_error()

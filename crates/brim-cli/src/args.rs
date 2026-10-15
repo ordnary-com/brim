@@ -50,6 +50,8 @@ pub enum Command {
         input: Option<PathBuf>,
         /// `-o`/`--output`: the file to write instead of standard output.
         output: Option<PathBuf>,
+        /// `--angular`: also an Angular service for the API functions.
+        angular: bool,
     },
     /// `brim lsp`: the language server, on standard input and output.
     Lsp,
@@ -160,6 +162,7 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
                 Ok(parsed.help.unwrap_or(Command::GenTs {
                     input: parsed.input,
                     output: parsed.output,
+                    angular: parsed.angular,
                 }))
             }
             Some((target, _)) => Err(UsageError {
@@ -235,6 +238,8 @@ struct CommandArgs {
     emit: Option<Emit>,
     output: Option<PathBuf>,
     release: bool,
+    /// `gen ts` only: `--angular`.
+    angular: bool,
     /// `run` only: positional arguments after the path.
     program_args: Vec<String>,
     help: Option<Command>,
@@ -250,6 +255,7 @@ impl CommandArgs {
             emit: None,
             output: None,
             release: false,
+            angular: false,
             program_args: Vec::new(),
             help: None,
         };
@@ -285,6 +291,7 @@ impl CommandArgs {
                         parsed.output = Some(PathBuf::from(&a["--output=".len()..]));
                     }
                     "--release" if is_build => parsed.release = true,
+                    "--angular" if command == "gen" => parsed.angular = true,
                     other => {
                         return Err(UsageError {
                             message: format!("unknown option `{other}` for `brim {command}`"),
@@ -442,8 +449,13 @@ talks to a Brim backend. See the language specification for the mapping.
 
 Usage: brim gen ts [OPTIONS] [PATH]
 
+Writes a TypeScript declaration for every `pub` struct and enum. With
+--angular it also writes an Angular service for each module served with
+`serve_api`, with a method per API function.
+
 Options:
   -o, --output <FILE>  Write to FILE instead of standard output
+      --angular        Also write an Angular client for the API functions
   -h, --help           Show help
 "
         }
@@ -597,6 +609,15 @@ mod tests {
             Ok(Command::GenTs {
                 input: Some("app".into()),
                 output: Some("api.ts".into()),
+                angular: false,
+            })
+        );
+        assert_eq!(
+            p(&["gen", "ts", "--angular"]),
+            Ok(Command::GenTs {
+                input: None,
+                output: None,
+                angular: true,
             })
         );
         assert_eq!(p(&["lsp", "--stdio"]), Ok(Command::Lsp));

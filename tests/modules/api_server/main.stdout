@@ -1,0 +1,15 @@
+200 {"id":1,"text":"milk"}
+422 {"kind":"Empty"}
+422 {"kind":"TooLong","value":16}
+400 {"error":"at $.text: expected a string, found a number"}
+400 {"error":"at $.text: expected a string, found null"}
+200 [{"id":1,"text":"milk"},{"id":2,"text":"tea"}]
+200 5
+200 null
+200 {"id":1,"text":"milk"}
+200 null
+404 {"error":"no API function \"nope\""}
+405 {"error":"API functions are called with POST"}
+404 {"error":"no such page"}
+400 {"error":"the body must be a JSON object of parameters"}
+400 {"error":"the body is not JSON: expected a string key at character 2"}

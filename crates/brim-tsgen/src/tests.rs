@@ -9,7 +9,7 @@ fn generate_ts(src: &str) -> Result<String, Vec<Diagnostic>> {
     }];
     let (checked, diags) = brim_semantic::check_tests(&modules);
     let checked = checked.unwrap_or_else(|| panic!("{diags:?}"));
-    generate(&checked, |_| true, "api.brim")
+    generate(&checked, |_| true, "api.brim", Options::default())
 }
 
 const HEADER: &str = "// TypeScript types for the API of api.brim.\n\
@@ -125,7 +125,7 @@ fn only_selected_modules() {
         },
     ];
     let (checked, _) = brim_semantic::check_tests(&modules);
-    let out = generate(&checked.unwrap(), |m| m == 0, "x").unwrap();
+    let out = generate(&checked.unwrap(), |m| m == 0, "x", Options::default()).unwrap();
     assert!(out.contains("interface A"));
     assert!(!out.contains("interface B"));
 }

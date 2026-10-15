@@ -116,6 +116,8 @@ pub(crate) struct Checker<'a> {
     trait_by_name: HashMap<String, traits::TraitId>,
     /// Which types implement which traits.
     trait_impls: std::collections::HashSet<(traits::TraitId, Def)>,
+    /// Modules whose `pub fn`s are served with `serve_api`.
+    api_modules: std::collections::BTreeSet<usize>,
     /// The bounds of the type parameters in scope.
     type_bounds: Vec<Vec<traits::TraitId>>,
     /// Every module's constants.
@@ -269,6 +271,7 @@ impl<'a> Checker<'a> {
             traits: traits::builtin_traits(),
             trait_by_name: traits::builtin_trait_names(),
             trait_impls: std::collections::HashSet::new(),
+            api_modules: std::collections::BTreeSet::new(),
             type_bounds: Vec::new(),
             consts: Vec::new(),
             type_params: Vec::new(),
@@ -392,6 +395,7 @@ impl<'a> Checker<'a> {
                 .map(|f| f.expect("every `fn` expression is checked")),
         );
 
+        let api = checker.api_functions();
         let mut diags = checker.diags;
         // Source order; diagnostics without a location go last.
         diags.sort_by_key(|d| d.span().map_or(usize::MAX, |s| s.start));
@@ -448,6 +452,7 @@ impl<'a> Checker<'a> {
         (
             Some(CheckedProgram {
                 module_fns,
+                api,
                 types: checker.types,
                 structs,
                 enums,
@@ -459,6 +464,36 @@ impl<'a> Checker<'a> {
             }),
             diags,
         )
+    }
+
+    /// The functions `serve_api` serves: the non-generic `pub fn`s, other
+    /// than methods, of the modules it was called with.
+    pub(super) fn api_candidates(&self, module: usize) -> Vec<FnId> {
+        (0..self.sigs.len())
+            .filter(|&i| {
+                let sig = &self.sigs[i];
+                sig.module == module && sig.public && !sig.method
+            })
+            .map(FnId)
+            .collect()
+    }
+
+    fn api_functions(&self) -> Vec<crate::checked::ApiFn> {
+        let mut api = Vec::new();
+        for &module in &self.api_modules {
+            for id in self.api_candidates(module) {
+                let sig = &self.sigs[id.0];
+                api.push(crate::checked::ApiFn {
+                    module,
+                    function: id,
+                    // Without the module's name in front.
+                    name: sig.name.rsplit('.').next().unwrap_or(&sig.name).to_string(),
+                    params: sig.params.iter().map(|p| (p.name.clone(), p.ty)).collect(),
+                    ret: sig.ret,
+                });
+            }
+        }
+        api
     }
 
     /// The functions `brim test` runs: free functions named `test_...`.

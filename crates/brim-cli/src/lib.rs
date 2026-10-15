@@ -103,7 +103,11 @@ pub fn run(args: &[String], ctx: &mut Context<'_>) -> i32 {
                 Err(exit::INTERNAL)
             }
         },
-        Command::GenTs { input, output } => gen_ts(input.as_deref(), output.as_deref(), ctx),
+        Command::GenTs {
+            input,
+            output,
+            angular,
+        } => gen_ts(input.as_deref(), output.as_deref(), angular, ctx),
     };
     match result {
         Ok(()) => exit::SUCCESS,
@@ -292,7 +296,12 @@ fn new_project(path: &Path, ctx: &mut Context<'_>) -> CmdResult {
     Ok(())
 }
 
-fn gen_ts(input: Option<&Path>, output: Option<&Path>, ctx: &mut Context<'_>) -> CmdResult {
+fn gen_ts(
+    input: Option<&Path>,
+    output: Option<&Path>,
+    angular: bool,
+    ctx: &mut Context<'_>,
+) -> CmdResult {
     let input = load_input(input, ctx)?;
     let (checked, map) = analyze(&input, None, true, ctx)?;
     let dependencies: Vec<&str> = input
@@ -307,7 +316,8 @@ fn gen_ts(input: Option<&Path>, output: Option<&Path>, ctx: &mut Context<'_>) ->
         let first = name.split('.').next().unwrap_or_default();
         name.is_empty() || (first != "std" && !dependencies.contains(&first))
     };
-    let text = match brim_tsgen::generate(&checked, own, input.file.name()) {
+    let options = brim_tsgen::Options { angular };
+    let text = match brim_tsgen::generate(&checked, own, input.file.name(), options) {
         Ok(text) => text,
         Err(diags) => {
             report(&diags, &map, ctx);

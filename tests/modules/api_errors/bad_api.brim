@@ -1,0 +1,20 @@
+pub struct Holder {
+    pub f: fn(i64) -> i64,
+}
+
+pub fn takes_function(f: fn(i64) -> i64) -> i64 {
+    return f(1)
+}
+
+pub fn gives_holder() -> Holder {
+    return Holder { f: fn(n: i64) -> i64 { return n } }
+}
+
+pub fn generic[T](value: T) -> T {
+    return value
+}
+
+// Not public, so not served.
+fn helper(f: fn(i64) -> i64) -> i64 {
+    return f(2)
+}

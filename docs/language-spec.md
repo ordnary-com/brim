@@ -818,7 +818,25 @@ fn test_add() {
 | enum without payloads | a union of the variant names: `"Low" \| "High"` |
 | enum with payloads | `{ kind: "Name" }`, `{ kind: "Name"; value: T }` or `{ kind: "Name"; value: [T, U] }` per variant |
 
-Generic types stay generic (`Page[T]` becomes `Page<T>`). Exported types need different names, even when they come from different modules (`G0001`). `examples/api.brim` and `examples/api.ts` show the result. A JSON encoder and decoder in the standard library will use the same mapping.
+Generic types stay generic (`Page[T]` becomes `Page<T>`). Exported types need different names, even when they come from different modules (`G0001`). `examples/api.brim` and `examples/api.ts` show the result. `json.encode` and `json.decode` (section 10.2) write and read values in exactly these shapes; map keys of any integer type are `Record<number, V>`.
+
+### 9.5 API functions and an Angular client
+
+`serve_api(module, request)`, a built-in function, answers an `http.Request` with an `http.Response` by calling one of the `pub fn`s of `module`, an imported module: its *API functions*. A call is `POST /api/<name>` with the parameters as a JSON object (`{"text": "milk"}` for `fn add_note(text: string)`; an empty body is `{}`). Parameters and results are read and written with `json.decode` and `json.encode`, so they must implement `Data`, and API functions cannot be generic or methods (`E0255`).
+
+| Request | Response |
+|---------|----------|
+| the function returns `value`, or `Ok(value)` | 200, `value` as JSON (`null` for a function without a result) |
+| the function returns `Err(error)` | 422, `error` as JSON |
+| a parameter does not fit | 400, `{"error": "at $.text: expected a string, found a number"}`; a missing parameter is `null` |
+| the body is not a JSON object | 400, `{"error": "..."}` |
+| no API function has the name | 404, `{"error": "no API function \"name\""}` |
+| another method than `POST` | 405, with `allow: POST` |
+| a path that does not start with `/api/` | 404 |
+
+API functions share no state: they keep it in files or a database. `http.new_request(method, path, body)` makes a request without a connection, for testing a handler.
+
+`brim gen ts --angular` adds an Angular service per module served with `serve_api`: `notes_api` becomes `NotesApiClient`, `@Injectable({ providedIn: 'root' })`, with a method per API function in camel case. `add_note(text: string) -> Result[Note, NoteError]` becomes `addNote(text: string): Observable<Note>`, which posts `{ text }`; a 422 response arrives as an `HttpErrorResponse` whose `error` is the `NoteError`. The injection token `API_BASE_URL` (default `""`, the page's own origin) says where the server is. Without a module served with `serve_api`, `--angular` is an error (`G0002`). `examples/http/api` shows a service and its generated `client.ts`.
 
 ## 10. Builtins
 
@@ -896,7 +914,7 @@ Some of the standard library is written in Brim and built into the compiler. Its
 | `std.process` | `run(cmd, args: List[string]) -> Result[Output, string]` runs a program and waits for it; `Output` has `code: i64` (128 plus the signal for a program a signal stopped), `stdout` and `stderr` (strings) and `success()`. The program is looked up in `PATH` unless its name contains `/`, gets no input and runs in the working directory. `Err` only when it cannot start (`cannot run "x": not found`) or writes text that is not UTF-8. `output(cmd, args) -> Result[string, string]` is the standard output of a program that exits with 0, and otherwise an error with its standard error |
 | `std.random` | `int(low, high)` (from `low` up to, not including, `high`; `low` when `high <= low`), `float()` (0 up to 1), `bool()`, `choice(list) -> Option[T]`, `shuffle(list) -> List[T]`, `seed(n)`. The generator is xoshiro256**: fast, not for passwords or keys. After `seed(n)` the numbers are the same on every run, in the interpreter and native code alike; without it they come from the operating system's randomness |
 | `std.json` | `enum Json { Null, Bool(bool), Number(string), Str(string), Array(List[Json]), Object(Map[string, Json]) }`; `parse(text) -> Result[Json, string]`, `stringify(value)`, `pretty(value)`, `quote(text)`; building: `null()`, `from_bool`, `from_int`, `from_float`, `from_string`, `array`, `object`; reading: `Json.get(key)`, `at(index)`, `as_string()`, `as_int()`, `as_float()`, `as_bool()`, `as_array()`, `as_object()`, `is_null()`, `kind()`; typed values (`T: Data`): `encode(value) -> string`, `decode(text) -> Result[T, string]`, `to_json(value) -> Json`, `from_json(json) -> Result[T, string]` |
-| `std.http` | HTTP/1.1. Server: `serve(host, port) -> Result[Server, string]`, `Server.next() -> Result[Request, string]`, `Request.respond(Response)`, `Request.header(name)`, `Request.param(name)`. Client: `get(url)`, `post(url, content_type, body)`, `request(method, url, headers, body)`, each `-> Result[Response, string]`. Responses: `text`, `json`, `html`, `response`, `redirect`, `not_found`, `Response.with_header`, `header`, `ok`. URLs: `encode`, `decode` |
+| `std.http` | HTTP/1.1. Server: `serve(host, port) -> Result[Server, string]`, `Server.next() -> Result[Request, string]`, `Request.respond(Response)`, `Request.header(name)`, `Request.param(name)`. Client: `get(url)`, `post(url, content_type, body)`, `request(method, url, headers, body)`, each `-> Result[Response, string]`. Responses: `text`, `json`, `html`, `response`, `redirect`, `not_found`, `Response.with_header`, `header`, `ok`. URLs: `encode`, `decode`. `new_request(method, path, body)` for tests; the built-in `serve_api(module, request)` serves API functions (section 9.5) |
 
 Network data is text: what a connection reads must be valid UTF-8. Network errors are messages such as `cannot connect to example.com:80: connection refused`; the reasons are `connection refused`, `connection reset`, `connection closed`, `timed out`, `host not found`, `address in use`, `address not available`, `permission denied`, `invalid port` and `network error`, and for `https://` also `certificate not trusted`, `TLS handshake failed` and `invalid URL`.
 

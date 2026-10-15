@@ -1,0 +1,35 @@
+// A notes service whose API is the `pub fn`s of notes.brim:
+//
+//   brim run examples/http/api        (PORT changes where it listens)
+//   curl -X POST localhost:8080/api/add_note -d '{"text": "buy milk"}'
+//   curl -X POST localhost:8080/api/list_notes
+//
+// An Angular app calls it through the generated client.ts.
+import std.http
+import std.log
+import notes
+
+fn main() {
+    let port = match env("PORT") {
+        Some(text) => text.parse_int().unwrap_or(8080)
+        None => 8080
+    }
+    match serve(port) {
+        Ok(_) => {}
+        Err(e) => {
+            log.error(e)
+            exit(1)
+        }
+    }
+}
+
+fn serve(port: i64) -> Result[bool, string] {
+    let server = http.serve("127.0.0.1", port)?
+    log.info(f"listening on http://127.0.0.1:{server.port()}")
+    loop {
+        let request = server.next()?
+        let response = serve_api(notes, request)
+        request.respond(response)?
+        log.info(f"{request.method} {request.path} {response.status}")
+    }
+}

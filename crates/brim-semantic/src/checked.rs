@@ -56,6 +56,19 @@ pub struct CheckedProgram {
     pub methods: std::collections::HashMap<(Def, String), FnId>,
     /// The free functions of each module by name, indexed like `modules`.
     pub module_fns: Vec<std::collections::HashMap<String, FnId>>,
+    /// The functions `serve_api` serves, by module and in declaration
+    /// order.
+    pub api: Vec<ApiFn>,
+}
+
+/// A function served by `serve_api`: `POST /api/<name>`.
+#[derive(Clone, Debug)]
+pub struct ApiFn {
+    pub module: usize,
+    pub function: FnId,
+    pub name: String,
+    pub params: Vec<(String, Type)>,
+    pub ret: Type,
 }
 
 #[derive(Clone, Debug)]
@@ -543,6 +556,9 @@ pub enum Intrinsic {
     /// std.process: `__process_run(cmd, args)`, the exit code (sets the last
     /// error).
     ProcessRun,
+    /// `serve_api(module, request)`: the first argument is the module's
+    /// index as an `Int`, the second the `http.Request`.
+    ServeApi,
     /// std.json: `__to_json(value)`, a value as a `Json`.
     ToJson,
     /// std.json: `__from_json(json)`, a `Result[T, string]` of the

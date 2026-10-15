@@ -1,0 +1,26 @@
+// serve_api: calls of a module's API functions, and requests that do not fit.
+import std.http
+import notes_api
+
+fn call(method: string, path: string, body: string) {
+    let response = serve_api(notes_api, http.new_request(method, path, body))
+    print(f"{response.status} {response.body}")
+}
+
+fn main() {
+    call("POST", "/api/create_note", "{\"text\": \"milk\"}")
+    call("POST", "/api/create_note", "{\"text\": \"\"}")
+    call("POST", "/api/create_note", "{\"text\": \"a very long note\"}")
+    call("POST", "/api/create_note", "{\"text\": 5}")
+    call("POST", "/api/create_note", "{}")
+    call("POST", "/api/list_notes", "")
+    call("POST", "/api/add", "{\"a\": 2, \"b\": 3}")
+    call("POST", "/api/ping", "")
+    call("POST", "/api/find", "{\"id\": 1}")
+    call("POST", "/api/find", "{\"id\": 2}")
+    call("POST", "/api/nope", "")
+    call("GET", "/api/list_notes", "")
+    call("POST", "/elsewhere", "")
+    call("POST", "/api/add", "[1, 2]")
+    call("POST", "/api/add", "{oops")
+}

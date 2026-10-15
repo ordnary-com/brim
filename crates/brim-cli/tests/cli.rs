@@ -690,6 +690,29 @@ fn gen_ts_matches_the_example() {
     );
 }
 
+#[test]
+fn gen_ts_angular_matches_the_example() {
+    let out = brim(&["gen", "ts", "--angular", "examples/http/api"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let expected = fs::read_to_string(root().join("examples/http/api/client.ts")).unwrap();
+    // The header names the entry file, with `\` between directories on
+    // Windows.
+    let actual = stdout(&out).replacen('\\', "/", 4);
+    assert_eq!(
+        actual,
+        expected.replace("\r\n", "\n"),
+        "regenerate with `brim gen ts --angular examples/http/api -o examples/http/api/client.ts`"
+    );
+
+    let out = brim(&["gen", "ts", "--angular", "examples/api.brim"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("error[G0002]: no module is served with `serve_api`"),
+        "{}",
+        stderr(&out)
+    );
+}
+
 const HTTP_SERVER: &str = r#"import std.http
 
 fn main() {

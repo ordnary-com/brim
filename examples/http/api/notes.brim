@@ -1,0 +1,69 @@
+// The API of the notes service. main.brim serves every `pub fn` here at
+// `POST /api/<name>`, and `brim gen ts --angular` writes the matching
+// client (client.ts):
+//
+//   brim gen ts --angular examples/http/api -o client.ts
+//
+// API functions share no state, so the notes are kept in a JSON file.
+import std.fs
+import std.json
+
+const FILE: string = "notes.json"
+
+pub struct Note {
+    pub id: i64,
+    pub text: string,
+}
+
+pub enum NoteError {
+    Empty
+    NotFound(i64)
+    Storage(string)
+}
+
+// Every note, oldest first.
+pub fn list_notes() -> Result[List[Note], NoteError] {
+    return load()
+}
+
+pub fn add_note(text: string) -> Result[Note, NoteError] {
+    let trimmed = text.trim()
+    if trimmed.is_empty() {
+        return Err(NoteError.Empty)
+    }
+    let mut notes = load()?
+    let mut id = 1
+    for note in notes {
+        if note.id >= id {
+            id = note.id + 1
+        }
+    }
+    let note = Note { id: id, text: trimmed }
+    notes.push(note)
+    save(notes)?
+    return Ok(note)
+}
+
+pub fn delete_note(id: i64) -> Result[bool, NoteError] {
+    let notes = load()?
+    let kept = notes.filter(fn(n: Note) -> bool { return n.id != id })
+    if kept.len() == notes.len() {
+        return Err(NoteError.NotFound(id))
+    }
+    save(kept)?
+    return Ok(true)
+}
+
+fn load() -> Result[List[Note], NoteError] {
+    if !fs.exists(FILE) {
+        return Ok([])
+    }
+    let text = fs.read(FILE)?
+    let notes: List[Note] = json.decode(text)?
+    return Ok(notes)
+}
+
+fn save(notes: List[Note]) -> Result[bool, NoteError] {
+    fs.write(FILE, json.encode(notes))?
+    return Ok(true)
+}

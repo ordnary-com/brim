@@ -408,7 +408,7 @@ impl<'a> Checker<'a> {
 
     /// The module `expr` names, if it is an imported module's name (and not
     /// a variable).
-    fn module_alias(&self, expr: &ast::Expr, ctx: &FnCtx) -> Option<usize> {
+    pub(super) fn module_alias(&self, expr: &ast::Expr, ctx: &FnCtx) -> Option<usize> {
         let ast::ExprKind::Name(ident) = &expr.kind else {
             return None;
         };

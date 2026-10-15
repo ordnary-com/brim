@@ -52,7 +52,39 @@ export type Priority = "Low" | "High";
 ```
 
 Section 9.4 of the [specification](docs/language-spec.md) has the
-whole mapping.
+whole mapping. `json.encode` and `json.decode` use the same shapes.
+
+### An Angular client
+
+A module whose `pub fn`s are the API is served with the built-in
+`serve_api(module, request)`: `POST /api/add_note` with `{"text": "milk"}`
+calls `add_note(text: "milk")`, and the result is the JSON response.
+
+```brim
+// notes.brim
+pub fn add_note(text: string) -> Result[Note, NoteError] {
+    ...
+}
+
+// main.brim
+let response = serve_api(notes, request)
+request.respond(response)?
+```
+
+`brim gen ts --angular -o client.ts` then writes, next to the types, an
+Angular service with a method per function:
+
+```typescript
+@Injectable({ providedIn: 'root' })
+export class NotesClient {
+  addNote(text: string): Observable<Note> { ... }
+}
+```
+
+A function that returns `Err(error)` answers with status 422, and the
+`HttpErrorResponse` holds the error. Provide `API_BASE_URL` when the server
+is on another origin. `examples/http/api` is a complete service with its
+generated client.
 
 ## Editors
 

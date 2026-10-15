@@ -48,6 +48,7 @@ use brim_semantic::checked::{
 };
 use brim_semantic::{Def, Type, TypeTable};
 
+mod api;
 mod helpers;
 mod json;
 
@@ -74,6 +75,7 @@ pub fn lower_tests(program: &CheckedProgram) -> (Module, Vec<FuncId>) {
         enum_layouts: HashMap::new(),
         instances: HashMap::new(),
         helpers: HashMap::new(),
+        api_dispatchers: HashMap::new(),
         thunks: HashMap::new(),
         environments: HashMap::new(),
         no_function: None,
@@ -114,6 +116,7 @@ pub fn lower_tests(program: &CheckedProgram) -> (Module, Vec<FuncId>) {
             ),
             Job::Helper(id, helper, ty) => (id, FnLowerer::helper(&mut m, helper, ty)),
             Job::Thunk(id, index) => (id, FnLowerer::thunk(&mut m, index)),
+            Job::ApiDispatch(id, module) => (id, FnLowerer::api_dispatch(&mut m, module)),
         };
         function.name = std::mem::take(&mut m.module.functions[id.index()].name);
         m.module.functions[id.index()] = function;
@@ -188,6 +191,9 @@ enum Job {
     /// A function that takes an (unused) environment first and calls the
     /// (non-generic) source function: that function as a value.
     Thunk(FuncId, usize),
+    /// The function `serve_api` passes to std.http for a module: calls one
+    /// of the module's API functions by name.
+    ApiDispatch(FuncId, usize),
 }
 
 struct ModuleLowerer<'p> {
@@ -202,6 +208,8 @@ struct ModuleLowerer<'p> {
     instances: HashMap<(usize, Vec<Type>), FuncId>,
     /// Generated `==` and text functions, per concrete type.
     helpers: HashMap<(Helper, Type), FuncId>,
+    /// The `ApiDispatch` function of each module served with `serve_api`.
+    api_dispatchers: HashMap<usize, FuncId>,
     /// Thunks of source functions used as values.
     thunks: HashMap<usize, FuncId>,
     /// The struct and list types of closure environments, by the types of
@@ -2273,6 +2281,10 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         span: Span,
     ) -> ValueId {
         let first_ty = args.first().map(|a| a.ty);
+        let api_module = match args.first().map(|a| &a.kind) {
+            Some(CheckedExprKind::Int(n)) if op == Intrinsic::ServeApi => Some(*n as usize),
+            _ => None,
+        };
         let args = self.values(&args.iter().collect::<Vec<_>>());
         let (i64_ty, bool_ty, str_ty) = (IrType::I64, IrType::Bool, IrType::Str);
         let enum_ty = self.concrete(result_ty);
@@ -2340,6 +2352,10 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             Intrinsic::Args => self.runtime(RuntimeFn::Args, vec![], ty, span),
             Intrinsic::FsList => self.runtime(RuntimeFn::FsList, args, ty, span),
             Intrinsic::ProcessRun => self.runtime(RuntimeFn::ProcessRun, args, ty, span),
+            Intrinsic::ServeApi => {
+                let module = api_module.expect("the module's index");
+                self.serve_api(module, args[1], span)
+            }
             Intrinsic::ToJson => {
                 let value_ty = self.concrete(first_ty.expect("one argument"));
                 self.encode_value(args[0], value_ty)

@@ -93,12 +93,18 @@ impl FnLowerer<'_, '_> {
     }
 
     /// Calls the free function `name` of std.json.
-    fn json_fn(&mut self, name: &str, args: Vec<ValueId>) -> ValueId {
+    pub(super) fn json_fn(&mut self, name: &str, args: Vec<ValueId>) -> ValueId {
+        self.std_fn("std.json", name, args)
+    }
+
+    /// Calls the free function `name` of the standard library module
+    /// `module`.
+    pub(super) fn std_fn(&mut self, module: &str, name: &str, args: Vec<ValueId>) -> ValueId {
         let id = self
             .m
             .program
-            .module_fn("std.json", name)
-            .unwrap_or_else(|| panic!("std.json has `{name}`"));
+            .module_fn(module, name)
+            .unwrap_or_else(|| panic!("{module} has `{name}`"));
         let ret = self.m.program.functions[id.0].ret;
         let ret_ir = self.m.ir_type(ret);
         let f = self.m.instance(id.0, Vec::new());
@@ -150,7 +156,7 @@ impl FnLowerer<'_, '_> {
     }
 
     /// Stores `value` in a new slot.
-    fn keep(&mut self, name: &str, value: ValueId) -> SlotId {
+    pub(super) fn keep(&mut self, name: &str, value: ValueId) -> SlotId {
         let ty = self.func.values[value.index()];
         let slot = self.new_slot(name, ty);
         self.emit(InstKind::Store(slot, value), None, NO_SPAN);
