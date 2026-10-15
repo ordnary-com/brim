@@ -290,7 +290,7 @@ fn swap[A, B](p: Pair[A, B]) -> Pair[B, A] {
 
 - A generic type is used with type arguments: `Pair[i64, string]`. The number of arguments must match (`E0225`).
 - Type arguments of calls, struct literals and variants are **inferred**, from the arguments and from the type the context expects (a `let` annotation, a parameter type, a return type). Arguments that need the expected type themselves, such as `None`, are inferred last. When a type argument cannot be inferred, it is `E0226`; add an annotation.
-- Inside a generic function, a type parameter can be any type, so values of that type can only be stored, passed and returned. Operators such as `==` and builtins such as `print` do not accept them.
+- Inside a generic function, a type parameter can be any type, so values of that type can only be stored, passed and returned, unless the parameter has **bounds** (section 5.11): `fn total[T: Shape](xs: List[T])` may call `Shape`'s methods on a `T`, `T: Eq` allows `==` and `!=`, and `T: Show` allows `print` and `to_string`.
 - Generic code is checked once and compiled once per combination of type arguments it is used with (monomorphization): there is no run-time cost.
 - Type parameter names must be unique (`E0220`) and cannot be built-in type names (`E0219`).
 
@@ -441,6 +441,44 @@ fn main() {
 - A function value is called like a function: `f(3)`, `button.on_click(3)` for a field (when the struct has no method of that name), or `make_adder(1)(2)`.
 - Function values can be stored in variables, fields, lists and enums, passed and returned. They cannot be compared with `==` or printed (`E0209`, `E0206`).
 - A run-time error inside a `fn` expression shows it in the call stack as `enclosing.<fn>`.
+
+### 5.11 Traits
+
+A **trait** names methods that several types can have:
+
+```brim
+trait Shape {
+    fn area(self) -> f64
+    fn scaled(self, factor: f64) -> Self
+}
+
+struct Circle {
+    r: f64
+}
+
+impl Shape for Circle {
+    fn area(self) -> f64 {
+        return 3.14 * self.r * self.r
+    }
+    fn scaled(self, factor: f64) -> Circle {
+        return Circle { r: self.r * factor }
+    }
+}
+
+fn total_area[T: Shape](shapes: List[T]) -> f64 {
+    let mut total: f64 = 0.0
+    for s in shapes {
+        total = total + s.area()
+    }
+    return total
+}
+```
+
+- A trait method is a signature without a body. It takes `self` (not `mut self`) and is called on a value. `Self` in its types is the type that implements the trait (`E0246` for malformed traits, unknown traits and duplicates).
+- `impl Trait for Type` implements a trait for a struct or enum declared in the same module. It must have every method of the trait, with the same signature (`Self` replaced by the type), and nothing else; other methods go in a plain `impl Type` block (`E0247`). A type implements a trait at most once. The methods are also ordinary methods of the type.
+- A type parameter of a function can have **bounds**, `[T: Shape + Show]`: the type arguments must implement every bound (`E0248`), and inside the function a `T` has the bounds' methods.
+- The built-in traits **`Eq`** and **`Show`** are implemented by every type whose values can all be compared with `==`, or shown with `print` (section 5.8), and by type parameters bounded by them. They cannot be implemented by hand.
+- Generic code is compiled per type, so a call through a bound is an ordinary call of the type's method. Traits are not types: a `List` holds values of one type, and there are no trait objects.
 
 ## 6. Statements
 
@@ -763,11 +801,11 @@ These questions are not settled. The current behavior is a reversible default.
 11. **Loop forms.** `while` and `for` exist. A dedicated `loop` keyword, labeled `break` for nested loops, and `for` over other collections are candidates.
 12. **Struct literals.** Field-shorthand literals (`Point { x, y }`) and default values are undecided. Ordering structs with `<` is not supported.
 13. **`match` as an expression and more patterns.** `match` is a statement. Patterns for struct fields, ranges (`1..5`) and binding a whole value while matching its parts (`x @ Some(_)`) are not supported yet.
-14. **Constraints on type parameters.** Generic code can only store, pass and return values of a type parameter. Constraints (traits or interfaces) would allow `==` or printing in generic code.
+14. **More from traits.** Default method bodies, traits with static methods (`T.new()`), traits for built-in types, and trait objects (a list of values of different types that share a trait) are not supported yet.
 
 ## 12. Possible future features
 
-These are explicitly **not** part of 0.1. Their keywords are reserved where applicable, and none of them should be assumed to work: `loop`, traits, recursive enums, traits, generics, modules and imports, collections, error handling, async/await, macros, reflection, an ownership or borrowing system, and FFI.
+These are explicitly **not** part of 0.1. Their keywords are reserved where applicable, and none of them should be assumed to work: `loop`, recursive enums, generics, modules and imports, collections, error handling, async/await, macros, reflection, an ownership or borrowing system, and FFI.
 
 See `docs/roadmap.md` for the order in which these are planned.
 

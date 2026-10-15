@@ -10,13 +10,13 @@ error[E0100]: expected a newline or `;` after the statement, found integer liter
 4 |     let y: i64 = 1 2
   |                    ^ expected a newline or `;` after the statement
 
-error[E0101]: `trait` is not supported yet
+error[E0101]: `type` is not supported yet
  --> tests/parser/multiple_errors.brim:7:1
   |
-7 | trait Show {}
-  | ^^^^^ reserved keyword
+7 | type Show {}
+  | ^^^^ reserved keyword
   |
-  = note: `trait` is reserved for a future version of Brim and cannot be used as a name
+  = note: `type` is reserved for a future version of Brim and cannot be used as a name
 
 error[E0100]: expected a parameter name, found `{`
  --> tests/parser/multiple_errors.brim:9:12

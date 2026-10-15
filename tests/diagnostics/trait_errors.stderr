@@ -1,0 +1,106 @@
+error[E0246]: trait methods take `self`, not `mut self`
+ --> tests/diagnostics/trait_errors.brim:3:15
+  |
+3 |     fn rename(mut self, to: string)
+  |               ^^^^^^^^
+
+error[E0246]: trait method `make` must take `self` first
+ --> tests/diagnostics/trait_errors.brim:4:8
+  |
+4 |     fn make() -> i64
+  |        ^^^^
+  |
+  = note: trait methods are called on a value: `value.method()`
+
+error[E0247]: method `size` does not match trait `Sized`
+  --> tests/diagnostics/trait_errors.brim:18:8
+   |
+ 8 |     fn size(self) -> i64
+   |     -------------------- declared in the trait here
+...
+18 |     fn size(self) -> string {
+   |        ^^^^
+   |
+   = note: the trait expects `fn size(self) -> i64`
+
+error[E0247]: method `bark` is not part of trait `Sized`
+  --> tests/diagnostics/trait_errors.brim:21:8
+   |
+21 |     fn bark(self) {}
+   |        ^^^^
+   |
+   = help: move it to a separate `impl Dog` block
+
+error[E0247]: `Cat` does not implement method `size` of trait `Sized`
+  --> tests/diagnostics/trait_errors.brim:24:16
+   |
+ 8 |     fn size(self) -> i64
+   |     -------------------- declared in the trait here
+...
+24 | impl Sized for Cat {}
+   |                ^^^ `size` is missing
+
+error[E0247]: `Cat` already implements `Sized`
+  --> tests/diagnostics/trait_errors.brim:26:16
+   |
+26 | impl Sized for Cat {
+   |                ^^^
+
+error[E0247]: `Eq` cannot be implemented by hand
+  --> tests/diagnostics/trait_errors.brim:32:6
+   |
+32 | impl Eq for Dog {}
+   |      ^^
+   |
+   = note: every type whose values can all be compared implements `Eq`
+
+error[E0246]: unknown trait `Unknown`
+  --> tests/diagnostics/trait_errors.brim:34:6
+   |
+34 | impl Unknown for Dog {}
+   |      ^^^^^^^ not a known trait
+
+error[E0231]: `T` has no method `weight`
+  --> tests/diagnostics/trait_errors.brim:40:11
+   |
+40 |         x.weight()
+   |           ^^^^^^ unknown method
+   |
+   = note: the methods of `T` come from its bounds (`Sized`), which do not declare `weight`
+
+error[E0209]: cannot apply `==` to `T` and `T`
+  --> tests/diagnostics/trait_errors.brim:46:14
+   |
+46 |     return a == b
+   |            - `T`
+   |              ^^ `T == T` is not defined
+   |                 - `T`
+   |
+   = note: `T` can be any type, and not every type can be compared with `==`
+   = help: add a bound to the type parameter: `T: Eq`
+
+error[E0246]: unknown trait `Nmed`
+  --> tests/diagnostics/trait_errors.brim:53:18
+   |
+53 | fn needs_name[T: Nmed](x: T) {}
+   |                  ^^^^ not a known trait
+   |
+   = help: did you mean `Named`?
+
+error[E0248]: `i64` does not implement `Sized`
+  --> tests/diagnostics/trait_errors.brim:56:11
+   |
+56 |     print(sizes([1, 2]))
+   |           ^^^^^^^^^^^^^ `sizes` needs `Sized`
+   |
+   = note: only declared structs and enums can implement traits
+
+error[E0248]: `fn(Dog) -> bool` does not implement `Sized`
+  --> tests/diagnostics/trait_errors.brim:61:11
+   |
+61 |     print(sizes([f]))
+   |           ^^^^^^^^^^ `sizes` needs `Sized`
+   |
+   = note: only declared structs and enums can implement traits
+
+error: could not compile tests/diagnostics/trait_errors.brim due to 13 errors

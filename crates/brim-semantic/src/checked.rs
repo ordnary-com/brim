@@ -16,7 +16,7 @@ use std::fmt;
 use brim_diagnostics::Span;
 use brim_runtime::RuntimeFn;
 
-use crate::{EnumId, StructId, Type, TypeTable};
+use crate::{Def, EnumId, StructId, Type, TypeTable};
 
 /// Index into [`CheckedProgram::functions`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -51,6 +51,9 @@ pub struct CheckedProgram {
     /// The test functions (`fn test_name()` outside `impl` blocks), in
     /// declaration order; only collected for a test build.
     pub tests: Vec<FnId>,
+    /// Methods by the struct or enum they belong to and their name; trait
+    /// calls are resolved through this when lowering.
+    pub methods: std::collections::HashMap<(Def, String), FnId>,
 }
 
 #[derive(Clone, Debug)]
@@ -374,6 +377,13 @@ pub enum CheckedExprKind {
     },
     /// A named function used as a value.
     FnRef(FnId),
+    /// `receiver.method(args)` where the receiver's type is a type
+    /// parameter: the method of the concrete type, found when lowering.
+    TraitCall {
+        method: String,
+        receiver: Box<CheckedExpr>,
+        args: Vec<CheckedExpr>,
+    },
     /// A call of a function value.
     CallValue {
         callee: Box<CheckedExpr>,

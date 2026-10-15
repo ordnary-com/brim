@@ -7,6 +7,7 @@ error[E0209]: cannot apply `==` to `T` and `T`
    |                 - `T`
    |
    = note: `T` can be any type, and not every type can be compared with `==`
+   = help: add a bound to the type parameter: `T: Eq`
 
 error[E0225]: `Option` takes 1 type argument but 0 were supplied
   --> tests/diagnostics/generic_errors.brim:15:12

@@ -412,6 +412,57 @@ answer
 
 Type arguments are inferred from the arguments and the expected type.
 
+## Traits
+
+```brim
+trait Shape {
+    fn area(self) -> f64
+}
+
+struct Square {
+    side: f64,
+}
+
+impl Shape for Square {
+    fn area(self) -> f64 {
+        return self.side * self.side
+    }
+}
+
+fn largest[T: Shape](shapes: List[T]) -> f64 {
+    let mut best: f64 = 0.0
+    for s in shapes {
+        if s.area() > best {
+            best = s.area()
+        }
+    }
+    return best
+}
+
+fn count[T: Eq](xs: List[T], x: T) -> i64 {
+    let mut n: i64 = 0
+    for y in xs {
+        if y == x {
+            n += 1
+        }
+    }
+    return n
+}
+
+fn main() {
+    print(largest([Square { side: 2.0 }, Square { side: 3.0 }]))
+    print(count(["a", "b", "a"], "a"))
+}
+```
+
+```text
+9.0
+2
+```
+
+A bound such as `T: Shape` lets generic code call the trait's methods.
+The built-in traits `Eq` and `Show` allow `==` and `print` on a `T`.
+
 ## Errors: Option, Result and ?
 
 ```brim

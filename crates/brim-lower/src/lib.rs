@@ -434,9 +434,12 @@ fn branches(expr: &CheckedExpr) -> bool {
         | CheckedExprKind::Local(_)
         | CheckedExprKind::Closure { .. }
         | CheckedExprKind::FnRef(_) => false,
-        CheckedExprKind::CallValue { callee, args } => {
-            branches(callee) || args.iter().any(branches)
-        }
+        CheckedExprKind::CallValue { callee, args }
+        | CheckedExprKind::TraitCall {
+            receiver: callee,
+            args,
+            ..
+        } => branches(callee) || args.iter().any(branches),
         CheckedExprKind::Unary { operand, .. }
         | CheckedExprKind::Show(operand)
         | CheckedExprKind::BoxNew(operand)
@@ -1904,6 +1907,28 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 let thunk = self.m.thunk(func.0);
                 self.emit_value(InstKind::MakeClosure(thunk, None), ty, span)
             }
+            CheckedExprKind::TraitCall {
+                method,
+                receiver,
+                args,
+            } => {
+                // Instances are concrete: the receiver's type is known now.
+                let receiver_ty = self.concrete(receiver.ty);
+                let Type::Named(id) = receiver_ty else {
+                    unreachable!("only structs and enums implement traits")
+                };
+                let named = self.m.types.get(id).clone();
+                let func = *self
+                    .m
+                    .program
+                    .methods
+                    .get(&(named.def, method.clone()))
+                    .expect("the checker verified the implementation");
+                let callee = self.m.instance(func.0, named.args);
+                let all =
+                    self.values(&std::iter::once(&**receiver).chain(args).collect::<Vec<_>>());
+                return self.emit(InstKind::Call(callee, all), Some(ty), span);
+            }
             CheckedExprKind::CallValue { callee, args } => {
                 let mut all =
                     self.values(&std::iter::once(&**callee).chain(args).collect::<Vec<_>>());
@@ -1931,7 +1956,12 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             CheckedExprKind::Show(value) => {
                 let v = self.value(value);
                 let value_ty = self.concrete(value.ty);
-                self.value_text(v, value_ty, span)
+                // A string shows as itself, unquoted, like `print(string)`.
+                if value_ty == Type::String {
+                    v
+                } else {
+                    self.value_text(v, value_ty, span)
+                }
             }
             CheckedExprKind::And(lhs, rhs) => self.short_circuit(lhs, rhs, true, span),
             CheckedExprKind::Or(lhs, rhs) => self.short_circuit(lhs, rhs, false, span),

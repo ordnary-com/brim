@@ -1,0 +1,100 @@
+// Traits: declarations, implementations, bounds on generic functions,
+// and the built-in `Eq` and `Show`.
+
+trait Shape {
+    fn area(self) -> f64
+    fn name(self) -> string
+    fn scaled(self, factor: f64) -> Self
+}
+
+struct Circle {
+    r: f64
+}
+
+struct Rect {
+    w: f64
+    h: f64
+}
+
+impl Shape for Circle {
+    fn area(self) -> f64 {
+        return 3.0 * self.r * self.r
+    }
+    fn name(self) -> string {
+        return "circle"
+    }
+    fn scaled(self, factor: f64) -> Circle {
+        return Circle { r: self.r * factor }
+    }
+}
+
+impl Shape for Rect {
+    fn area(self) -> f64 {
+        return self.w * self.h
+    }
+    fn name(self) -> string {
+        return "rect"
+    }
+    fn scaled(self, factor: f64) -> Rect {
+        return Rect { w: self.w * factor, h: self.h * factor }
+    }
+}
+
+// Methods of the type itself live next to the trait's.
+impl Rect {
+    fn is_square(self) -> bool {
+        return self.w == self.h
+    }
+}
+
+fn total_area[T: Shape](shapes: List[T]) -> f64 {
+    let mut total: f64 = 0.0
+    for s in shapes {
+        total = total + s.area()
+    }
+    return total
+}
+
+fn describe[T: Shape](s: T) -> string {
+    return s.name() + " of area " + to_string(s.area())
+}
+
+fn bigger[T: Shape](s: T) -> T {
+    return s.scaled(2.0)
+}
+
+fn count[T: Eq](xs: List[T], x: T) -> i64 {
+    let mut n: i64 = 0
+    for y in xs {
+        if y == x {
+            n += 1
+        }
+    }
+    return n
+}
+
+fn show_all[T: Show](xs: List[T]) {
+    for x in xs {
+        print("- " + to_string(x))
+    }
+}
+
+fn label[T: Shape + Show](s: T) -> string {
+    return s.name() + ": " + to_string(s)
+}
+
+fn main() {
+    print(total_area([Circle { r: 1.0 }, Circle { r: 2.0 }]))
+    print(total_area([Rect { w: 2.0, h: 3.0 }]))
+    print(describe(Rect { w: 2.0, h: 2.0 }))
+    print(describe(bigger(Circle { r: 1.0 })))
+    print(Rect { w: 1.0, h: 1.0 }.is_square())
+    print(Circle { r: 5.0 }.name())
+
+    print(count([1, 2, 1, 3, 1], 1))
+    print(count(["a", "b"], "c"))
+    print(count([Some(1), None, Some(1)], Some(1)))
+    show_all(["x", "y"])
+    show_all([Rect { w: 1.0, h: 2.0 }])
+    print(label(Circle { r: 1.5 }))
+}

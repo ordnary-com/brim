@@ -23,7 +23,7 @@
 use brim_ast::{
     BinaryOp, Block, EnumDecl, Expr, ExprKind, FieldDecl, FieldInit, FnDecl, ForIter, Ident,
     ImplDecl, ImportDecl, MatchArm, Param, Pattern, PatternKind, PlaceElem, Program, Receiver,
-    Stmt, StmtKind, StructDecl, TypeExpr, UnaryOp, VariantDecl,
+    Stmt, StmtKind, StructDecl, TraitDecl, TraitMethod, TypeExpr, UnaryOp, VariantDecl,
 };
 use brim_diagnostics::{Diagnostic, Span};
 use brim_lexer::{Token, TokenKind, lex};
@@ -96,6 +96,19 @@ fn dotted_name(expr: &Expr) -> Option<Ident> {
 /// Marker for "an error was already reported". Callers recover and continue.
 #[derive(Debug)]
 struct Reported;
+
+/// A function's signature, before its body.
+struct FnHeader {
+    fn_token: Token,
+    name: Ident,
+    type_params: Vec<Ident>,
+    bounds: Vec<Vec<Ident>>,
+    receiver: Option<Receiver>,
+    params: Vec<Param>,
+    ret: Option<TypeExpr>,
+    /// Where the signature ends.
+    end: Span,
+}
 
 type PResult<T> = Result<T, Reported>;
 
@@ -279,6 +292,7 @@ impl Parser {
                 | TokenKind::Struct
                 | TokenKind::Enum
                 | TokenKind::Impl
+                | TokenKind::Trait
                 | TokenKind::Pub
                 | TokenKind::Import
                 | TokenKind::Eof
@@ -316,6 +330,7 @@ impl Parser {
         let mut structs = Vec::new();
         let mut enums = Vec::new();
         let mut impls = Vec::new();
+        let mut traits = Vec::new();
         let mut imports = Vec::new();
         loop {
             while matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Semi) {
@@ -352,8 +367,15 @@ impl Parser {
                             }
                             Err(Reported) => self.recover_item(),
                         },
+                        TokenKind::Trait => match self.trait_decl() {
+                            Ok(mut t) => {
+                                t.public = true;
+                                traits.push(t);
+                            }
+                            Err(Reported) => self.recover_item(),
+                        },
                         _ => {
-                            self.error_unexpected("`fn`, `struct` or `enum` after `pub`");
+                            self.error_unexpected("`fn`, `struct`, `enum` or `trait` after `pub`");
                             self.recover_item();
                         }
                     }
@@ -368,6 +390,10 @@ impl Parser {
                 },
                 TokenKind::Enum => match self.enum_decl() {
                     Ok(e) => enums.push(e),
+                    Err(Reported) => self.recover_item(),
+                },
+                TokenKind::Trait => match self.trait_decl() {
+                    Ok(t) => traits.push(t),
                     Err(Reported) => self.recover_item(),
                 },
                 TokenKind::Impl => match self.impl_decl() {
@@ -395,13 +421,13 @@ impl Parser {
                 }
                 _ => {
                     let diag = Diagnostic::error(format!(
-                        "expected `fn`, `struct`, `enum` or `impl`, found {}",
+                        "expected `fn`, `struct`, `enum`, `trait` or `impl`, found {}",
                         token.kind.describe()
                     ))
                     .with_code("E0103")
                     .with_primary(token.span, "expected a declaration")
                     .with_note(
-                        "only functions, structs, enums and `impl` blocks can be declared at the top level",
+                        "only functions, structs, enums, traits and `impl` blocks can be declared at the top level",
                     );
                     self.report(diag);
                     self.bump();
@@ -414,6 +440,7 @@ impl Parser {
             structs,
             enums,
             impls,
+            traits,
             functions,
         }
     }
@@ -465,7 +492,13 @@ impl Parser {
 
     fn impl_decl(&mut self) -> PResult<ImplDecl> {
         let impl_token = self.expect(&TokenKind::Impl)?;
-        let type_name = self.expect_ident("a struct or enum name")?;
+        let first = self.dotted_ident("a struct or enum name")?;
+        // `impl Trait for Type`
+        let (trait_name, type_name) = if self.eat(&TokenKind::For).is_some() {
+            (Some(first), self.expect_ident("a struct or enum name")?)
+        } else {
+            (None, first)
+        };
         let type_params = self.type_params()?;
         self.skip_newlines();
         if !self.at(&TokenKind::LBrace) {
@@ -509,6 +542,7 @@ impl Parser {
         };
         Ok(ImplDecl {
             span: impl_token.span.to(close.span),
+            trait_name,
             type_name,
             type_params,
             methods,
@@ -629,10 +663,11 @@ impl Parser {
         })
     }
 
-    fn function(&mut self) -> PResult<FnDecl> {
+    /// `fn name[T: Bound](self, params) -> ret`, up to the body.
+    fn fn_header(&mut self) -> PResult<FnHeader> {
         let fn_token = self.expect(&TokenKind::Fn)?;
         let name = self.expect_ident("a function name")?;
-        let type_params = self.type_params()?;
+        let (type_params, bounds) = self.type_params_with_bounds()?;
         self.expect(&TokenKind::LParen)?;
         let mut receiver = None;
         let params = self.in_parens(|p| {
@@ -664,15 +699,42 @@ impl Parser {
             if !p.at(&TokenKind::RParen) {
                 return Err(p.error_unexpected("`,` or `)`"));
             }
-            p.bump();
-            Ok(params)
+            let close = p.bump();
+            Ok((params, close))
         })?;
+        let (params, close) = params;
+        let mut end = close.span;
         let ret = if self.eat(&TokenKind::Arrow).is_some() {
             self.skip_newlines();
-            Some(self.type_expr()?)
+            let ret = self.type_expr()?;
+            end = ret.span();
+            Some(ret)
         } else {
             None
         };
+        Ok(FnHeader {
+            fn_token,
+            name,
+            type_params,
+            bounds,
+            receiver,
+            params,
+            ret,
+            end,
+        })
+    }
+
+    fn function(&mut self) -> PResult<FnDecl> {
+        let FnHeader {
+            fn_token,
+            name,
+            type_params,
+            bounds,
+            receiver,
+            params,
+            ret,
+            ..
+        } = self.fn_header()?;
         self.skip_newlines();
         if !self.at(&TokenKind::LBrace) {
             return Err(self.error_unexpected("`{` to start the function body"));
@@ -683,6 +745,7 @@ impl Parser {
             span: fn_token.span.to(body.span),
             name,
             type_params,
+            bounds,
             receiver,
             params,
             ret,
@@ -839,15 +902,41 @@ impl Parser {
     }
 
     /// `[T, U]` after the name of a generic declaration, if present.
+    /// `[T, U]` after the name of a generic struct, enum or `impl`.
     fn type_params(&mut self) -> PResult<Vec<Ident>> {
+        let (params, bounds) = self.type_params_with_bounds()?;
+        if let Some(bound) = bounds.iter().flatten().next() {
+            let diag = Diagnostic::error("trait bounds can only be written on functions")
+                .with_code("E0100")
+                .with_primary(bound.span, "not allowed here")
+                .with_help("write the bound on the functions that need it");
+            return Err(self.report(diag));
+        }
+        Ok(params)
+    }
+
+    /// `[T, U: Show + Eq]`: type parameters and the traits each must
+    /// implement.
+    fn type_params_with_bounds(&mut self) -> PResult<(Vec<Ident>, Vec<Vec<Ident>>)> {
         if !self.at(&TokenKind::LBracket) {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         }
         self.bump();
         self.in_parens(|p| {
             let mut params = Vec::new();
+            let mut bounds = Vec::new();
             while !p.at(&TokenKind::RBracket) {
                 params.push(p.expect_ident("a type parameter name")?);
+                let mut traits = Vec::new();
+                if p.eat(&TokenKind::Colon).is_some() {
+                    loop {
+                        traits.push(p.dotted_ident("a trait name")?);
+                        if p.eat(&TokenKind::Plus).is_none() {
+                            break;
+                        }
+                    }
+                }
+                bounds.push(traits);
                 if p.eat(&TokenKind::Comma).is_none() {
                     break;
                 }
@@ -856,7 +945,71 @@ impl Parser {
                 return Err(p.error_unexpected("`,` or `]`"));
             }
             p.bump();
-            Ok(params)
+            Ok((params, bounds))
+        })
+    }
+
+    /// `name` or `module.name`.
+    fn dotted_ident(&mut self, what: &str) -> PResult<Ident> {
+        let mut name = self.expect_ident(what)?;
+        while self.eat(&TokenKind::Dot).is_some() {
+            let part = self.expect_ident(what)?;
+            name = Ident {
+                name: format!("{}.{}", name.name, part.name),
+                span: name.span.to(part.span),
+            };
+        }
+        Ok(name)
+    }
+
+    /// `trait Name { fn method(self) -> type ... }`
+    fn trait_decl(&mut self) -> PResult<TraitDecl> {
+        let trait_token = self.expect(&TokenKind::Trait)?;
+        let name = self.expect_ident("a trait name")?;
+        self.skip_newlines();
+        if !self.at(&TokenKind::LBrace) {
+            return Err(self.error_unexpected("`{` to start the trait's methods"));
+        }
+        self.bump();
+        let mut methods = Vec::new();
+        let close = loop {
+            while matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Semi) {
+                self.bump();
+            }
+            match self.peek_kind() {
+                TokenKind::RBrace => break self.bump(),
+                TokenKind::Fn => {
+                    let header = self.fn_header()?;
+                    if let Some(first) = header.type_params.first() {
+                        let diag = Diagnostic::error("trait methods cannot have type parameters")
+                            .with_code("E0100")
+                            .with_primary(first.span, "");
+                        return Err(self.report(diag));
+                    }
+                    if self.at(&TokenKind::LBrace) {
+                        let diag = Diagnostic::error("trait methods have no body")
+                            .with_code("E0100")
+                            .with_primary(self.peek().span, "")
+                            .with_note("each type that implements the trait writes the body")
+                            .with_help("end the method after its signature");
+                        return Err(self.report(diag));
+                    }
+                    methods.push(TraitMethod {
+                        span: header.fn_token.span.to(header.end),
+                        name: header.name,
+                        receiver: header.receiver,
+                        params: header.params,
+                        ret: header.ret,
+                    });
+                }
+                _ => return Err(self.error_unexpected("`fn` or `}` in the trait")),
+            }
+        };
+        Ok(TraitDecl {
+            public: false,
+            name,
+            methods,
+            span: trait_token.span.to(close.span),
         })
     }
 

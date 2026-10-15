@@ -8,16 +8,30 @@
 use std::collections::HashSet;
 
 use super::Checker;
+use super::traits::TraitId;
 use crate::{Def, Type};
 
 impl<'a> Checker<'a> {
     /// The first type inside `ty` (or `ty` itself) whose values cannot be
-    /// compared or printed; `None` when all of them can.
-    pub(super) fn not_comparable(&mut self, ty: Type) -> Option<Type> {
-        self.not_comparable_inner(ty, &mut HashSet::new())
+    /// compared (`need` is `EQ`) or shown (`SHOW`); `None` when all of them
+    /// can. A type parameter can when its bounds include `need`.
+    pub(super) fn not_comparable(&mut self, ty: Type, need: TraitId) -> Option<Type> {
+        self.not_comparable_inner(ty, need, &mut HashSet::new())
     }
 
-    fn not_comparable_inner(&mut self, ty: Type, seen: &mut HashSet<Type>) -> Option<Type> {
+    fn not_comparable_inner(
+        &mut self,
+        ty: Type,
+        need: TraitId,
+        seen: &mut HashSet<Type>,
+    ) -> Option<Type> {
+        if let Type::Param(i) = ty {
+            let bounded = self
+                .type_bounds
+                .get(i as usize)
+                .is_some_and(|b| b.contains(&need));
+            return (!bounded).then_some(ty);
+        }
         let Type::Named(id) = ty else {
             return match ty {
                 Type::I64
@@ -49,7 +63,7 @@ impl<'a> Checker<'a> {
         };
         for field in inner {
             let field = self.types.subst(field, &named.args);
-            if let Some(bad) = self.not_comparable_inner(field, seen) {
+            if let Some(bad) = self.not_comparable_inner(field, need, seen) {
                 return Some(bad);
             }
         }

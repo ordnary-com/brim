@@ -54,7 +54,34 @@ module.exports = grammar({
     module_path: (_) => /[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*/,
 
     _item: ($) =>
-      choice($.function_declaration, $.struct_declaration, $.enum_declaration, $.impl_declaration),
+      choice(
+        $.function_declaration,
+        $.struct_declaration,
+        $.enum_declaration,
+        $.impl_declaration,
+        $.trait_declaration,
+      ),
+
+    // `trait Shape { fn area(self) -> f64 }`
+    trait_declaration: ($) =>
+      seq(
+        optional($.visibility),
+        'trait',
+        field('name', typeId($)),
+        '{',
+        repeat(choice($.trait_method, ';')),
+        '}',
+      ),
+
+    trait_method: ($) =>
+      prec.right(
+        seq(
+          'fn',
+          field('name', $.identifier),
+          $.parameters,
+          optional(seq('->', field('return_type', $._type))),
+        ),
+      ),
 
     visibility: (_) => 'pub',
 
@@ -75,7 +102,14 @@ module.exports = grammar({
 
     parameter: ($) => seq(field('name', $.identifier), ':', field('type', $._type)),
 
-    type_parameters: ($) => seq('[', commaSep($.identifier), ']'),
+    type_parameters: ($) => seq('[', commaSep($.type_parameter), ']'),
+
+    // `T` or `T: Show + Eq`
+    type_parameter: ($) =>
+      seq(
+        field('name', $.identifier),
+        optional(seq(':', field('bound', $.path_type), repeat(seq('+', field('bound', $.path_type))))),
+      ),
 
     struct_declaration: ($) =>
       seq(
@@ -106,6 +140,7 @@ module.exports = grammar({
     impl_declaration: ($) =>
       seq(
         'impl',
+        optional(seq(field('trait', typeId($)), 'for')),
         field('type', typeId($)),
         optional($.type_parameters),
         '{',

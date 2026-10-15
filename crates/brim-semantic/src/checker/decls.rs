@@ -436,10 +436,17 @@ impl<'a> Checker<'a> {
                     continue;
                 }
                 let id = FnId(self.sigs.len());
-                let sig = self.signature(method, impl_params.clone(), Some(def));
+                let mut sig = self.signature(method, impl_params.clone(), Some(def));
+                // A trait's methods are as visible as the trait.
+                sig.public |= decl.trait_name.is_some();
                 self.sigs.push(sig);
                 self.fn_decls.push(method);
                 self.methods.insert(key, id);
+            }
+            if let Some(trait_name) = &decl.trait_name
+                && let Some(trait_id) = self.resolve_trait(trait_name)
+            {
+                self.check_trait_impl(decl, trait_id, def);
             }
         }
     }
@@ -453,9 +460,13 @@ impl<'a> Checker<'a> {
         outer_params: Vec<String>,
         owner: Option<Def>,
     ) -> Signature {
+        let outer_count = outer_params.len();
         let mut type_params = outer_params;
         type_params.extend(self.type_param_names(&f.type_params));
         self.type_params = type_params;
+        let mut bounds = vec![Vec::new(); outer_count];
+        bounds.extend(self.resolve_bounds(&f.bounds));
+        self.type_bounds = bounds.clone();
         let mut params: Vec<ParamSig> = Vec::new();
         let receiver = match (owner, &f.receiver) {
             (Some(def), Some(receiver)) => {
@@ -511,6 +522,7 @@ impl<'a> Checker<'a> {
             method: owner.is_some(),
             module: self.module,
             public: f.public,
+            bounds,
         }
     }
 

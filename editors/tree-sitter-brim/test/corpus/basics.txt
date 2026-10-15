@@ -226,3 +226,68 @@ fn main() {
                   (integer)))
               (arguments
                 (integer)))))))))
+
+==================
+Traits and bounds
+==================
+
+trait Shape {
+    fn area(self) -> f64
+}
+
+impl Shape for Circle {
+    fn area(self) -> f64 {
+        return self.r
+    }
+}
+
+fn total[T: Shape + Show](xs: List[T]) -> f64 {
+    return 0.0
+}
+
+---
+
+(source_file
+  (trait_declaration
+    (type_identifier)
+    (trait_method
+      (identifier)
+      (parameters
+        (self_parameter
+          (self)))
+      (primitive_type)))
+  (impl_declaration
+    (type_identifier)
+    (type_identifier)
+    (function_declaration
+      (identifier)
+      (parameters
+        (self_parameter
+          (self)))
+      (primitive_type)
+      (block
+        (return_statement
+          (field_expression
+            (self)
+            (field_identifier))))))
+  (function_declaration
+    (identifier)
+    (type_parameters
+      (type_parameter
+        (identifier)
+        (path_type
+          (identifier))
+        (path_type
+          (identifier))))
+    (parameters
+      (parameter
+        (identifier)
+        (generic_type
+          (path_type
+            (identifier))
+          (path_type
+            (identifier)))))
+    (primitive_type)
+    (block
+      (return_statement
+        (float)))))

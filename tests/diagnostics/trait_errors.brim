@@ -1,0 +1,62 @@
+trait Named {
+    fn name(self) -> string
+    fn rename(mut self, to: string)
+    fn make() -> i64
+}
+
+trait Sized {
+    fn size(self) -> i64
+}
+
+struct Dog {
+    name: string
+}
+
+struct Cat {}
+
+impl Sized for Dog {
+    fn size(self) -> string {
+        return "big"
+    }
+    fn bark(self) {}
+}
+
+impl Sized for Cat {}
+
+impl Sized for Cat {
+    fn size(self) -> i64 {
+        return 1
+    }
+}
+
+impl Eq for Dog {}
+
+impl Unknown for Dog {}
+
+fn sizes[T: Sized](xs: List[T]) -> i64 {
+    let mut total: i64 = 0
+    for x in xs {
+        total += x.size()
+        x.weight()
+    }
+    return total
+}
+
+fn same[T](a: T, b: T) -> bool {
+    return a == b
+}
+
+fn first_size[T: Sized](x: T) -> i64 {
+    return sizes([x])
+}
+
+fn needs_name[T: Nmed](x: T) {}
+
+fn main() {
+    print(sizes([1, 2]))
+    print(sizes([Dog { name: "rex" }]))
+    let f: fn(Dog) -> bool = fn(d: Dog) -> bool {
+        return true
+    }
+    print(sizes([f]))
+}

@@ -112,6 +112,9 @@ Guidelines for writing diagnostics:
 | E0243 | Two imports with the same name, or an import whose name is already defined |
 | E0244 | A test function (`fn test_...`) with parameters or a return type (only reported by `brim test`) |
 | E0245 | The alternatives of a `p \| q` pattern bind different names, or a name with different types |
+| E0246 | A malformed trait (a method without `self`, or with `mut self`), a duplicate trait or trait method, or an unknown trait |
+| E0247 | An `impl Trait for Type` that misses a method of the trait, has a method with another signature or one the trait does not declare, implements the trait twice, or implements `Eq` or `Show` |
+| E0248 | A type argument that does not implement a bound of its type parameter |
 
 ### Warnings
 

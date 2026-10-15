@@ -169,6 +169,9 @@ impl<'a> Checker<'a> {
                 if let Some(result) = self.method_on_box(base, name, args, span, ctx) {
                     return result;
                 }
+                if let Some(result) = self.method_on_param(base, name, args, span, ctx) {
+                    return result;
+                }
                 if let Some(result) = self.method_on_value(base, name, args, span, expected, ctx) {
                     return result;
                 }
@@ -556,6 +559,26 @@ impl<'a> Checker<'a> {
         })
     }
 
+    /// `value.method()` where `value`'s type is a type parameter: a method
+    /// of one of its bounds.
+    fn method_on_param(
+        &mut self,
+        base: &ast::Expr,
+        name: &ast::Ident,
+        args: &[ast::Expr],
+        span: Span,
+        ctx: &mut FnCtx,
+    ) -> Option<CheckedExpr> {
+        let errors = self.diags.len();
+        let probe = self.check_expr(base, ctx);
+        self.diags.truncate(errors);
+        if !matches!(probe.ty, Type::Param(_)) {
+            return None;
+        }
+        let receiver = self.check_expr(base, ctx);
+        Some(self.trait_method_call(receiver, name, args, span, ctx))
+    }
+
     /// `Box(value)`.
     fn check_box_new(
         &mut self,
@@ -748,6 +771,9 @@ impl<'a> Checker<'a> {
         let Some(type_args) = self.require_inferred(bindings, generic, &checked, span) else {
             return error_expr(span);
         };
+        let bounds = self.sigs[id.0].bounds.clone();
+        let short = name.rsplit('.').next().unwrap_or(&name).to_string();
+        self.check_bounds(&short, &bounds, &type_args, span);
         for (arg, (ty, param_span)) in checked.iter().zip(&params[skip..]) {
             let ty = self.types.subst(*ty, &type_args);
             self.expect_type(arg, ty, Some(*param_span), "parameter declared here");
@@ -1558,7 +1584,9 @@ impl<'a> Checker<'a> {
             (Op::Ge, F64, F64) => Some((BinaryOp::FloatGe, Bool)),
             (Op::And | Op::Or, Bool, Bool) => None,
             (Op::Eq | Op::Ne, a, b)
-                if a == b && matches!(a, Type::Named(_)) && self.not_comparable(a).is_none() =>
+                if a == b
+                    && matches!(a, Type::Named(_) | Type::Param(_))
+                    && self.not_comparable(a, super::traits::EQ).is_none() =>
             {
                 let op = if op == Op::Eq {
                     BinaryOp::ValueEq
@@ -1605,7 +1633,7 @@ impl<'a> Checker<'a> {
             .with_secondary(lhs.span, format!("`{l}`"))
             .with_secondary(rhs.span, format!("`{r}`"));
         let inner = if named {
-            self.not_comparable(lhs.ty)
+            self.not_comparable(lhs.ty, super::traits::EQ)
         } else {
             None
         };
@@ -1626,9 +1654,11 @@ impl<'a> Checker<'a> {
                 ))
             }
             (op, _) => match op {
-            Op::Eq | Op::Ne if param => diag.with_note(format!(
-                "`{l}` can be any type, and not every type can be compared with `{sym}`"
-            )),
+            Op::Eq | Op::Ne if param => diag
+                .with_note(format!(
+                    "`{l}` can be any type, and not every type can be compared with `{sym}`"
+                ))
+                .with_help(format!("add a bound to the type parameter: `{l}: Eq`")),
             Op::Add if lhs.ty == Type::String || rhs.ty == Type::String => diag
                 .with_note("`+` joins two strings or adds two numbers of the same type")
                 .with_note("Brim never converts values to strings implicitly"),
@@ -1952,7 +1982,7 @@ impl<'a> Checker<'a> {
     /// `print(value)` or `to_string(value)` for a struct, enum, list or map.
     fn show_value(&mut self, name: &str, mut args: Vec<CheckedExpr>, span: Span) -> CheckedExpr {
         let value = args.pop().expect("one argument");
-        if let Some(inner) = self.not_comparable(value.ty) {
+        if let Some(inner) = self.not_comparable(value.ty, super::traits::SHOW) {
             let ty = self.show(value.ty);
             let why = if matches!(inner, Type::Param(_)) {
                 "which can be any type, and not every type has a text form"
@@ -2082,7 +2112,7 @@ impl<'a> Checker<'a> {
                 return error_expr(span);
             }
             if let ("print" | "to_string", [arg]) = (name, args.as_slice())
-                && matches!(arg.ty, Type::Named(_))
+                && matches!(arg.ty, Type::Named(_) | Type::Param(_))
             {
                 return self.show_value(name, args, span);
             }

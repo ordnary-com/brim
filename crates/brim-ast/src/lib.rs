@@ -18,7 +18,29 @@ pub struct Program {
     pub structs: Vec<StructDecl>,
     pub enums: Vec<EnumDecl>,
     pub impls: Vec<ImplDecl>,
+    pub traits: Vec<TraitDecl>,
     pub functions: Vec<FnDecl>,
+}
+
+/// `trait Name { fn method(self, ...) -> type ... }`
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TraitDecl {
+    pub public: bool,
+    pub name: Ident,
+    pub methods: Vec<TraitMethod>,
+    /// From `trait` to the closing `}`.
+    pub span: Span,
+}
+
+/// A method signature in a trait. `Self` in its types is the type that
+/// implements the trait.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TraitMethod {
+    pub name: Ident,
+    pub receiver: Option<Receiver>,
+    pub params: Vec<Param>,
+    pub ret: Option<TypeExpr>,
+    pub span: Span,
 }
 
 /// `struct Name { field: type, ... }`
@@ -54,6 +76,8 @@ pub struct Receiver {
 /// `impl Name[T] { fn ... }`: methods of a struct or enum.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImplDecl {
+    /// `impl Trait for Type`: the trait.
+    pub trait_name: Option<Ident>,
     pub type_name: Ident,
     pub type_params: Vec<Ident>,
     pub methods: Vec<FnDecl>,
@@ -164,6 +188,8 @@ pub struct FnDecl {
     pub name: Ident,
     /// `[T, U]` after the name; empty for non-generic functions.
     pub type_params: Vec<Ident>,
+    /// The traits each type parameter must implement: `[T: Show + Eq]`.
+    pub bounds: Vec<Vec<Ident>>,
     /// `self` or `mut self` as the first parameter of a method.
     pub receiver: Option<Receiver>,
     pub params: Vec<Param>,

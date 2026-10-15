@@ -212,7 +212,7 @@ fn error_reserved_keywords() {
         errors("fn main() {\n    loop {\n        print(1)\n    }\n}"),
         vec![("E0101", "`loop` is not supported yet".to_string())]
     );
-    assert_eq!(codes("trait Show {}"), vec!["E0101"]);
+    assert_eq!(codes("type Show {}"), vec!["E0101"]);
     assert_eq!(codes("fn async() {}"), vec!["E0101"]);
     // Keywords cannot be used as names either.
     assert_eq!(

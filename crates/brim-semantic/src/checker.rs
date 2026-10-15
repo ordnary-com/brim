@@ -3,6 +3,7 @@ mod decls;
 mod exprs;
 mod matching;
 mod strings;
+mod traits;
 mod values;
 
 use std::collections::HashMap;
@@ -35,6 +36,8 @@ struct Signature {
     module: usize,
     /// Declared with `pub`.
     public: bool,
+    /// The traits each type parameter must implement.
+    bounds: Vec<Vec<traits::TraitId>>,
 }
 
 struct ParamSig {
@@ -104,6 +107,13 @@ pub(crate) struct Checker<'a> {
     current_fn_name: String,
     /// Methods by type and name.
     methods: HashMap<(Def, String), FnId>,
+    /// Built-in traits first, then the declared ones.
+    traits: Vec<traits::TraitInfo>,
+    trait_by_name: HashMap<String, traits::TraitId>,
+    /// Which types implement which traits.
+    trait_impls: std::collections::HashSet<(traits::TraitId, Def)>,
+    /// The bounds of the type parameters in scope.
+    type_bounds: Vec<Vec<traits::TraitId>>,
     /// Type parameter names of the declaration being checked, for resolving
     /// and showing `Type::Param`.
     type_params: Vec<String>,
@@ -248,6 +258,10 @@ impl<'a> Checker<'a> {
             lambdas: Vec::new(),
             current_fn_name: String::new(),
             methods: HashMap::new(),
+            traits: traits::builtin_traits(),
+            trait_by_name: traits::builtin_trait_names(),
+            trait_impls: std::collections::HashSet::new(),
+            type_bounds: Vec::new(),
             type_params: Vec::new(),
             list_type_params: vec!["T".into()],
             map_type_params: vec!["K".into(), "V".into()],
@@ -300,6 +314,11 @@ impl<'a> Checker<'a> {
             checker.leave();
         }
         checker.check_recursive_types();
+        for (m, module) in modules.iter().enumerate() {
+            checker.enter(m);
+            checker.collect_traits(&module.program);
+            checker.leave();
+        }
         for (m, module) in modules.iter().enumerate() {
             checker.enter(m);
             checker.collect_functions(&module.program);
@@ -387,6 +406,7 @@ impl<'a> Checker<'a> {
                 entry,
                 modules: checker.module_names,
                 tests,
+                methods: checker.methods,
             }),
             diags,
         )
@@ -672,6 +692,7 @@ impl<'a> Checker<'a> {
     fn check_fn(&mut self, f: &ast::FnDecl, id: FnId) -> CheckedFn {
         let sig = &self.sigs[id.0];
         self.type_params = sig.type_params.clone();
+        self.type_bounds = sig.bounds.clone();
         self.current_fn_name = sig.name.clone();
         let mut ctx = FnCtx {
             scopes: vec![HashMap::new()],

@@ -15,7 +15,10 @@
 (path_type (identifier) @type)
 ((path_type (identifier) @type.builtin)
   (#any-of? @type.builtin "Option" "Result" "List" "Map" "Box"))
-(type_parameters (identifier) @type)
+(type_parameter name: (identifier) @type)
+(type_parameter bound: (path_type (identifier) @type))
+(trait_declaration name: (type_identifier) @type)
+(trait_method name: (identifier) @function)
 (scoped_type_identifier (identifier) @module)
 
 (function_declaration name: (identifier) @function)
@@ -42,7 +45,7 @@
 (module_path) @module
 
 [
-  "fn" "struct" "enum" "impl" "let"
+  "fn" "struct" "enum" "impl" "trait" "let"
 ] @keyword
 
 [
