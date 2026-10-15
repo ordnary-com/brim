@@ -508,9 +508,15 @@ impl<'a> Checker<'a> {
         let built_in = self.def_span(def).is_none();
         diag = match suggest::similar(&name.name, names.iter().copied()) {
             Some(similar) => diag.with_help(format!("did you mean `{similar}`?")),
-            None if built_in => diag.with_note(format!(
-                "`{type_name}` has the methods `is_some`, `is_none`, `unwrap_or` and `map` (`Option`), or `is_ok`, `is_err`, `unwrap_or`, `ok` and `map` (`Result`); for anything else, use `match`"
-            )),
+            None if built_in => diag.with_note(match def {
+                Def::Enum(crate::EnumId(0)) => {
+                    "`Option` has the methods `is_some`, `is_none`, `unwrap_or` and `map`; for anything else, use `match`".to_string()
+                }
+                Def::Enum(crate::EnumId(1)) => {
+                    "`Result` has the methods `is_ok`, `is_err`, `unwrap_or`, `ok` and `map`; for anything else, use `match`".to_string()
+                }
+                _ => format!("`{type_name}` is built in and has no methods; use `match`"),
+            }),
             None => diag.with_help(format!("add it in an `impl {type_name} {{ ... }}` block")),
         };
         self.diags.push(diag);
