@@ -134,6 +134,45 @@ fn check(input: Option<&Path>, emit: Option<Emit>, ctx: &mut Context<'_>) -> Cmd
     Ok(())
 }
 
+/// Runs a program given as text, as `brim run` would run a file of that
+/// name, for embedders such as the online playground. Other modules than
+/// `std` cannot be imported. `max_steps` stops runaway programs with the
+/// run-time error `R0009`. Returns the exit code.
+pub fn run_source(name: &str, text: &str, max_steps: Option<u64>, ctx: &mut Context<'_>) -> i32 {
+    let input = Input {
+        file: SourceFile::new(name, text),
+        default_output: PathBuf::new(),
+        packages: None,
+    };
+    let result = compile(&input, None, false, ctx).and_then(|(module, map, _)| {
+        let mut host = brim_interp::Host {
+            out: ctx.stdout,
+            err: ctx.stderr,
+            input: ctx.stdin,
+            args: Vec::new(),
+            cwd: ctx.cwd.clone(),
+        };
+        let limits = brim_interp::Limits {
+            max_steps,
+            ..brim_interp::Limits::default()
+        };
+        match brim_interp::run(&module, &mut host, limits) {
+            Ok(0) => Ok(()),
+            Ok(code) => Err(code),
+            Err(trap) => {
+                let diag = trap_diagnostic(&trap);
+                report(&[diag], &map, ctx);
+                Err(exit::RUNTIME_ERROR)
+            }
+        }
+    });
+    let _ = ctx.stdout.flush();
+    match result {
+        Ok(()) => exit::SUCCESS,
+        Err(code) => code,
+    }
+}
+
 fn run_program(input: Option<&Path>, args: Vec<String>, ctx: &mut Context<'_>) -> CmdResult {
     let input = load_input(input, ctx)?;
     let (module, map, _) = compile(&input, None, false, ctx)?;

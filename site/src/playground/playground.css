@@ -1,0 +1,27 @@
+#pg { margin: 1.5rem 0 2rem; }
+.pg-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .5rem; }
+.pg-spacer { flex: 1; }
+.pg-label { font-size: .9em; opacity: .8; }
+#pg select, #pg button {
+  font: inherit; font-size: .9em; padding: .35rem .7rem; border-radius: 6px;
+  border: 1px solid var(--table-border-color, #ccc); background: var(--bg); color: var(--fg); cursor: pointer;
+}
+#pg button.pg-primary { background: var(--links, #b0480f); border-color: var(--links, #b0480f); color: #fff; font-weight: 600; }
+#pg button:disabled { opacity: .6; cursor: progress; }
+#pg-status { font-size: .85em; opacity: .75; }
+#pg textarea {
+  display: block; width: 100%; box-sizing: border-box; resize: vertical;
+  font-family: var(--mono-font, ui-monospace, Menlo, Consolas, monospace); font-size: .875em; line-height: 1.5;
+  tab-size: 4; padding: .75rem 1rem; border-radius: 6px;
+  border: 1px solid var(--table-border-color, #ccc); background: var(--quote-bg, #f6f7f9); color: var(--fg);
+}
+#pg-source { min-height: 22rem; }
+#pg-input { min-height: 4rem; margin-top: .5rem; }
+#pg details { margin: .6rem 0; }
+#pg summary { cursor: pointer; font-size: .9em; }
+#pg-output {
+  min-height: 3rem; white-space: pre-wrap; word-break: break-word; margin: 0;
+  padding: .75rem 1rem; border-radius: 6px; border: 1px solid var(--table-border-color, #ccc);
+}
+#pg-output .pg-err { color: #c4302b; }
+#pg-output .pg-note { opacity: .7; font-style: italic; }

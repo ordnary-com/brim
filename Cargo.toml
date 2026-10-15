@@ -13,6 +13,7 @@ authors = ["Ordnary"]
 [workspace.dependencies]
 brim-ast = { path = "crates/brim-ast" }
 brim-codegen = { path = "crates/brim-codegen" }
+brim-cli = { path = "crates/brim-cli" }
 brim-doc = { path = "crates/brim-doc" }
 brim-llvm-extra = { path = "crates/brim-llvm-extra" }
 brim-diagnostics = { path = "crates/brim-diagnostics" }

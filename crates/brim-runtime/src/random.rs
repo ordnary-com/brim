@@ -27,21 +27,14 @@ fn state_from(mut seed: u64) -> [u64; 4] {
     ]
 }
 
-/// A seed from the operating system: `/dev/urandom`, or the clock and the
-/// process id where that is missing.
+/// A seed from the operating system's secure source (see
+/// [`crate::crypto::random_bytes`], which also works where there is no
+/// `/dev/urandom`, such as Windows and WebAssembly).
 fn os_seed() -> u64 {
-    use std::io::Read;
-    let mut bytes = [0u8; 8];
-    if std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut bytes))
-        .is_ok()
-    {
-        return u64::from_le_bytes(bytes);
-    }
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos() as u64);
-    nanos ^ (u64::from(std::process::id()) << 32)
+    let bytes = crate::crypto::random_bytes(8);
+    let mut seed = [0u8; 8];
+    seed.copy_from_slice(&bytes);
+    u64::from_le_bytes(seed)
 }
 
 /// `random.seed(n)`: the numbers that follow are the same on every run.

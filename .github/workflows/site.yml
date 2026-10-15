@@ -7,9 +7,9 @@ name: Site
 on:
   push:
     branches: [main]
-    paths: ["site/**", "docs/**", "crates/brim-driver/std/**", "crates/brim-doc/**", ".github/workflows/site.yml"]
+    paths: ["site/**", "docs/**", "crates/**", ".cargo/**", ".github/workflows/site.yml"]
   pull_request:
-    paths: ["site/**", "docs/**", "crates/brim-driver/std/**", "crates/brim-doc/**"]
+    paths: ["site/**", "docs/**", "crates/**", ".cargo/**"]
   workflow_dispatch:
 
 permissions:
@@ -36,9 +36,16 @@ jobs:
           echo "$HOME/bin" >> "$GITHUB_PATH"
       - run: mdbook build site
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
       - uses: Swatinem/rust-cache@v2
       - name: Add the standard library reference (brim doc --std)
         run: cargo run -q --locked -p brim-cli -- doc --std -o site/book/docs/std
+      - name: Add the playground's interpreter (WebAssembly)
+        run: |
+          cargo build -q --locked --release --target wasm32-wasip1 -p brim-playground
+          node crates/brim-playground/smoke.js target/wasm32-wasip1/release/brim_playground.wasm
+          cp target/wasm32-wasip1/release/brim_playground.wasm site/book/docs/playground/brim.wasm
       - name: Add the landing page
         run: |
           cp site/landing/* site/book/

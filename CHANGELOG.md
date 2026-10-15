@@ -13,6 +13,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- An online playground (`/docs/playground.html`): the interpreter compiled to WebAssembly (`crates/brim-playground`, `wasm32-wasip1`) runs programs in the browser, in a worker, with examples, standard input, a step limit and links that carry the program.
 - `brim build` skips programs whose sources, options, C compiler and `brim` did not change since they were last built (`(up to date)`), with the cache in `$BRIM_HOME/cache`; `BRIM_NO_CACHE=1` turns all build caches off.
 - Debug information: native builds without `--release` carry DWARF line tables, a subprogram per Brim function and the variables of type `i64`, `f64` and `bool`, so lldb and gdb can stop at a Brim line, step, show the call stack with Brim names and print those variables (on macOS in a `.dSYM` next to the executable). The one `unsafe` call this needs lives in the small crate `brim-llvm-extra`.
 - `brim doc`: HTML documentation from doc comments (the `//` lines above `pub` items, and the comment at the top of each module), with linked types and a search box. `brim doc --std` documents the standard library; the site publishes that reference under `/docs/std/`.

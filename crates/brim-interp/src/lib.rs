@@ -12,7 +12,21 @@
 //! the configurable [`Limits::max_call_depth`] and report a clean run-time
 //! error instead of crashing the host process.
 
+#[cfg(not(target_family = "wasm"))]
 mod https;
+#[cfg(target_family = "wasm")]
+mod https {
+    /// WebAssembly has no libcurl: HTTPS requests fail.
+    pub(crate) fn request(
+        _method: &str,
+        _url: &str,
+        _headers: &str,
+        _body: &str,
+        _timeout: i64,
+    ) -> Result<String, String> {
+        Err("HTTPS is not available here".into())
+    }
+}
 
 use std::io::{BufRead, Write};
 use std::rc::Rc;

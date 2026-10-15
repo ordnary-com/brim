@@ -106,6 +106,20 @@ scripts/bench.py --compare before.json
 The native test suite also runs them, so their output stays the same in
 the interpreter and native code.
 
+## Playground
+
+The site's playground runs the interpreter as WebAssembly. Build and check
+it with:
+
+```sh
+rustup target add wasm32-wasip1
+cargo build --release --target wasm32-wasip1 -p brim-playground
+node crates/brim-playground/smoke.js target/wasm32-wasip1/release/brim_playground.wasm
+```
+
+The page (`site/src/playground.md`, `site/src/playground/`) loads it from
+`docs/playground/brim.wasm`, which the site workflow copies there.
+
 ## Documentation site
 
 The site in `site/` is an [mdBook](https://rust-lang.github.io/mdBook/). Its guide pages are in `site/src`; the reference pages include the files in `docs/`, so those stay the single source. Build it with:

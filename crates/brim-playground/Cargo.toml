@@ -1,0 +1,24 @@
+[package]
+name = "brim-playground"
+description = "The Brim interpreter for the browser, as WebAssembly"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+brim-cli.workspace = true
+brim-diagnostics.workspace = true
+serde_json.workspace = true
+
+# Not the workspace lints: the exports for JavaScript (src/wasm.rs) hand
+# memory across the boundary, which takes `unsafe`. The rest is safe code.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"

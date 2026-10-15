@@ -1,0 +1,4 @@
+# The playground's WebAssembly (crates/brim-playground): the checker
+# recurses on nested code, which needs more than the default 1 MiB stack.
+[target.wasm32-wasip1]
+rustflags = ["-C", "link-arg=-zstack-size=8388608"]

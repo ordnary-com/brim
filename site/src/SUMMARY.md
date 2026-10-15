@@ -5,6 +5,7 @@
 # Guide
 
 - [Getting started](getting-started.md)
+- [Playground](playground.md)
 - [A tour of Brim](tour.md)
 - [Projects, tests and dependencies](projects.md)
 - [Tools and editors](tools.md)

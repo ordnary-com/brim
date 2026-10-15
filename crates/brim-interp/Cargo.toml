@@ -12,6 +12,9 @@ authors.workspace = true
 brim-diagnostics.workspace = true
 brim-ir.workspace = true
 brim-runtime.workspace = true
+
+# libcurl for `https://`; not in WebAssembly (the playground).
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 curl.workspace = true
 
 [dev-dependencies]
