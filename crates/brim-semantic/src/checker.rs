@@ -435,8 +435,19 @@ impl<'a> Checker<'a> {
                     .collect(),
             })
             .collect();
+        let module_fns = checker
+            .scopes
+            .iter()
+            .map(|s| {
+                s.own_fns
+                    .iter()
+                    .map(|(name, id)| ((*name).to_string(), *id))
+                    .collect()
+            })
+            .collect();
         (
             Some(CheckedProgram {
+                module_fns,
                 types: checker.types,
                 structs,
                 enums,

@@ -1,0 +1,33 @@
+error[E0248]: `T` does not implement `Data`
+ --> tests/diagnostics/data_errors.brim:8:12
+  |
+8 |     return json.encode(value)
+  |            ^^^^^^^^^^^^^^^^^^ `encode` needs `Data`
+  |
+  = help: add the bound to this function's type parameter: `T: Data`
+
+error[E0248]: `Holder` does not implement `Data`
+  --> tests/diagnostics/data_errors.brim:12:11
+   |
+12 |     print(json.encode(Holder { f: fn(n: i64) -> i64 { return n } }))
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `encode` needs `Data`
+   |
+   = note: `Data` needs every value inside `Holder` to support it
+
+error[E0226]: cannot infer the type parameter `T` of function `std.json.decode`
+  --> tests/diagnostics/data_errors.brim:13:13
+   |
+13 |     let x = json.decode("1")
+   |             ^^^^^^^^^^^^^^^^ the type is not known here
+   |
+   = help: add a type annotation, for example `let x: Option[i64] = None`
+
+error[E0247]: `Data` cannot be implemented by hand
+  --> tests/diagnostics/data_errors.brim:16:6
+   |
+16 | impl Data for Holder {}
+   |      ^^^^
+   |
+   = note: every type whose values can all be turned into JSON implements `Data`
+
+error: could not compile tests/diagnostics/data_errors.brim due to 4 errors

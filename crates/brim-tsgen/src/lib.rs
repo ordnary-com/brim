@@ -11,7 +11,7 @@
 //! | `string`                     | `string`                                          |
 //! | `List[T]`                    | `T[]`                                             |
 //! | `Map[string, V]`             | `Record<string, V>`                               |
-//! | `Map[i64, V]`                | `Record<number, V>`                               |
+//! | `Map[i64, V]` (any integer)  | `Record<number, V>`                               |
 //! | `Map[bool, V]`               | `Partial<Record<"true" \| "false", V>>`           |
 //! | `Option[T]`                  | `T \| null`                                       |
 //! | `Result[T, E]`               | `{ kind: "Ok"; value: T } \| { kind: "Err"; value: E }` |
@@ -239,7 +239,9 @@ impl Generator<'_> {
                         }
                     }
                     Def::Map => match named.args[0] {
-                        Type::I64 => format!("Record<number, {}>", args[1]),
+                        Type::I64 | Type::I32 | Type::U8 | Type::U64 => {
+                            format!("Record<number, {}>", args[1])
+                        }
                         Type::Bool => format!("Partial<Record<\"true\" | \"false\", {}>>", args[1]),
                         _ => format!("Record<string, {}>", args[1]),
                     },

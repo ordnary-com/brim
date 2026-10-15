@@ -1,0 +1,16 @@
+import std.json
+
+struct Holder {
+    f: fn(i64) -> i64
+}
+
+fn encode_any[T](value: T) -> string {
+    return json.encode(value)
+}
+
+fn main() {
+    print(json.encode(Holder { f: fn(n: i64) -> i64 { return n } }))
+    let x = json.decode("1")
+}
+
+impl Data for Holder {}

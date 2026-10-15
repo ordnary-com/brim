@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Typed JSON: `json.encode(value)` and `json.decode(text)` (and `to_json`, `from_json`) for every type that implements the new built-in trait `Data`, which is every type without functions in it. The shapes match `brim gen ts`, and decoding errors give the path: `at $.tags[1]: expected a string, found a number`.
+- `?` passes the expected type on to its operand, so `let note: Note = json.decode(text)?` needs no other annotation.
 - `xs.sum()` for lists of numbers.
 - `std.process`: `run(cmd, args)` gives the exit code and the standard output and error as strings; `output(cmd, args)` gives the output of a program that succeeds. Both read the two streams at once, so large output does not block.
 - `std.fs`: `exists`, `is_dir`, `is_file`, `list`, `create_dir`, `remove`, `remove_all`, `rename`, `size`, `modified`, `read`, `write` and `append`, with the same messages in the interpreter and native code.

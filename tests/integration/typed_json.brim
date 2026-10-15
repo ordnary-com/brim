@@ -1,0 +1,72 @@
+// json.encode and json.decode: every shape, round trips and errors.
+import std.json
+
+struct Note {
+    id: i64
+    text: string
+    tags: List[string]
+    done: Option[bool]
+}
+
+enum Color {
+    Red
+    Green
+}
+
+enum Shape {
+    Circle(f64)
+    Rect(f64, f64)
+    Dot
+}
+
+enum Tree {
+    Leaf(i64)
+    Node(Box[Tree], Box[Tree])
+}
+
+fn main() {
+    let n = Note { id: 1, text: "milk \"fresh\"", tags: ["a", "b"], done: None }
+    let text = json.encode(n)
+    print(text)
+    let back: Result[Note, string] = json.decode(text)
+    print(back)
+    print(json.encode([Color.Red, Color.Green]))
+    print(json.encode([Shape.Circle(1.5), Shape.Rect(2.0, 3.0), Shape.Dot]))
+    let m: Map[i64, string] = [1: "one", 2: "two"]
+    print(json.encode(m))
+    let mb: Result[Map[i64, string], string] = json.decode(json.encode(m))
+    print(mb)
+    print(json.encode((1, "x", true)))
+    let t = Tree.Node(Box(Tree.Leaf(1)), Box(Tree.Node(Box(Tree.Leaf(2)), Box(Tree.Leaf(3)))))
+    let tt = json.encode(t)
+    print(tt)
+    let t2: Result[Tree, string] = json.decode(tt)
+    print(t2)
+    let s: Set[string] = Set(["x", "y"])
+    print(json.encode(s))
+    let shapes: Result[List[Shape], string] = json.decode("[{\"kind\":\"Circle\",\"value\":2},{\"kind\":\"Dot\"},\"Dot\"]")
+    print(shapes)
+    let bad: Result[Note, string] = json.decode("{\"id\": 1, \"text\": 5, \"tags\": []}")
+    print(bad)
+    let bad2: Result[List[Shape], string] = json.decode("[{\"kind\":\"Triangle\"}]")
+    print(bad2)
+    let bad3: Result[Note, string] = json.decode("{\"id\": 1, \"text\": \"x\", \"tags\": [\"a\", 2]}")
+    print(bad3)
+    let r: Result[i64, string] = Err("nope")
+    print(json.encode(r))
+    let small: Result[List[u8], string] = json.decode("[1, 300]")
+    print(small)
+    print(roundtrip(Shape.Rect(1.0, 2.0)))
+    print(load("{\"id\": 2, \"text\": \"tea\", \"tags\": []}"))
+    print(load("not json"))
+}
+
+fn roundtrip[T: Data](value: T) -> Result[T, string] {
+    return json.decode(json.encode(value))
+}
+
+fn load(text: string) -> Result[string, string] {
+    // The type comes from the annotation, through `?`.
+    let note: Note = json.decode(text)?
+    return Ok(note.text)
+}

@@ -24,6 +24,8 @@ impl ModuleLowerer<'_> {
         let what = match helper {
             Helper::Eq => "==",
             Helper::Show => "to_string",
+            Helper::ToJson => "to_json",
+            Helper::FromJson => "from_json",
         };
         self.module.functions.push(Function {
             name: format!("{what}[{}]", self.type_name(ty)),
@@ -46,10 +48,18 @@ const NO_SPAN: Span = Span { start: 0, end: 0 };
 impl<'m, 'p> FnLowerer<'m, 'p> {
     pub(super) fn helper(m: &'m mut ModuleLowerer<'p>, helper: Helper, ty: Type) -> Function {
         let ir_ty = m.ir_type(ty);
-        let (params, ret, ret_ir): (&[&str], _, _) = match helper {
-            Helper::Eq => (&["a", "b"], Type::Bool, IrType::Bool),
-            Helper::Show => (&["value"], Type::String, IrType::Str),
+        let (params, ret): (Vec<(&str, IrType)>, Type) = match helper {
+            Helper::Eq => (vec![("a", ir_ty), ("b", ir_ty)], Type::Bool),
+            Helper::Show => (vec![("value", ir_ty)], Type::String),
+            Helper::ToJson => (vec![("value", ir_ty)], m.json_type()),
+            Helper::FromJson => {
+                let json = m.json_type();
+                let json_ir = m.ir_type(json);
+                let result = m.result_of(ty);
+                (vec![("value", json_ir), ("path", IrType::Str)], result)
+            }
         };
+        let ret_ir = m.ir_type(ret);
         let mut lowerer = FnLowerer {
             m,
             type_args: Vec::new(),
@@ -62,9 +72,9 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 ret: ret_ir,
                 slots: params
                     .iter()
-                    .map(|name| Slot {
+                    .map(|(name, ty)| Slot {
                         name: (*name).to_string(),
-                        ty: ir_ty,
+                        ty: *ty,
                     })
                     .collect(),
                 values: Vec::new(),
@@ -78,6 +88,8 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         match helper {
             Helper::Eq => lowerer.eq_body(ty),
             Helper::Show => lowerer.show_body(ty),
+            Helper::ToJson => lowerer.encode_body(ty),
+            Helper::FromJson => lowerer.decode_body(ty),
         }
         lowerer.func
     }
@@ -120,16 +132,16 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
 
     // ---- small pieces -----------------------------------------------------
 
-    fn load(&mut self, slot: SlotId) -> ValueId {
+    pub(super) fn load(&mut self, slot: SlotId) -> ValueId {
         let ty = self.func.slots[slot.index()].ty;
         self.emit_value(InstKind::Load(slot), ty, NO_SPAN)
     }
 
-    fn int(&mut self, v: i64) -> ValueId {
+    pub(super) fn int(&mut self, v: i64) -> ValueId {
         self.emit_value(InstKind::Const(Const::I64(v)), IrType::I64, NO_SPAN)
     }
 
-    fn text(&mut self, s: &str) -> ValueId {
+    pub(super) fn text(&mut self, s: &str) -> ValueId {
         self.emit_value(
             InstKind::Const(Const::Str(s.to_string())),
             IrType::Str,
@@ -137,18 +149,18 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         )
     }
 
-    fn concat(&mut self, a: ValueId, b: ValueId) -> ValueId {
+    pub(super) fn concat(&mut self, a: ValueId, b: ValueId) -> ValueId {
         let kind = InstKind::CallRuntime(RuntimeFn::StrConcat, vec![a, b]);
         self.emit_value(kind, IrType::Str, NO_SPAN)
     }
 
-    fn int_op(&mut self, op: brim_ir::BinaryOp, a: ValueId, b: ValueId) -> ValueId {
+    pub(super) fn int_op(&mut self, op: brim_ir::BinaryOp, a: ValueId, b: ValueId) -> ValueId {
         let ty = op.signature().1;
         self.emit_value(InstKind::Binary(op, a, b), ty, NO_SPAN)
     }
 
     /// Continues in a new block when `cond` holds, else jumps to `otherwise`.
-    fn require(&mut self, cond: ValueId, otherwise: BlockId) {
+    pub(super) fn require(&mut self, cond: ValueId, otherwise: BlockId) {
         let next = self.new_block();
         self.terminate(Terminator::Branch {
             cond,
@@ -159,14 +171,14 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
     }
 
     /// Field `index` of the value in `slot`.
-    fn field(&mut self, slot: SlotId, index: usize, ty: Type) -> ValueId {
+    pub(super) fn field(&mut self, slot: SlotId, index: usize, ty: Type) -> ValueId {
         let v = self.load(slot);
         let ir_ty = self.m.ir_type(ty);
         self.emit_value(InstKind::Extract(v, index), ir_ty, NO_SPAN)
     }
 
     /// The value in the box in `slot`.
-    fn boxed(&mut self, slot: SlotId, inner: Type) -> ValueId {
+    pub(super) fn boxed(&mut self, slot: SlotId, inner: Type) -> ValueId {
         let b = self.load(slot);
         let zero = self.int(0);
         let ir_ty = self.m.ir_type(inner);
@@ -175,7 +187,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
 
     /// The concrete types of the fields of a struct, or of each variant's
     /// payload of an enum.
-    fn struct_fields(&mut self, ty: Type) -> Vec<(String, Type)> {
+    pub(super) fn struct_fields(&mut self, ty: Type) -> Vec<(String, Type)> {
         let Type::Named(id) = ty else {
             unreachable!("structs are named")
         };
@@ -190,7 +202,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             .collect()
     }
 
-    fn enum_variants(&mut self, ty: Type) -> Vec<(String, Vec<Type>)> {
+    pub(super) fn enum_variants(&mut self, ty: Type) -> Vec<(String, Vec<Type>)> {
         let Type::Named(id) = ty else {
             unreachable!("enums are named")
         };
@@ -213,7 +225,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
     }
 
     /// The element type of a list, or the key and value types of a map.
-    fn type_args_of(&self, ty: Type) -> (Def, Vec<Type>) {
+    pub(super) fn type_args_of(&self, ty: Type) -> (Def, Vec<Type>) {
         let Type::Named(id) = ty else {
             unreachable!("a named type")
         };
@@ -223,7 +235,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
 
     /// A loop over `0..len`: calls `body` with the index slot in a new block
     /// and continues after the loop.
-    fn count_loop(
+    pub(super) fn count_loop(
         &mut self,
         len: impl Fn(&mut Self) -> ValueId,
         body: impl FnOnce(&mut Self, SlotId),

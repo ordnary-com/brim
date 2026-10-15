@@ -275,12 +275,90 @@ impl<'a> Checker<'a> {
         CheckedExpr { kind, ty, span }
     }
 
+    /// std.json's `__to_json(value)` (a `Json`) and `__from_json(json)` (a
+    /// `Result[T, string]`, with `T` from the expected type).
+    fn check_json_intrinsic(
+        &mut self,
+        callee: &ast::Ident,
+        args: &[ast::Expr],
+        span: Span,
+        expected: Option<Type>,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        let json_ty = match self.type_by_name.get("Json") {
+            Some(&def @ Def::Enum(_)) => self.types.intern(def, Vec::new()),
+            _ => {
+                self.diags.push(
+                    Diagnostic::error(format!("`{}` is only for std.json", callee.name))
+                        .with_code("E0213")
+                        .with_primary(callee.span, ""),
+                );
+                return error_expr(span);
+            }
+        };
+        if callee.name == "__to_json" {
+            let checked: Vec<CheckedExpr> = args.iter().map(|a| self.check_expr(a, ctx)).collect();
+            let [value] = checked.as_slice() else {
+                self.diags.push(
+                    Diagnostic::error("`__to_json` takes 1 argument")
+                        .with_code("E0205")
+                        .with_primary(span, ""),
+                );
+                return error_expr(span);
+            };
+            if !self.implements(value.ty, super::traits::DATA) {
+                let shown = self.show(value.ty);
+                self.diags.push(
+                    Diagnostic::error(format!("`{shown}` does not implement `Data`"))
+                        .with_code("E0248")
+                        .with_primary(value.span, "cannot be turned into JSON"),
+                );
+                return error_expr(span);
+            }
+            return CheckedExpr {
+                kind: CheckedExprKind::Intrinsic {
+                    op: Intrinsic::ToJson,
+                    args: checked,
+                },
+                ty: json_ty,
+                span,
+            };
+        }
+        let Some(checked) = self.fixed_args(&callee.name, &[json_ty], args, span, ctx) else {
+            return error_expr(span);
+        };
+        let target = expected.and_then(|t| match t {
+            Type::Named(id) => {
+                let named = self.types.get(id);
+                (named.def == Def::Enum(EnumId(1)) && named.args[1] == Type::String).then_some(t)
+            }
+            _ => None,
+        });
+        let Some(ty) = target else {
+            self.diags.push(
+                Diagnostic::error("`__from_json` needs a `Result[T, string]` to be expected")
+                    .with_code("E0206")
+                    .with_primary(span, ""),
+            );
+            return error_expr(span);
+        };
+        CheckedExpr {
+            kind: CheckedExprKind::Intrinsic {
+                op: Intrinsic::FromJson,
+                args: checked,
+            },
+            ty,
+            span,
+        }
+    }
+
     /// A call of a built-in function with a non-primitive type.
     pub(super) fn check_intrinsic_call(
         &mut self,
         callee: &ast::Ident,
         args: &[ast::Expr],
         span: Span,
+        expected: Option<Type>,
         ctx: &mut FnCtx,
     ) -> Option<CheckedExpr> {
         if callee.name == "string_from_bytes" {
@@ -288,6 +366,9 @@ impl<'a> Checker<'a> {
         }
         if brim_stdlib::is_internal(&callee.name) && !self.in_std_module() {
             return None;
+        }
+        if callee.name == "__to_json" || callee.name == "__from_json" {
+            return Some(self.check_json_intrinsic(callee, args, span, expected, ctx));
         }
         let (op, params, ret) = intrinsic_function(&callee.name)?;
         let params = match op {

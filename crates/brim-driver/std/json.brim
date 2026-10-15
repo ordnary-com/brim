@@ -233,6 +233,181 @@ fn hex_digit(n: i64) -> string {
     return "0123456789abcdef".slice(n, n + 1)
 }
 
+// ---- typed values ------------------------------------------------------
+//
+// Any value whose type implements `Data` (every type without functions in
+// it) converts to JSON and back, in the shape `brim gen ts` declares:
+//
+//   struct Note { id: i64, text: string, tags: List[string] }
+//
+//   let text = json.encode(Note { id: 1, text: "milk", tags: [] })
+//   // {"id":1,"text":"milk","tags":[]}
+//   let note: Note = json.decode(text)?
+//
+// Structs are objects; `Option` is the value or `null`; an enum without
+// payloads is its variant's name, others `{"kind": "A", "value": ...}`;
+// tuples and sets are arrays; maps are objects with the keys as text.
+// Decoding reports where it failed: `at $.tags[2]: expected a string,
+// found a number`.
+
+// A value as compact JSON text.
+pub fn encode[T: Data](value: T) -> string {
+    return stringify(__to_json(value))
+}
+
+// A value as a `Json`.
+pub fn to_json[T: Data](value: T) -> Json {
+    return __to_json(value)
+}
+
+// A value of type `T` from JSON text.
+pub fn decode[T: Data](text: string) -> Result[T, string] {
+    let value = parse(text)?
+    return __from_json(value)
+}
+
+// A value of type `T` from a `Json`.
+pub fn from_json[T: Data](value: Json) -> Result[T, string] {
+    return __from_json(value)
+}
+
+// The rest of this section is called by the code the compiler generates for
+// `to_json` and `from_json`.
+
+fn data_error(path: string, expected: string, found: Json) -> string {
+    let what = match found {
+        Json.Null => "null"
+        Json.Bool(_) => "a bool"
+        Json.Number(_) => "a number"
+        Json.Str(_) => "a string"
+        Json.Array(_) => "an array"
+        Json.Object(_) => "an object"
+    }
+    return f"at {path}: expected {expected}, found {what}"
+}
+
+fn data_i64(value: Json, path: string) -> Result[i64, string] {
+    match value.as_int() {
+        Some(n) => return Ok(n)
+        None => return Err(data_error(path, "a whole number", value))
+    }
+}
+
+fn data_i32(value: Json, path: string) -> Result[i32, string] {
+    let n = data_i64(value, path)?
+    if n < -2147483648 || n > 2147483647 {
+        return Err(f"at {path}: {n} does not fit in i32")
+    }
+    return Ok(to_i32(n))
+}
+
+fn data_u8(value: Json, path: string) -> Result[u8, string] {
+    let n = data_i64(value, path)?
+    if n < 0 || n > 255 {
+        return Err(f"at {path}: {n} does not fit in u8")
+    }
+    return Ok(to_u8(n))
+}
+
+fn data_u64(value: Json, path: string) -> Result[u64, string] {
+    let n = data_i64(value, path)?
+    if n < 0 {
+        return Err(f"at {path}: {n} does not fit in u64")
+    }
+    return Ok(to_u64(n))
+}
+
+fn data_f64(value: Json, path: string) -> Result[f64, string] {
+    match value.as_float() {
+        Some(x) => return Ok(x)
+        None => return Err(data_error(path, "a number", value))
+    }
+}
+
+fn data_bool(value: Json, path: string) -> Result[bool, string] {
+    match value.as_bool() {
+        Some(b) => return Ok(b)
+        None => return Err(data_error(path, "a bool", value))
+    }
+}
+
+fn data_string(value: Json, path: string) -> Result[string, string] {
+    match value.as_string() {
+        Some(text) => return Ok(text)
+        None => return Err(data_error(path, "a string", value))
+    }
+}
+
+fn data_array(value: Json, path: string) -> Result[List[Json], string] {
+    match value.as_array() {
+        Some(items) => return Ok(items)
+        None => return Err(data_error(path, "an array", value))
+    }
+}
+
+// An array of exactly `n` values, for a tuple or a variant's payload.
+fn data_tuple(value: Json, path: string, n: i64) -> Result[List[Json], string] {
+    let items = data_array(value, path)?
+    if items.len() != n {
+        return Err(f"at {path}: expected {n} values, found {items.len()}")
+    }
+    return Ok(items)
+}
+
+fn data_object(value: Json, path: string) -> Result[Map[string, Json], string] {
+    match value.as_object() {
+        Some(members) => return Ok(members)
+        None => return Err(data_error(path, "an object", value))
+    }
+}
+
+// A member of an object; `null` when it is missing, so an `Option` field
+// can be left out.
+fn data_member(members: Map[string, Json], name: string) -> Json {
+    match members.get(name) {
+        Some(value) => return value
+        None => return Json.Null
+    }
+}
+
+// The variant name of an enum value: `"Red"` or `{"kind": "Red", ...}`.
+fn data_kind(value: Json, path: string, type_name: string) -> Result[string, string] {
+    match value {
+        Json.Str(name) => return Ok(name)
+        Json.Object(members) => {
+            match data_member(members, "kind") {
+                Json.Str(name) => return Ok(name)
+                _ => return Err(f"at {path}: expected a {type_name} with a \"kind\"")
+            }
+        }
+        _ => return Err(data_error(path, f"a {type_name}", value))
+    }
+}
+
+// The payload of an enum value: its `"value"` member.
+fn data_payload(value: Json) -> Json {
+    match value {
+        Json.Object(members) => return data_member(members, "value")
+        _ => return Json.Null
+    }
+}
+
+fn data_unknown_variant(path: string, kind: string, type_name: string) -> string {
+    return f"at {path}: {type_name} has no variant \"{kind}\""
+}
+
+// A map key read back as JSON, for keys that are not strings: `"7"` is a
+// number and `"true"` a bool.
+fn data_key(key: string) -> Json {
+    if key == "true" || key == "false" {
+        return Json.Bool(key == "true")
+    }
+    match key.parse_int() {
+        Some(_) => return Json.Number(key)
+        None => return Json.Str(key)
+    }
+}
+
 // ---- parsing -----------------------------------------------------------
 
 // Parses JSON text. Errors say what is wrong and where, counting

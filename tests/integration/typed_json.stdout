@@ -1,0 +1,19 @@
+{"id":1,"text":"milk \"fresh\"","tags":["a","b"],"done":null}
+Ok(Note { id: 1, text: "milk \"fresh\"", tags: ["a", "b"], done: None })
+["Red","Green"]
+[{"kind":"Circle","value":1.5},{"kind":"Rect","value":[2.0,3.0]},{"kind":"Dot"}]
+{"1":"one","2":"two"}
+Ok([1: "one", 2: "two"])
+[1,"x",true]
+{"kind":"Node","value":[{"kind":"Leaf","value":1},{"kind":"Node","value":[{"kind":"Leaf","value":2},{"kind":"Leaf","value":3}]}]}
+Ok(Node(Leaf(1), Node(Leaf(2), Leaf(3))))
+["x","y"]
+Ok([Circle(2.0), Dot, Dot])
+Err("at $.text: expected a string, found a number")
+Err("at $[0]: Shape has no variant \"Triangle\"")
+Err("at $.tags[1]: expected a string, found a number")
+{"kind":"Err","value":"nope"}
+Err("at $[1]: 300 does not fit in u8")
+Ok(Rect(1.0, 2.0))
+Ok("tea")
+Err("expected null at character 2")

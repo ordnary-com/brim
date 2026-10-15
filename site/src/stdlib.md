@@ -614,6 +614,48 @@ fn age_next_year(text: string) -> Result[i64, string] {
 | `value.as_string()`, `as_int()`, `as_float()`, `as_bool()`, `as_array()`, `as_object()` | `Option` of the contents |
 | `value.is_null()`, `value.kind()` | `"null"`, `"bool"`, `"number"`, `"string"`, `"array"` or `"object"` |
 
+### Typed values
+
+`json.encode(value)` writes any value as JSON, and `json.decode(text)`
+reads it back into the type that is expected. Structs become objects,
+`Option` is the value or `null`, enums are `"Red"` or
+`{"kind": "Circle", "value": 1.5}`, and lists, sets and tuples are arrays:
+the same shapes `brim gen ts` declares for TypeScript.
+
+```brim
+import std.json
+
+struct Note {
+    id: i64
+    text: string
+    tags: List[string]
+}
+
+fn main() {
+    let text = json.encode(Note { id: 1, text: "milk", tags: ["shop"] })
+    print(text)
+    match read("{\"id\": 2, \"text\": \"tea\", \"tags\": [7]}") {
+        Ok(note) => print(note)
+        Err(e) => print(e)
+    }
+}
+
+fn read(text: string) -> Result[Note, string] {
+    let note: Note = json.decode(text)?
+    return Ok(note)
+}
+```
+
+```text
+{"id":1,"text":"milk","tags":["shop"]}
+at $.tags[0]: expected a string, found a number
+```
+
+Every type without functions in it implements the built-in trait `Data`;
+generic code that encodes or decodes a `T` needs `T: Data`.
+`json.to_json(value)` and `json.from_json(json)` do the same with a
+`json.Json` instead of text.
+
 `examples/http/notes.brim` combines `std.http` and `std.json` into a small
 JSON API.
 

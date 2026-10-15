@@ -49,6 +49,7 @@ use brim_semantic::checked::{
 use brim_semantic::{Def, Type, TypeTable};
 
 mod helpers;
+mod json;
 
 /// Lowers a checked program to IR.
 pub fn lower(program: &CheckedProgram) -> Module {
@@ -172,6 +173,11 @@ enum Helper {
     Eq,
     /// `fn(value: T) -> str`: the value as `print` shows it.
     Show,
+    /// `fn(value: T) -> Json`: the value as std.json's `Json`.
+    ToJson,
+    /// `fn(value: Json, path: str) -> Result[T, string]`: a value read
+    /// from JSON; `path` (`$.items[2]`) is where, for errors.
+    FromJson,
 }
 
 /// A function whose body still has to be lowered.
@@ -2266,6 +2272,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         result_ty: brim_semantic::Type,
         span: Span,
     ) -> ValueId {
+        let first_ty = args.first().map(|a| a.ty);
         let args = self.values(&args.iter().collect::<Vec<_>>());
         let (i64_ty, bool_ty, str_ty) = (IrType::I64, IrType::Bool, IrType::Str);
         let enum_ty = self.concrete(result_ty);
@@ -2333,6 +2340,15 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             Intrinsic::Args => self.runtime(RuntimeFn::Args, vec![], ty, span),
             Intrinsic::FsList => self.runtime(RuntimeFn::FsList, args, ty, span),
             Intrinsic::ProcessRun => self.runtime(RuntimeFn::ProcessRun, args, ty, span),
+            Intrinsic::ToJson => {
+                let value_ty = self.concrete(first_ty.expect("one argument"));
+                self.encode_value(args[0], value_ty)
+            }
+            Intrinsic::FromJson => {
+                let (_, type_args) = self.type_args_of(enum_ty);
+                let path = self.emit_value(InstKind::Const(Const::Str("$".into())), str_ty, span);
+                self.decode_value(args[0], path, type_args[0])
+            }
         }
     }
 

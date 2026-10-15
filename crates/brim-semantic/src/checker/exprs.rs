@@ -152,7 +152,7 @@ impl<'a> Checker<'a> {
                     ty,
                 )
             }
-            ast::ExprKind::Try(operand) => return self.check_try(operand, span, ctx),
+            ast::ExprKind::Try(operand) => return self.check_try(operand, span, expected, ctx),
             ast::ExprKind::ListLit(items) => {
                 return self.check_list_lit(items, span, expected, ctx);
             }
@@ -203,8 +203,26 @@ impl<'a> Checker<'a> {
 
     /// `operand?`. The built-in enums are `Option` (`EnumId(0)`) and
     /// `Result` (`EnumId(1)`); in both, variant 0 holds the value.
-    fn check_try(&mut self, operand: &ast::Expr, span: Span, ctx: &mut FnCtx) -> CheckedExpr {
-        let operand = self.check_expr(operand, ctx);
+    fn check_try(
+        &mut self,
+        operand: &ast::Expr,
+        span: Span,
+        expected: Option<Type>,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        // `let p: Point = json.decode(text)?`: the operand is an `Option` or
+        // `Result` of the expected type, like the function's result. Its
+        // error type is left open, since `?` may convert it.
+        let hint = expected.and_then(|t| {
+            let (e, _) = self.as_enum(ctx.ret).filter(|(e, _)| e.0 <= 1)?;
+            let args = if e.0 == 1 {
+                vec![t, Type::Error]
+            } else {
+                vec![t]
+            };
+            Some(self.types.intern(Def::Enum(e), args))
+        });
+        let operand = self.check_expr_with(operand, hint, ctx);
         if operand.ty == Type::Error {
             return error_expr(span);
         }
@@ -2415,7 +2433,7 @@ impl<'a> Checker<'a> {
         if let Some(target) = int_target {
             return self.check_int_cast(name, target, args, span, ctx);
         }
-        if let Some(result) = self.check_intrinsic_call(callee, args, span, ctx) {
+        if let Some(result) = self.check_intrinsic_call(callee, args, span, expected, ctx) {
             return result;
         }
 

@@ -54,6 +54,8 @@ pub struct CheckedProgram {
     /// Methods by the struct or enum they belong to and their name; trait
     /// calls are resolved through this when lowering.
     pub methods: std::collections::HashMap<(Def, String), FnId>,
+    /// The free functions of each module by name, indexed like `modules`.
+    pub module_fns: Vec<std::collections::HashMap<String, FnId>>,
 }
 
 #[derive(Clone, Debug)]
@@ -96,6 +98,12 @@ pub struct CheckedVariant {
 }
 
 impl CheckedProgram {
+    /// The free function `name` of the module named `module`.
+    pub fn module_fn(&self, module: &str, name: &str) -> Option<FnId> {
+        let index = self.modules.iter().position(|m| m == module)?;
+        self.module_fns[index].get(name).copied()
+    }
+
     pub fn enum_def(&self, id: EnumId) -> &CheckedEnum {
         &self.enums[id.0]
     }
@@ -535,6 +543,11 @@ pub enum Intrinsic {
     /// std.process: `__process_run(cmd, args)`, the exit code (sets the last
     /// error).
     ProcessRun,
+    /// std.json: `__to_json(value)`, a value as a `Json`.
+    ToJson,
+    /// std.json: `__from_json(json)`, a `Result[T, string]` of the
+    /// expression's type.
+    FromJson,
     /// `s.find(t)`: `Option[i64]`.
     StrFind,
     /// `s.parse_int()`: `Option[i64]`.
