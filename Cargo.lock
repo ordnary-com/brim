@@ -39,6 +39,7 @@ dependencies = [
  "brim-manifest",
  "brim-package",
  "brim-parser",
+ "brim-runtime",
  "brim-semantic",
  "brim-tsgen",
 ]

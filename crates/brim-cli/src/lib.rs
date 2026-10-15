@@ -347,6 +347,49 @@ fn gen_ts(
     }
 }
 
+/// Where builds keep what they can reuse: `$BRIM_HOME/cache`, unless
+/// `BRIM_NO_CACHE` is set.
+fn build_cache_dir() -> Option<PathBuf> {
+    if std::env::var_os("BRIM_NO_CACHE").is_some_and(|v| !v.is_empty()) {
+        return None;
+    }
+    brim_package::default_home().map(|home| home.join("cache"))
+}
+
+/// The file that records what an output was last built from, and what it
+/// would be built from now: the compiler (path and time, so a rebuilt
+/// compiler counts), the options, the C compiler and every source file.
+fn build_stamp(cache: &Path, output: &Path, map: &SourceMap, release: bool) -> (PathBuf, String) {
+    let hex = |bytes: &[u8]| -> String {
+        brim_runtime::crypto::sha256(bytes)[..16]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    };
+    let compiler = std::env::current_exe().ok();
+    let compiler_time = compiler
+        .as_ref()
+        .and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    let mut key = format!(
+        "{}\n{compiler:?}\n{compiler_time}\n{release}\n{:?}\n{:?}\n",
+        env!("CARGO_PKG_VERSION"),
+        std::env::var("BRIM_CC").ok(),
+        std::env::var("CC").ok(),
+    );
+    for file in map.files() {
+        key.push_str(file.name());
+        key.push('\n');
+        key.push_str(&hex(file.text().as_bytes()));
+        key.push('\n');
+    }
+    let path = cache
+        .join("builds")
+        .join(hex(output.display().to_string().as_bytes()));
+    (path, hex(key.as_bytes()))
+}
+
 fn doc(input: Option<&Path>, output: Option<&Path>, std: bool, ctx: &mut Context<'_>) -> CmdResult {
     // The parsed modules with their texts, and the title.
     let mut parsed: Vec<(String, brim_ast::Program, String, usize)> = Vec::new();
@@ -636,6 +679,18 @@ fn build(
         );
         return Err(exit::INPUT);
     }
+    let cache_dir = build_cache_dir();
+    // Nothing changed since the last build of this output: keep it.
+    let stamp = cache_dir
+        .as_ref()
+        .map(|dir| build_stamp(dir, &output, &map, release));
+    if let Some((path, key)) = &stamp
+        && output.is_file()
+        && std::fs::read_to_string(path).is_ok_and(|k| k == *key)
+    {
+        let _ = writeln!(ctx.stderr, "built {} (up to date)", shown.display());
+        return Ok(());
+    }
     let options = brim_codegen::BuildOptions {
         output,
         opt_level: if release {
@@ -644,10 +699,15 @@ fn build(
             brim_codegen::OptLevel::Debug
         },
         source: map,
-        cache_dir: brim_package::default_home().map(|home| home.join("cache")),
+        cache_dir,
     };
     match brim_codegen::native_backend().build(&module, &options) {
         Ok(_) => {
+            if let Some((path, key)) = stamp
+                && let Some(dir) = path.parent()
+            {
+                let _ = std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&path, key));
+            }
             let _ = writeln!(ctx.stderr, "built {}", shown.display());
             Ok(())
         }

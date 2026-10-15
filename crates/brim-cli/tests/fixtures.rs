@@ -308,6 +308,31 @@ fn native_suite(release: bool) {
     );
 }
 
+/// A build whose sources and options did not change keeps the executable.
+#[cfg(feature = "llvm")]
+#[test]
+fn unchanged_builds_are_skipped() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("up-to-date");
+    fs::create_dir_all(&dir).unwrap();
+    let source = dir.join("main.brim");
+    fs::write(&source, "fn main() {\n    print(1)\n}\n").unwrap();
+    let exe = dir.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    let (source, exe) = (
+        source.to_string_lossy().into_owned(),
+        exe.to_string_lossy().into_owned(),
+    );
+    let _ = brim(&["build", &source, "-o", &exe]);
+    let again = brim(&["build", &source, "-o", &exe]);
+    assert!(again.stderr.ends_with("(up to date)\n"), "{}", again.stderr);
+    let release = brim(&["build", "--release", &source, "-o", &exe]);
+    assert!(!release.stderr.contains("up to date"), "{}", release.stderr);
+    fs::write(&source, "fn main() {\n    print(2)\n}\n").unwrap();
+    let changed = brim(&["build", &source, "-o", &exe]);
+    assert!(!changed.stderr.contains("up to date"), "{}", changed.stderr);
+    let out = std::process::Command::new(&exe).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "2\n");
+}
+
 /// Debug builds carry DWARF line tables for debuggers: in a `.dSYM` next to
 /// the executable on macOS, in the executable elsewhere.
 #[cfg(feature = "llvm")]

@@ -13,8 +13,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- `brim build` skips programs whose sources, options, C compiler and `brim` did not change since they were last built (`(up to date)`), with the cache in `$BRIM_HOME/cache`; `BRIM_NO_CACHE=1` turns all build caches off.
 - Debug information: native builds without `--release` carry DWARF line tables, a subprogram per Brim function and the variables of type `i64`, `f64` and `bool`, so lldb and gdb can stop at a Brim line, step, show the call stack with Brim names and print those variables (on macOS in a `.dSYM` next to the executable). The one `unsafe` call this needs lives in the small crate `brim-llvm-extra`.
-
 - `brim doc`: HTML documentation from doc comments (the `//` lines above `pub` items, and the comment at the top of each module), with linked types and a search box. `brim doc --std` documents the standard library; the site publishes that reference under `/docs/std/`.
 - The language server completes names, a module's items after `module.` and the fields and methods of a value's type after `value.`; finds references; renames across files; shows signature help in calls; offers quick fixes for diagnostics whose help says what to write (a similar name, `let mut`, a missing import, `2.0`); and shows inferred types on hover. It uses a new index from the checker (`brim_semantic::index_modules`) of what every name refers to, which is there also for programs with errors.
 

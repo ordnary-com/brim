@@ -109,6 +109,15 @@ pub fn add_note(text: string) -> Result[Note, NoteError] {
 A project's documentation goes to `target/doc` (`-o DIR` picks another
 place); `brim doc --std` documents the standard library.
 
+## Build cache
+
+`brim build` keeps what it can reuse in `~/.brim/cache` (or
+`$BRIM_HOME/cache`): the compiled runtime, and for each executable what it
+was built from. A build whose source files, options, C compiler and `brim`
+are all unchanged keeps the executable and says `(up to date)`. Set
+`BRIM_NO_CACHE=1` to build everything again; deleting the directory is
+always safe.
+
 ## Debugging
 
 A program built without `--release` carries debug information (DWARF), so

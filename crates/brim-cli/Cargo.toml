@@ -35,6 +35,7 @@ brim-package.workspace = true
 brim-parser.workspace = true
 brim-semantic.workspace = true
 brim-tsgen.workspace = true
+brim-runtime.workspace = true
 brim-doc.workspace = true
 
 [dev-dependencies]
