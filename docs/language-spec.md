@@ -106,6 +106,14 @@ escape         = '\' ( 'n' | 'r' | 't' | '0' | '\' | '"' )
 - `\u{...}` must denote a Unicode scalar value: not a surrogate and at most `10FFFF`.
 - Any other escape is error `E0003`.
 
+#### 3.5.1 f-strings
+
+```ebnf
+fstring = 'f"' { string_char | escape | '{{' | '}}' | '{' expression '}' } '"' ;
+```
+
+An **f-string** puts values in text: `f"Hello, {name}! Next year you are {age + 1}."`. Each `{expression}` is shown as `print` shows it: strings as they are, numbers and booleans as `to_string` writes them, and structs, enums, lists and maps as in section 5.8. A value that cannot be shown (a function, or a call that returns nothing) is `E0206`. `{{` and `}}` are a `{` and `}` in the text, and a lone `}` is `E0001`. The expressions may contain strings and other f-strings, and the whole f-string must end on its line. A string without the `f` keeps every `{` as it is, so JSON in a string needs no escaping.
+
 ### 3.6 Operators and punctuation
 
 ```

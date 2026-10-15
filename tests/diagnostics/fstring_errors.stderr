@@ -1,0 +1,21 @@
+error[E0206]: a `fn()` cannot be shown in an f-string
+ --> tests/diagnostics/fstring_errors.brim:5:16
+  |
+5 |     print(f"a {f} b")
+  |                ^ no text form
+  |
+  = note: f-strings show numbers, booleans, strings, and structs, enums, lists and maps of them
+
+error[E0206]: this value cannot be shown in an f-string
+ --> tests/diagnostics/fstring_errors.brim:6:16
+  |
+6 |     print(f"c {nothing()} d")
+  |                ^^^^^^^^^ calls a function that returns nothing
+
+error[E0200]: undefined variable `missing`
+ --> tests/diagnostics/fstring_errors.brim:7:16
+  |
+7 |     print(f"e {missing} f")
+  |                ^^^^^^^ not found in this scope
+
+error: could not compile tests/diagnostics/fstring_errors.brim due to 3 errors

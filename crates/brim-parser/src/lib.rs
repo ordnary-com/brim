@@ -21,9 +21,10 @@
 //! phases.
 
 use brim_ast::{
-    BinaryOp, Block, ConstDecl, EnumDecl, Expr, ExprKind, FieldDecl, FieldInit, FnDecl, ForIter,
-    Ident, ImplDecl, ImportDecl, MatchArm, Param, Pattern, PatternKind, PlaceElem, Program,
-    Receiver, Stmt, StmtKind, StructDecl, TraitDecl, TraitMethod, TypeExpr, UnaryOp, VariantDecl,
+    BinaryOp, Block, ConstDecl, EnumDecl, Expr, ExprKind, FStringPart, FieldDecl, FieldInit,
+    FnDecl, ForIter, Ident, ImplDecl, ImportDecl, MatchArm, Param, Pattern, PatternKind, PlaceElem,
+    Program, Receiver, Stmt, StmtKind, StructDecl, TraitDecl, TraitMethod, TypeExpr, UnaryOp,
+    VariantDecl,
 };
 use brim_diagnostics::{Diagnostic, Span};
 use brim_lexer::{Token, TokenKind, lex};
@@ -872,6 +873,33 @@ impl Parser {
             ret: Some(Box::new(ret)),
             span,
         })
+    }
+
+    /// The rest of an f-string after its `StrHead`: values and text up to
+    /// the `StrTail`.
+    fn fstring(&mut self, head: String, start: Span) -> PResult<Expr> {
+        let mut parts = vec![FStringPart::Text(head)];
+        loop {
+            let value = self.in_parens(|p| p.expr())?;
+            parts.push(FStringPart::Value(value));
+            let token = self.peek().clone();
+            match token.kind {
+                TokenKind::StrMid(text) => {
+                    self.bump();
+                    parts.push(FStringPart::Text(text));
+                }
+                TokenKind::StrTail(text) => {
+                    self.bump();
+                    parts.push(FStringPart::Text(text));
+                    parts.retain(|p| !matches!(p, FStringPart::Text(t) if t.is_empty()));
+                    return Ok(Expr {
+                        kind: ExprKind::FString(parts),
+                        span: start.to(token.span),
+                    });
+                }
+                _ => return Err(self.error_unexpected("`}` to end the value in the f-string")),
+            }
+        }
     }
 
     /// `fn(x: i64) -> i64 { ... }` in an expression.
@@ -2015,6 +2043,10 @@ impl Parser {
                 return self.collection_literal(token.span);
             }
             TokenKind::Fn => return self.lambda(),
+            TokenKind::StrHead(text) => {
+                self.bump();
+                return self.fstring(text, token.span);
+            }
             // `if` and `match` as values: parsed as the statements, whose
             // blocks are newline-sensitive even inside parentheses.
             TokenKind::If | TokenKind::Match => {

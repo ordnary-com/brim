@@ -381,3 +381,31 @@ fn sign(n: i64) -> string {
             (wildcard_pattern)
             (expression_statement
               (identifier))))))))
+
+==================
+F-strings
+==================
+
+fn main() {
+    print(f"Hello, {name}! {{ {a + 1}")
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (expression_statement
+        (call_expression
+          (identifier)
+          (arguments
+            (fstring
+              (interpolation
+                (identifier))
+              (escape_sequence)
+              (interpolation
+                (binary_expression
+                  (identifier)
+                  (integer))))))))))

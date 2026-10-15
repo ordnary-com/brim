@@ -21,6 +21,12 @@ pub enum TokenKind {
     Float(u64),
     /// A string literal, with escape sequences already processed.
     Str(String),
+    /// An f-string with values in it, `f"a {x} b {y} c"`, is the tokens
+    /// `StrHead("a ")`, those of `x`, `StrMid(" b ")`, those of `y` and
+    /// `StrTail(" c")`. An f-string without values is a `Str`.
+    StrHead(String),
+    StrMid(String),
+    StrTail(String),
 
     // Keywords.
     Fn,
@@ -143,6 +149,9 @@ impl TokenKind {
             TokenKind::Int(_) => "integer literal".to_string(),
             TokenKind::Float(_) => "floating-point literal".to_string(),
             TokenKind::Str(_) => "string literal".to_string(),
+            TokenKind::StrHead(_) | TokenKind::StrMid(_) | TokenKind::StrTail(_) => {
+                "part of an f-string".to_string()
+            }
             TokenKind::Reserved(word) => format!("reserved keyword `{word}`"),
             TokenKind::Unknown => "invalid character".to_string(),
             TokenKind::Newline => "newline".to_string(),
@@ -159,6 +168,9 @@ impl fmt::Display for TokenKind {
             TokenKind::Int(value) => return write!(f, "{value}"),
             TokenKind::Float(bits) => return write!(f, "{}", f64::from_bits(*bits)),
             TokenKind::Str(value) => return write!(f, "{value:?}"),
+            TokenKind::StrHead(value) => return write!(f, "f\"{value}{{"),
+            TokenKind::StrMid(value) => return write!(f, "}}{value}{{"),
+            TokenKind::StrTail(value) => return write!(f, "}}{value}\""),
             TokenKind::Fn => "fn",
             TokenKind::Let => "let",
             TokenKind::Return => "return",

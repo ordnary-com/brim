@@ -74,6 +74,7 @@ impl<'a> Checker<'a> {
             ast::ExprKind::Str(value) => (CheckedExprKind::Str(value.clone()), Type::String),
             ast::ExprKind::Name(ident) => return self.check_name(ident, expected, ctx),
             ast::ExprKind::Branch(stmt) => return self.check_branch_value(stmt, expected, ctx).0,
+            ast::ExprKind::FString(parts) => return self.check_fstring(parts, span, ctx),
             ast::ExprKind::Lambda { params, ret, body } => {
                 return self.check_lambda(params, ret.as_ref(), body, span, ctx);
             }
@@ -1700,6 +1701,92 @@ impl<'a> Checker<'a> {
             },
         };
         self.diags.push(diag);
+    }
+
+    /// `f"text {value} text"`: the pieces joined, each value shown as
+    /// `print` shows it (strings as they are).
+    fn check_fstring(
+        &mut self,
+        parts: &[ast::FStringPart],
+        span: Span,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        let mut pieces = Vec::with_capacity(parts.len());
+        let mut failed = false;
+        for part in parts {
+            let piece = match part {
+                ast::FStringPart::Text(text) => CheckedExpr {
+                    kind: CheckedExprKind::Str(text.clone()),
+                    ty: Type::String,
+                    span,
+                },
+                ast::FStringPart::Value(value) => {
+                    let value = self.check_expr(value, ctx);
+                    match value.ty {
+                        Type::Error => {
+                            failed = true;
+                            continue;
+                        }
+                        Type::String => value,
+                        ty if ty != Type::Void
+                            && self.not_comparable(ty, super::traits::SHOW).is_none() =>
+                        {
+                            CheckedExpr {
+                                span: value.span,
+                                ty: Type::String,
+                                kind: CheckedExprKind::Show(Box::new(value)),
+                            }
+                        }
+                        Type::Void => {
+                            self.diags.push(
+                                Diagnostic::error("this value cannot be shown in an f-string")
+                                    .with_code("E0206")
+                                    .with_primary(
+                                        value.span,
+                                        "calls a function that returns nothing",
+                                    ),
+                            );
+                            failed = true;
+                            continue;
+                        }
+                        ty => {
+                            let shown = self.show(ty);
+                            self.diags.push(
+                                Diagnostic::error(format!(
+                                    "a `{shown}` cannot be shown in an f-string"
+                                ))
+                                .with_code("E0206")
+                                .with_primary(value.span, "no text form")
+                                .with_note(
+                                    "f-strings show numbers, booleans, strings, and structs, enums, lists and maps of them",
+                                ),
+                            );
+                            failed = true;
+                            continue;
+                        }
+                    }
+                }
+            };
+            pieces.push(piece);
+        }
+        if failed {
+            return error_expr(span);
+        }
+        let mut pieces = pieces.into_iter();
+        let first = pieces.next().unwrap_or(CheckedExpr {
+            kind: CheckedExprKind::Str(String::new()),
+            ty: Type::String,
+            span,
+        });
+        pieces.fold(first, |joined, piece| CheckedExpr {
+            kind: CheckedExprKind::Binary {
+                op: BinaryOp::StrConcat,
+                lhs: Box::new(joined),
+                rhs: Box::new(piece),
+            },
+            ty: Type::String,
+            span,
+        })
     }
 
     /// The parameter and return types of a function type.

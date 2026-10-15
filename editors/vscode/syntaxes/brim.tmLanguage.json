@@ -20,6 +20,22 @@
     "strings": {
       "patterns": [
         {
+          "name": "string.interpolated.brim",
+          "begin": "\\bf\"",
+          "end": "\"|$",
+          "patterns": [
+            { "name": "constant.character.escape.brim", "match": "\\\\[nrt0\"\\\\]|\\\\u\\{[0-9a-fA-F]{1,6}\\}|\\{\\{|\\}\\}" },
+            {
+              "name": "meta.embedded.interpolation.brim",
+              "begin": "\\{",
+              "end": "\\}",
+              "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.brim" } },
+              "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.brim" } },
+              "patterns": [{ "include": "$self" }]
+            }
+          ]
+        },
+        {
           "name": "string.quoted.double.brim",
           "begin": "\"",
           "end": "\"|$",

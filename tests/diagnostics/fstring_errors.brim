@@ -1,0 +1,8 @@
+fn nothing() {}
+
+fn main() {
+    let f: fn() = nothing
+    print(f"a {f} b")
+    print(f"c {nothing()} d")
+    print(f"e {missing} f")
+}

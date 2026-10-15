@@ -6,6 +6,8 @@
 (integer) @number
 (float) @number
 (string) @string
+(fstring) @string
+(interpolation ["{" "}"] @punctuation.special)
 (escape_sequence) @string.escape
 (boolean) @boolean
 (self) @variable.special

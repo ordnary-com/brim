@@ -504,6 +504,20 @@ error: not a number: old
 
 ## Strings and the standard library
 
+An f-string puts values in text:
+
+```brim
+fn main() {
+    let name = "Ada"
+    let langs = ["en", "fr"]
+    print(f"{name} speaks {langs.len()} languages: {langs}")
+}
+```
+
+```text
+Ada speaks 2 languages: ["en", "fr"]
+```
+
 ```brim
 fn main() {
     let line: string = "  Brim is small, Brim is fast  "

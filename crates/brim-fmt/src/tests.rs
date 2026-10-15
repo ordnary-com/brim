@@ -125,3 +125,13 @@ fn closing_a_block_inside_call_arguments() {
     let src = "fn main() {\n    print(run(fn(x: i64) -> i64 {\n        return x\n    }, 10))\n}\n";
     assert_eq!(fmt(src), src);
 }
+
+#[test]
+fn fstrings_keep_their_text() {
+    let src = "fn main() {\n    print(f\"{a + b} and {xs[0]}!{{x}}\")\n}\n";
+    assert_eq!(fmt(src), src);
+    assert_eq!(
+        fmt("fn main() {\n    print(f\"{a+b}\")\n}\n"),
+        "fn main() {\n    print(f\"{a + b}\")\n}\n"
+    );
+}

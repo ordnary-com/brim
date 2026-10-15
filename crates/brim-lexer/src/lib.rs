@@ -21,6 +21,7 @@ pub fn lex(src: &str) -> (Vec<Token>, Vec<Diagnostic>) {
         pos: 0,
         tokens: Vec::new(),
         diags: Vec::new(),
+        interpolations: Vec::new(),
     };
     lexer.run();
     (lexer.tokens, lexer.diags)
@@ -32,6 +33,9 @@ struct Lexer<'a> {
     pos: usize,
     tokens: Vec<Token>,
     diags: Vec<Diagnostic>,
+    /// For each f-string value being lexed (innermost last): the `{`s
+    /// opened inside it and not closed yet, and where the f-string began.
+    interpolations: Vec<(usize, usize)>,
 }
 
 impl Lexer<'_> {
@@ -75,9 +79,36 @@ impl Lexer<'_> {
         while let Some(c) = self.peek() {
             let start = self.pos;
             match c {
+                '\n' if !self.interpolations.is_empty() => {
+                    let (_, string_start) = self.interpolations[0];
+                    self.unterminated_string(string_start);
+                    self.interpolations.clear();
+                }
                 '\n' => {
                     self.bump();
                     self.push(TokenKind::Newline, start);
+                }
+                'f' if self.peek_second() == Some('"') => {
+                    self.bump();
+                    self.fstring_part(start, None);
+                }
+                '{' if !self.interpolations.is_empty() => {
+                    self.interpolations.last_mut().expect("not empty").0 += 1;
+                    self.punct(c);
+                }
+                // The end of a value in an f-string: the string goes on.
+                '}' if self
+                    .interpolations
+                    .last()
+                    .is_some_and(|(open, _)| *open == 0) =>
+                {
+                    let (_, string_start) = self.interpolations.pop().expect("checked");
+                    self.bump();
+                    self.fstring_part(start, Some(string_start));
+                }
+                '}' if !self.interpolations.is_empty() => {
+                    self.interpolations.last_mut().expect("not empty").0 -= 1;
+                    self.punct(c);
                 }
                 ' ' | '\t' | '\r' => {
                     self.bump();
@@ -249,6 +280,76 @@ impl Lexer<'_> {
             }
         }
         self.push(TokenKind::Str(value), start);
+    }
+
+    /// The text of an f-string up to its next value or its end: from its
+    /// opening `"`, or after the `}` of a value (`resumed` is then where the
+    /// f-string began).
+    fn fstring_part(&mut self, start: usize, resumed: Option<usize>) {
+        let first = resumed.is_none();
+        if first {
+            self.bump(); // opening quote
+        }
+        let string_start = resumed.unwrap_or(start);
+        let mut value = String::new();
+        let ends_string = loop {
+            let Some(c) = self.peek() else {
+                self.unterminated_string(string_start);
+                break true;
+            };
+            match c {
+                '"' => {
+                    self.bump();
+                    break true;
+                }
+                '\n' => {
+                    self.unterminated_string(string_start);
+                    break true;
+                }
+                '\\' => {
+                    if let Some(decoded) = self.escape() {
+                        value.push(decoded);
+                    }
+                }
+                '{' if self.peek_second() == Some('{') => {
+                    self.bump();
+                    self.bump();
+                    value.push('{');
+                }
+                '}' if self.peek_second() == Some('}') => {
+                    self.bump();
+                    self.bump();
+                    value.push('}');
+                }
+                '{' => {
+                    self.bump();
+                    break false;
+                }
+                '}' => {
+                    self.bump();
+                    self.diags.push(
+                        Diagnostic::error("unmatched `}` in an f-string")
+                            .with_code("E0001")
+                            .with_primary(Span::new(self.pos - 1, self.pos), "")
+                            .with_help("write `}}` for a `}` in the text"),
+                    );
+                }
+                _ => {
+                    self.bump();
+                    value.push(c);
+                }
+            }
+        };
+        let kind = match (first, ends_string) {
+            (true, true) => TokenKind::Str(value),
+            (true, false) => TokenKind::StrHead(value),
+            (false, false) => TokenKind::StrMid(value),
+            (false, true) => TokenKind::StrTail(value),
+        };
+        self.push(kind, start);
+        if !ends_string {
+            self.interpolations.push((0, string_start));
+        }
     }
 
     fn unterminated_string(&mut self, start: usize) {
@@ -546,6 +647,38 @@ mod tests {
                 TokenKind::Dot,
                 TokenKind::Ident("x".into()),
                 TokenKind::Eof
+            ]
+        );
+    }
+
+    #[test]
+    fn fstrings_split_around_their_values() {
+        use TokenKind::*;
+        assert_eq!(
+            kinds(r#"f"a {x} b {f(1)}{{c}}""#),
+            vec![
+                StrHead("a ".into()),
+                ident("x"),
+                StrMid(" b ".into()),
+                ident("f"),
+                LParen,
+                Int(1),
+                RParen,
+                StrTail("{c}".into()),
+                Eof
+            ]
+        );
+        // Without values it is a plain string; braces in a value nest.
+        assert_eq!(kinds(r#"f"plain {{}}""#), vec![Str("plain {}".into()), Eof]);
+        assert_eq!(
+            kinds(r#"f"{ {1} }""#),
+            vec![
+                StrHead(String::new()),
+                LBrace,
+                Int(1),
+                RBrace,
+                StrTail(String::new()),
+                Eof
             ]
         );
     }

@@ -127,6 +127,14 @@ pub struct MatchArm {
     pub span: Span,
 }
 
+/// A piece of an f-string.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FStringPart {
+    Text(String),
+    /// A value shown as text, as `print` shows it.
+    Value(Expr),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pattern {
     pub kind: PatternKind,
@@ -353,6 +361,8 @@ pub enum ExprKind {
     Bool(bool),
     /// A string literal with escapes already decoded.
     Str(String),
+    /// `f"Hello, {name}!"`: text and values, in order.
+    FString(Vec<FStringPart>),
     /// A reference to a variable or parameter.
     Name(Ident),
     /// `fn(x: i64) -> i64 { ... }`: a function value, which can use the
@@ -498,6 +508,18 @@ impl fmt::Display for Expr {
             ExprKind::Float(bits) => write!(f, "{:?}", f64::from_bits(*bits)),
             ExprKind::Bool(v) => write!(f, "{v}"),
             ExprKind::Str(v) => write!(f, "{v:?}"),
+            ExprKind::FString(parts) => {
+                f.write_str("f\"")?;
+                for part in parts {
+                    match part {
+                        FStringPart::Text(text) => {
+                            f.write_str(&text.replace('{', "{{").replace('}', "}}"))?;
+                        }
+                        FStringPart::Value(value) => write!(f, "{{{value}}}")?,
+                    }
+                }
+                f.write_str("\"")
+            }
             ExprKind::Name(ident) => f.write_str(&ident.name),
             ExprKind::Lambda { params, .. } => {
                 let names: Vec<&str> = params.iter().map(|p| p.name.name.as_str()).collect();

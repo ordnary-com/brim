@@ -1,0 +1,21 @@
+// f-strings: values in `{...}` are shown as `print` shows them.
+
+struct Point {
+    x: i64
+    y: i64
+}
+
+fn main() {
+    let name = "Ada"
+    let age = 36
+    print(f"Hello, {name}! You are {age}.")
+    print(f"Next year: {age + 1}, half: {to_float(age) / 2.0}")
+    let p = Point { x: 1, y: 2 }
+    print(f"p = {p}, list = {[1, 2]}, maybe = {Some(name)}")
+    print(f"{{literal}} braces and {"nested " + f"f-{age}"}")
+    let ok = age > 18
+    let small: u8 = 7
+    print(f"adult: {ok}, small: {small}, if: {if ok { "yes" } else { "no" }}")
+    print(f"plain")
+    print(f"{name}")
+}

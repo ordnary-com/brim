@@ -283,6 +283,7 @@ module.exports = grammar({
         $.integer,
         $.float,
         $.string,
+        $.fstring,
         $.boolean,
         $.identifier,
         $.self,
@@ -403,6 +404,23 @@ module.exports = grammar({
     float: (_) => /[0-9][0-9_]*(\.[0-9][0-9_]*([eE][+-]?[0-9]+)?|[eE][+-]?[0-9]+)/,
 
     string: ($) => seq('"', repeat(choice($.escape_sequence, token.immediate(/[^"\\\n]+/))), '"'),
+
+    // `f"Hello, {name}!"`
+    fstring: ($) =>
+      seq(
+        'f"',
+        repeat(
+          choice(
+            $.escape_sequence,
+            alias(token.immediate(choice('{{', '}}')), $.escape_sequence),
+            token.immediate(/[^"\\\n{}]+/),
+            $.interpolation,
+          ),
+        ),
+        '"',
+      ),
+
+    interpolation: ($) => seq('{', $._expression, '}'),
 
     escape_sequence: (_) => token.immediate(choice(/\\[nrt0\\"]/, /\\u\{[0-9a-fA-F]{1,6}\}/)),
 

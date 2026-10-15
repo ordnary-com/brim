@@ -261,6 +261,11 @@ fn space_between(
 ) -> bool {
     use TokenKind as T;
     let tight = stack.last().is_some_and(|o| o.tight);
+    // The values in an f-string are written as they are: `f"{a + b}"`.
+    if matches!(prev, T::StrHead(_) | T::StrMid(_)) || matches!(next, T::StrMid(_) | T::StrTail(_))
+    {
+        return false;
+    }
     match next {
         T::RParen
         | T::RBracket
