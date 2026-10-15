@@ -1,0 +1,7 @@
+fn nothing() {}
+
+fn main() {
+    let empty = []
+    let none = None
+    let v = nothing()
+}

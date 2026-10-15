@@ -1,10 +1,9 @@
-error[E0102]: variable `count` needs a type annotation
- --> tests/parser/missing_type_annotation.brim:2:9
+error[E0102]: parameter `count` needs a type
+ --> tests/parser/missing_type_annotation.brim:1:11
   |
-2 |     let count = 10
-  |         ^^^^^ missing type annotation
+1 | fn double(count) -> i64 {
+  |           ^^^^^ missing type annotation
   |
-  = note: type inference is not supported yet
-  = help: write `let count: TYPE = ...`, for example `let count: i64 = 0`
+  = help: write `count: i64` (or another type)
 
 error: could not compile tests/parser/missing_type_annotation.brim due to 1 error

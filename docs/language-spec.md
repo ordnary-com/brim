@@ -147,7 +147,7 @@ terminator  = separator { separator } ;     (* see 6.1; "}" also ends a statemen
 
 statement   = let_stmt | assign_stmt | if_stmt | while_stmt | for_stmt | match_stmt
             | "break" | "continue" | return_stmt | block | expr_stmt ;
-let_stmt    = "let" [ "mut" ] identifier ":" type "=" expression ;
+let_stmt    = "let" [ "mut" ] identifier [ ":" type ] "=" expression ;
 assign_stmt = place assign_op expression ;
 place       = identifier { "." identifier | "[" expression "]" } ;
 assign_op   = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
@@ -507,6 +507,8 @@ A line that starts with a binary operator is a new statement, which is normally 
 
 `let name: T = expr` evaluates `expr`, which must have type exactly `T`, and binds it to `name` in the current scope. The binding is immutable.
 
+`let name = expr` leaves out the type: the variable gets the type of `expr`. Values whose type cannot be known on their own, such as `[]`, `[:]` and `None`, need the annotation (`E0226`), and so does an integer literal of a type other than `i64` (`let b: u8 = 200`). A call of a function that returns nothing has no value to store (`E0213`).
+
 `let mut name: T = expr` declares a **mutable** variable that may be reassigned. A `mut` variable that is never reassigned produces warning `W0003`.
 
 ### 6.3 Assignment
@@ -788,7 +790,7 @@ The standard library modules use builtins whose names start with `__` (`__net_li
 
 These questions are not settled. The current behavior is a reversible default.
 
-1. **Type inference for `let`.** Annotations are mandatory now. Local inference (`let x = 1`) is likely, but it should wait until the type system has more types.
+1. **More type inference.** `let` infers its type from the value. Inferring it from later uses (`let mut xs = []` followed by `xs.push(1)`) is not supported.
 2. **`if` as an expression.** `if` is a statement. Making it an expression (`let x: i64 = if c { 1 } else { 2 }`) is attractive but needs rules for blocks with values.
 3. **Integer types.** Only `i64` exists. Sized (`i32`, `u8`, ...) and pointer-sized types are needed for systems work. Literal typing rules depend on this.
 4. **Overflow semantics.** Checked arithmetic that traps is the current rule. Whether release builds keep the checks, and whether explicit wrapping operations are added, is open.

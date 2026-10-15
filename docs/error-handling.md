@@ -55,7 +55,7 @@ Guidelines for writing diagnostics:
 |-------|---------|
 | E0100 | Unexpected token ("expected X, found Y"), including unclosed blocks and parentheses |
 | E0101 | Reserved keyword used (`for`, `trait`, `impl`, ...): the feature is not supported yet |
-| E0102 | Missing type annotation on a `let`, a parameter or a struct field |
+| E0102 | Missing type annotation on a parameter or a struct field |
 | E0103 | Something other than a function, struct or enum declaration at the top level, or a struct or enum declared inside a function |
 | E0104 | Invalid assignment target, or a list method that changes the list called on something other than a variable (only variables, their fields and list elements can be changed) |
 | E0105 | Blocks or expressions nested too deeply (implementation limit: 128) |

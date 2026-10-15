@@ -1,0 +1,25 @@
+error[E0226]: cannot infer the element type of an empty list
+ --> tests/diagnostics/let_inference_errors.brim:4:17
+  |
+4 |     let empty = []
+  |                 ^^ the type is not known here
+  |
+  = help: add a type annotation, for example `let xs: List[i64] = []`
+
+error[E0226]: cannot infer the type parameter `T` of `None`
+ --> tests/diagnostics/let_inference_errors.brim:5:16
+  |
+5 |     let none = None
+  |                ^^^^ the type is not known here
+  |
+  = help: add a type annotation, for example `let x: Option[i64] = None`
+
+error[E0213]: `v` would have no value
+ --> tests/diagnostics/let_inference_errors.brim:6:13
+  |
+6 |     let v = nothing()
+  |             ^^^^^^^^^ this returns nothing
+  |
+  = note: the function called here returns `void`
+
+error: could not compile tests/diagnostics/let_inference_errors.brim due to 3 errors

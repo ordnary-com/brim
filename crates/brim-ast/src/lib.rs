@@ -259,7 +259,8 @@ pub enum StmtKind {
     Let {
         mutable: bool,
         name: Ident,
-        ty: TypeExpr,
+        /// `None` when the type is inferred from `init`.
+        ty: Option<TypeExpr>,
         init: Expr,
     },
     /// `target = value`, or a compound assignment such as `target += value`

@@ -1577,22 +1577,11 @@ impl Parser {
         let let_token = self.bump();
         let mutable = self.eat(&TokenKind::Mut).is_some();
         let name = self.expect_ident("a variable name")?;
-        if !self.at(&TokenKind::Colon) {
-            let mut diag =
-                Diagnostic::error(format!("variable `{}` needs a type annotation", name.name))
-                    .with_code("E0102")
-                    .with_primary(name.span, "missing type annotation")
-                    .with_help(format!(
-                        "write `let {}: TYPE = ...`, for example `let {}: i64 = 0`",
-                        name.name, name.name
-                    ));
-            if self.at(&TokenKind::Eq) {
-                diag = diag.with_note("type inference is not supported yet");
-            }
-            return Err(self.report(diag));
-        }
-        self.bump();
-        let ty = self.type_expr()?;
+        let ty = if self.eat(&TokenKind::Colon).is_some() {
+            Some(self.type_expr()?)
+        } else {
+            None
+        };
         if !self.at(&TokenKind::Eq) {
             let diag = Diagnostic::error(format!("variable `{}` must be initialised", name.name))
                 .with_code("E0100")

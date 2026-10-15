@@ -421,10 +421,10 @@ impl Analysis {
                 mutable, name, ty, ..
             } => {
                 let m = if *mutable { "mut " } else { "" };
-                consider(
-                    name,
-                    format!("let {m}{}: {}", name.name, self.text(ty.span)),
-                );
+                let ty = ty
+                    .as_ref()
+                    .map_or(String::new(), |ty| format!(": {}", self.text(ty.span)));
+                consider(name, format!("let {m}{}{ty}", name.name));
             }
             StmtKind::If {
                 then_block,

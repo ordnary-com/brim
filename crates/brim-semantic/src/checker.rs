@@ -801,6 +801,23 @@ impl<'a> Checker<'a> {
                 ty,
                 init,
             } => {
+                let Some(ty) = ty else {
+                    // `let x = value`: the variable has the value's type.
+                    let init = self.check_expr(init, ctx);
+                    let inferred = if init.ty == Type::Void {
+                        self.diags.push(
+                            Diagnostic::error(format!("`{}` would have no value", name.name))
+                                .with_code("E0213")
+                                .with_primary(init.span, "this returns nothing")
+                                .with_note("the function called here returns `void`"),
+                        );
+                        Type::Error
+                    } else {
+                        init.ty
+                    };
+                    let local = self.declare(name, inferred, *mutable, ctx);
+                    return (CheckedStmt::Let { local, init }, false);
+                };
                 let declared = self.resolve_type(ty, "a variable");
                 let expected = (declared != Type::Error).then_some(declared);
                 // With a broken annotation, "cannot infer" errors are noise.

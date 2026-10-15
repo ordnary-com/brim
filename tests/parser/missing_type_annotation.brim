@@ -1,4 +1,7 @@
+fn double(count) -> i64 {
+    return count * 2
+}
+
 fn main() {
-    let count = 10
-    print(count)
+    print(double(10))
 }

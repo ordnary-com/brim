@@ -1,0 +1,35 @@
+// `let` without a type takes the type of its value.
+
+struct Point {
+    x: i64
+    y: i64
+}
+
+fn main() {
+    let n = 41
+    let mut total = n + 1
+    total += 1
+    let name = "brim"
+    let ratio = 0.5
+    let p = Point { x: 1, y: 2 }
+    let words = ["a", "b"]
+    let ages = ["ada": 36]
+    let first = words[0]
+    let maybe = name.find("r")
+    let double = fn(x: i64) -> i64 {
+        return x * 2
+    }
+    print(total)
+    print(name + "!")
+    print(ratio * 4.0)
+    print(p)
+    print(words)
+    print(ages)
+    print(first)
+    print(maybe)
+    print(double(21))
+    // An annotation still decides the type of a literal.
+    let small: u8 = 200
+    let copy = small
+    print(copy + 55)
+}

@@ -67,7 +67,7 @@ fn main() {
     };
     assert!(!mutable);
     assert_eq!(name.name, "name");
-    assert_eq!(ty.name.name, "string");
+    assert_eq!(ty.as_ref().unwrap().name.name, "string");
     assert_eq!(init.to_string(), "\"Ordnary\"");
     let StmtKind::Expr(call) = &main.body.stmts[1].kind else {
         panic!("expected expression statement");
@@ -199,10 +199,9 @@ fn error_unclosed_block() {
 
 #[test]
 fn error_missing_type_annotation() {
-    assert_eq!(
-        errors("fn main() {\n    let x = 5\n}"),
-        vec![("E0102", "variable `x` needs a type annotation".to_string())]
-    );
+    // `let` may leave out the type, but not the value.
+    parse_ok("fn main() {\n    let x = 5\n}");
+    assert_eq!(codes("fn main() {\n    let x\n}"), vec!["E0100"]);
     assert_eq!(codes("fn f(a) {}"), vec!["E0102"]);
 }
 
