@@ -27,7 +27,7 @@ The release workflow (`.github/workflows/release.yml`) builds:
 | Archive | Contents |
 |---------|----------|
 | `brim-X.Y.Z-linux-x86_64`, `-linux-aarch64`, `-macos-aarch64`, `-windows-x86_64` | `brim` with the interpreter and all tools (`run`, `check`, `test`, `fmt`, `gen`, `lsp`, ...), without native builds |
-| `brim-X.Y.Z-linux-x86_64-native`, `-macos-aarch64-native` | the same, with the LLVM backend linked in for `brim build` (which also needs a C compiler) |
+| `brim-X.Y.Z-linux-x86_64-native`, `-macos-aarch64-native`, `-windows-x86_64-native` | the same, with the LLVM backend linked in for `brim build` (which also needs a C compiler: `clang` with the Visual Studio C++ build tools on Windows) |
 
 Each archive holds `brim`, the README, the license and the changelog. The
 Linux builds need glibc 2.34 or newer (Ubuntu 22.04, Debian 12, Fedora 35

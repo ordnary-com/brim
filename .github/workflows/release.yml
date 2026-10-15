@@ -29,6 +29,7 @@ jobs:
           # `brim` with the LLVM backend linked in (`brim build`).
           - { name: linux-x86_64-native, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, llvm: true }
           - { name: macos-aarch64-native, os: macos-14, target: aarch64-apple-darwin, llvm: true }
+          - { name: windows-x86_64-native, os: windows-2022, target: x86_64-pc-windows-msvc, llvm: true }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +54,33 @@ jobs:
           # `-lzstd` finds libzstd.a, so the binary does not need Homebrew.
           # llvm-config itself keeps using libzstd.1.dylib.
           rm -f "$(brew --prefix zstd)/lib/libzstd.dylib"
+      - name: Install LLVM 22 (Windows)
+        if: matrix.llvm && runner.os == 'Windows'
+        shell: bash
+        run: |
+          version=22.1.8
+          curl -fsSL -o llvm.tar.xz "https://github.com/llvm/llvm-project/releases/download/llvmorg-$version/clang+llvm-$version-x86_64-pc-windows-msvc.tar.xz"
+          mkdir -p /c/llvm
+          tar -xf llvm.tar.xz -C /c/llvm --strip-components=1
+          echo "LLVM_SYS_221_PREFIX=C:\llvm" >> "$GITHUB_ENV"
+          # The LLVM release uses the static C runtime (with its own malloc).
+          echo "RUSTFLAGS=-C target-feature=+crt-static" >> "$GITHUB_ENV"
+      - name: Libraries for LLVM (Windows)
+        if: matrix.llvm && runner.os == 'Windows'
+        # See the native-windows job in ci.yml: an empty xml2s.lib, and the
+        # system import libraries where rustc looks for static ones.
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments "-arch=x64"
+          Set-Content empty.c "static int brim_empty;"
+          cl /nologo /c empty.c
+          lib /nologo /OUT:C:\llvm\lib\xml2s.lib empty.obj
+          $um = ($env:LIB -split ';' | Where-Object { $_ -and (Test-Path "$_\psapi.lib") } | Select-Object -First 1)
+          foreach ($name in "psapi", "shell32", "ole32", "uuid", "advapi32", "ws2_32", "ntdll", "kernel32") {
+            Copy-Item "$um\$name.lib" C:\llvm\lib\
+          }
       - name: Build
         shell: bash
         run: |
@@ -71,7 +99,9 @@ jobs:
             exit 1
           fi
           if [ "${{ matrix.llvm }}" = "true" ]; then
-            "$bin" build examples/hello.brim -o target/hello && target/hello
+            hello="target/hello"
+            if [ "${{ runner.os }}" = "Windows" ]; then hello="target/hello.exe"; fi
+            "$bin" build examples/hello.brim -o "$hello" && "$hello"
           fi
       - name: Package
         id: package

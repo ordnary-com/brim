@@ -50,6 +50,8 @@ target/debug/brim build --release -o /tmp/app examples/control_flow.brim
 
 Without `LLVM_SYS_221_PREFIX`, `llvm-sys` looks for `llvm-config` on `PATH`, which is often a different LLVM version.
 
+On Windows, use the release archive `clang+llvm-22.x-x86_64-pc-windows-msvc.tar.xz` from the LLVM releases (it has `llvm-config.exe`), unpacked to for example `C:\llvm`, with `C:\llvm\bin` on `PATH` for `clang`, which links native programs with the Visual Studio C++ build tools. That LLVM uses the static C runtime, so build with `RUSTFLAGS="-C target-feature=+crt-static"`; it also names `xml2s.lib` and expects the system libraries (`psapi`, `ws2_32`, ...) next to its own. The `native-windows` job in `.github/workflows/ci.yml` shows each step. The C runtime has a Windows version of every system call (`#ifdef _WIN32`); `x86_64-w64-mingw32-gcc -std=c11 -Wall -c crates/brim-codegen/runtime/brim_rt.c` checks that it compiles without a Windows machine.
+
 To debug memory management in a native executable, run it with `BRIM_RT_CHECK=1`: use of a freed string aborts, and leaked strings are reported when the program ends. The differential tests always set it. When changing how the backend handles strings, also check that the tests still fail when a retain or release is removed.
 
 ## Test layout

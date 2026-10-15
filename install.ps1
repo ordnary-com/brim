@@ -14,14 +14,20 @@ if (-not $version) {
 }
 $version = $version.TrimStart("v")
 
-$archive = "brim-$version-windows-x86_64.zip"
 $base = "https://github.com/$repo/releases/download/v$version"
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid())
 New-Item -ItemType Directory $tmp | Out-Null
 try {
-    Write-Host "downloading brim $version (windows-x86_64)"
-    Invoke-WebRequest "$base/$archive" -OutFile "$tmp\$archive"
     Invoke-WebRequest "$base/SHA256SUMS" -OutFile "$tmp\SHA256SUMS"
+    # The build with native compilation (`brim build`) when the release has
+    # one, else the interpreter and tools.
+    $platform = "windows-x86_64-native"
+    if (-not (Select-String -Path "$tmp\SHA256SUMS" -Pattern "brim-$version-$platform.zip" -SimpleMatch -Quiet)) {
+        $platform = "windows-x86_64"
+    }
+    $archive = "brim-$version-$platform.zip"
+    Write-Host "downloading brim $version ($platform)"
+    Invoke-WebRequest "$base/$archive" -OutFile "$tmp\$archive"
     $line = Get-Content "$tmp\SHA256SUMS" | Where-Object { $_ -match " $([regex]::Escape($archive))$" }
     if (-not $line) { throw "$archive is not listed in SHA256SUMS" }
     $expected = ($line -split " ")[0]
@@ -32,7 +38,7 @@ try {
     $dir = $env:BRIM_INSTALL
     if (-not $dir) { $dir = Join-Path $env:LOCALAPPDATA "Programs\brim" }
     New-Item -ItemType Directory -Force $dir | Out-Null
-    Copy-Item "$tmp\brim-$version-windows-x86_64\brim.exe" "$dir\brim.exe" -Force
+    Copy-Item "$tmp\brim-$version-$platform\brim.exe" "$dir\brim.exe" -Force
 
     $path = [Environment]::GetEnvironmentVariable("Path", "User")
     if (($path -split ";") -notcontains $dir) {
@@ -40,6 +46,9 @@ try {
         Write-Host "added $dir to your PATH; open a new terminal to use it"
     }
     Write-Host "installed $(& "$dir\brim.exe" --version) in $dir"
+    if ($platform -like "*-native" -and -not (Get-Command clang -ErrorAction SilentlyContinue)) {
+        Write-Host "brim build needs clang and the Visual Studio C++ build tools to link; brim run works without them"
+    }
 } finally {
     Remove-Item -Recurse -Force $tmp
 }
