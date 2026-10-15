@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-15
+
 ### Added
 
 - `std.postgres`: a PostgreSQL client written in Brim. `connect(url)`, `query` and `execute` with `$1` parameters, `query_as` into structs (through `Data`), `transaction`, and logins with SCRAM-SHA-256, MD5 or a plain password. A CI job runs it against a real server.
