@@ -1044,6 +1044,16 @@ fn call_runtime(
             Value::I64(0),
             Value::I64,
         ),
+        RuntimeFn::NetNextReady => net(
+            state,
+            |n| n.next_ready(args[0].i64(), args[1].i64()),
+            Value::I64(0),
+            Value::I64,
+        ),
+        RuntimeFn::NetKeep => {
+            state.sockets.keep(args[0].i64(), args[1].i64());
+            None
+        }
         RuntimeFn::NetConnect => net(
             state,
             |n| n.connect(s(0), args[1].i64()),

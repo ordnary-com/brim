@@ -19,9 +19,12 @@
 //   let response: http.Response = http.get("http://127.0.0.1:8080/hello")?
 //   print(response.body)
 //
-// Header names are kept in lower case. Every connection is closed after
-// one request and its response. `https://` requests go through libcurl,
-// which native programs then link with.
+// Header names are kept in lower case. A server keeps connections open
+// for more requests (HTTP keep-alive) unless the client asks to close
+// them; quiet ones are closed after five seconds. Requests are handled one
+// at a time. A client closes its connection after each response.
+// `https://` requests go through libcurl, which native programs then link
+// with.
 //
 // `serve_api(module, request)` answers requests for a module's `pub fn`s,
 // `POST /api/<name>` with the parameters as a JSON object; see the
@@ -41,6 +44,9 @@ pub struct Request {
     pub headers: Map[string, string],
     pub body: string,
     conn: net.Conn,
+    // The listener to give the connection back to after the response, for
+    // the next request on it; `None` closes it.
+    keep_with: Option[net.Listener],
 }
 
 // A response: from a server, or to a client.
@@ -77,6 +83,7 @@ pub fn new_request(method: string, path: string, body: string) -> Request {
         headers: [:],
         body: body,
         conn: net.closed(),
+        keep_with: None,
     }
 }
 
@@ -192,16 +199,17 @@ impl Server {
     // over the limit 413; the server then waits for the next request.
     pub fn next(self) -> Result[Request, string] {
         while true {
-            let conn: net.Conn = self.listener.accept()?
+            // A kept connection may stay quiet for five seconds.
+            let conn: net.Conn = self.listener.next_ready(5000)?
             // A client gets ten seconds to send its request.
             conn.set_timeout(10000)?
-            match read_request(conn, self.max_body) {
+            match read_request(conn, self.max_body, self.listener) {
                 Ok(request) => {
                     conn.set_timeout(0)?
                     return Ok(request)
                 }
                 Err(refusal) => {
-                    send(conn, text(refusal.status, refusal.message + "\n"), false)
+                    send(conn, text(refusal.status, refusal.message + "\n"), false, false)
                     conn.close()
                 }
             }
@@ -225,10 +233,30 @@ impl Request {
         return self.query.get(name)
     }
 
-    // Sends the response and closes the connection.
+    // Sends the response. The connection then stays open for the client's
+    // next request, unless the client or the response (a `connection:
+    // close` header) asks to close it.
     pub fn respond(self, r: Response) -> Result[i64, string] {
-        let sent: Result[i64, string] = send(self.conn, r, self.method == "HEAD")
-        self.conn.close()
+        let mut keep_with: Option[net.Listener] = self.keep_with
+        match r.header("connection") {
+            Some(value) => {
+                if value.to_lower() == "close" {
+                    keep_with = None
+                }
+            }
+            None => {}
+        }
+        let sent: Result[i64, string] = send(self.conn, r, self.method == "HEAD", keep_with.is_some())
+        match keep_with {
+            Some(listener) => {
+                if sent.is_ok() {
+                    listener.keep(self.conn)
+                } else {
+                    self.conn.close()
+                }
+            }
+            None => self.conn.close()
+        }
         return sent
     }
 }
@@ -238,7 +266,7 @@ fn max_head() -> i64 {
     return 65536
 }
 
-fn read_request(conn: net.Conn, max_body: i64) -> Result[Request, Refusal] {
+fn read_request(conn: net.Conn, max_body: i64, listener: net.Listener) -> Result[Request, Refusal] {
     let mut head: string = ""
     match conn.read_until_max("\r\n\r\n", max_head()) {
         Ok(text) => head = text
@@ -287,6 +315,14 @@ fn read_request(conn: net.Conn, max_body: i64) -> Result[Request, Refusal] {
             return Err(refuse(400, e))
         }
     }
+    // HTTP/1.1 keeps the connection unless asked not to; HTTP/1.0 only
+    // when asked to.
+    let asked = headers.get("connection").unwrap_or("").to_lower()
+    let keep = if parts[2] == "HTTP/1.1" {
+        asked != "close"
+    } else {
+        asked == "keep-alive"
+    }
     return Ok(Request {
         method: method,
         path: path,
@@ -294,17 +330,27 @@ fn read_request(conn: net.Conn, max_body: i64) -> Result[Request, Refusal] {
         headers: headers,
         body: body,
         conn: conn,
+        keep_with: if keep {
+            Some(listener)
+        } else {
+            None
+        },
     })
 }
 
-fn send(conn: net.Conn, r: Response, head_only: bool) -> Result[i64, string] {
+fn send(conn: net.Conn, r: Response, head_only: bool, keep: bool) -> Result[i64, string] {
     let mut out: string = "HTTP/1.1 " + to_string(r.status) + " " + reason(r.status) + "\r\n"
     for name in r.headers.keys() {
         if name != "content-length" && name != "connection" {
             out = out + name + ": " + r.headers[name] + "\r\n"
         }
     }
-    out = out + "content-length: " + to_string(r.body.len()) + "\r\nconnection: close\r\n\r\n"
+    let connection = if keep {
+        "keep-alive"
+    } else {
+        "close"
+    }
+    out = out + "content-length: " + to_string(r.body.len()) + "\r\nconnection: " + connection + "\r\n\r\n"
     if !head_only {
         out = out + r.body
     }

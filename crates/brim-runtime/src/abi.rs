@@ -241,6 +241,13 @@ runtime_fns! {
     NetWrite = "brim_rt_net_write" (I64, Str) -> I64;
     /// Closes a socket. Closing an unknown or closed handle does nothing.
     NetClose = "brim_rt_net_close" (I64) -> Void;
+    /// Gives a connection back to its listener to wait for more (HTTP
+    /// keep-alive); at most 256 per listener, oldest closed first.
+    NetKeep = "brim_rt_net_keep" (I64, I64) -> Void;
+    /// The next connection of a listener with something to read: a kept
+    /// one, or a new one. Kept connections quiet for the given milliseconds
+    /// are closed. Sets the last error.
+    NetNextReady = "brim_rt_net_next_ready" (I64, I64) -> I64;
     /// The local port of a socket.
     NetLocalPort = "brim_rt_net_local_port" (I64) -> I64;
     /// Read and write timeout in milliseconds; 0 for none.

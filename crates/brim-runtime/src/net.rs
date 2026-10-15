@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Open sockets by handle. Handles start at 1 and are never reused.
 #[derive(Debug, Default)]
@@ -13,13 +13,25 @@ pub struct Sockets {
     next: i64,
     listeners: HashMap<i64, TcpListener>,
     conns: HashMap<i64, Conn>,
+    /// Connections given back to a listener to wait for more (HTTP
+    /// keep-alive): listener, connection and since when, oldest first.
+    idle: Vec<(i64, i64, Instant)>,
 }
+
+/// The most connections one listener keeps waiting; more close the oldest.
+pub const MAX_IDLE: usize = 256;
 
 #[derive(Debug)]
 struct Conn {
     stream: TcpStream,
     /// Bytes read from the stream but not yet returned.
     buffer: Vec<u8>,
+}
+
+enum Ready {
+    Yes,
+    No,
+    Closed,
 }
 
 /// Why a network function failed, as the program sees it.
@@ -193,9 +205,122 @@ impl Sockets {
     }
 
     pub fn close(&mut self, handle: i64) {
-        self.listeners.remove(&handle);
+        if self.listeners.remove(&handle).is_some() {
+            let kept: Vec<i64> = self
+                .idle
+                .iter()
+                .filter(|(l, _, _)| *l == handle)
+                .map(|(_, c, _)| *c)
+                .collect();
+            self.idle.retain(|(l, _, _)| *l != handle);
+            for c in kept {
+                self.close(c);
+            }
+        }
+        self.idle.retain(|(_, c, _)| *c != handle);
         if let Some(conn) = self.conns.remove(&handle) {
             let _ = conn.stream.shutdown(std::net::Shutdown::Both);
+        }
+    }
+
+    /// Gives `conn` back to `listener`: `next_ready` returns it when the
+    /// other side sends more.
+    pub fn keep(&mut self, listener: i64, conn: i64) {
+        if !self.listeners.contains_key(&listener) || !self.conns.contains_key(&conn) {
+            self.close(conn);
+            return;
+        }
+        self.idle.push((listener, conn, Instant::now()));
+        let kept: Vec<usize> = (0..self.idle.len())
+            .filter(|&i| self.idle[i].0 == listener)
+            .collect();
+        if kept.len() > MAX_IDLE {
+            let (_, oldest, _) = self.idle.remove(kept[0]);
+            self.close(oldest);
+        }
+    }
+
+    /// The next connection of `listener` with something to read: a kept
+    /// one, or a new one. Kept connections quiet for `idle_ms` are closed,
+    /// and so are those the other side closed.
+    pub fn next_ready(&mut self, listener: i64, idle_ms: i64) -> Result<i64, NetError> {
+        if !self.listeners.contains_key(&listener) {
+            return Err("invalid socket".into());
+        }
+        let limit = Duration::from_millis(u64::try_from(idle_ms).unwrap_or(0));
+        loop {
+            let now = Instant::now();
+            let mut i = 0;
+            while i < self.idle.len() {
+                let (l, c, since) = self.idle[i];
+                if l != listener {
+                    i += 1;
+                    continue;
+                }
+                match self.readiness(c) {
+                    Ready::Yes => {
+                        self.idle.remove(i);
+                        return Ok(c);
+                    }
+                    Ready::Closed => {
+                        self.idle.remove(i);
+                        self.close(c);
+                    }
+                    Ready::No if now.duration_since(since) >= limit => {
+                        self.idle.remove(i);
+                        self.close(c);
+                    }
+                    Ready::No => i += 1,
+                }
+            }
+            if !self.idle.iter().any(|(l, _, _)| *l == listener) {
+                return self.accept(listener);
+            }
+            let l = &self.listeners[&listener];
+            let _ = l.set_nonblocking(true);
+            let accepted = l.accept();
+            let _ = l.set_nonblocking(false);
+            match accepted {
+                Ok((stream, _)) => {
+                    // An accepted socket can inherit non-blocking mode.
+                    let _ = stream.set_nonblocking(false);
+                    let _ = stream.set_nodelay(true);
+                    let handle = self.handle();
+                    self.conns.insert(
+                        handle,
+                        Conn {
+                            stream,
+                            buffer: Vec::new(),
+                        },
+                    );
+                    return Ok(handle);
+                }
+                Err(e) if e.kind() == ErrorKind::WouldBlock => {}
+                Err(e) => return Err(reason(&e)),
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// Whether a connection has something to read without waiting.
+    fn readiness(&mut self, handle: i64) -> Ready {
+        let Some(conn) = self.conns.get_mut(&handle) else {
+            return Ready::Closed;
+        };
+        if !conn.buffer.is_empty() {
+            return Ready::Yes;
+        }
+        let _ = conn.stream.set_nonblocking(true);
+        let mut byte = [0u8; 1];
+        let peeked = conn.stream.peek(&mut byte);
+        let _ = conn.stream.set_nonblocking(false);
+        match peeked {
+            Ok(0) => Ready::Closed,
+            Ok(_) => Ready::Yes,
+            Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted => {
+                Ready::No
+            }
+            Err(_) => Ready::Closed,
         }
     }
 

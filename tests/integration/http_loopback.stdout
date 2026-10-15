@@ -6,6 +6,11 @@ server: POST /chunks body=hello, world
 HTTP/1.1 404 Not Found | content-type: text/plain; charset=utf-8 | content-length: 9 | connection: close |  | Not Found
 server: HEAD /hi
 HTTP/1.1 200 OK | content-type: text/plain; charset=utf-8 | x-answer: 42 | content-length: 5 | connection: close |  | 
+other: HTTP/1.1 200 OK | content-type: text/plain; charset=utf-8 | content-length: 5 | connection: close |  | other
+kept: /one /two /other /three
+kept: HTTP/1.1 200 OK | content-type: text/plain; charset=utf-8 | content-length: 3 | connection: keep-alive |  | oneHTTP/1.1 200 OK | content-type: text/plain; charset=utf-8 | content-length: 3 | connection: keep-alive |  | twoHTTP/1.1 200 OK | content-type: text/plain; charset=utf-8 | content-length: 5 | connection: close |  | three
+server: GET /after-quiet
+HTTP/1.1 404 Not Found | content-type: text/plain; charset=utf-8 | content-length: 9 | connection: close |  | Not Found
 server: GET /after-bad
 HTTP/1.1 404 Not Found | content-type: text/plain; charset=utf-8 | content-length: 9 | connection: close |  | Not Found
 bad client: HTTP/1.1 400 Bad Request | content-type: text/plain; charset=utf-8 | content-length: 17 | connection: close |  | bad request line

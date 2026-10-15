@@ -3,9 +3,16 @@
 import std.http
 import std.net
 
+// `raw` with `Connection: close` after the request line, so the client
+// can read the response to the end.
+fn closing(raw: string) -> string {
+    let end = raw.find("\r\n").unwrap_or(raw.len())
+    return raw.slice(0, end) + "\r\nConnection: close" + raw.slice(end, raw.len())
+}
+
 fn exchange(server: http.Server, raw: string) -> Result[string, string] {
     let client: net.Conn = net.connect("127.0.0.1", server.port())?
-    client.write(raw)?
+    client.write(closing(raw))?
     let request: http.Request = server.next()?
     let mut seen: string = request.method + " " + request.path
     for name in request.query.keys() {
@@ -46,12 +53,44 @@ fn refused(server: http.Server, raw: string) -> Result[i64, string] {
     return Ok(0)
 }
 
+// Keep-alive: two requests sent at once on one connection, a second
+// client while that connection is kept, then a request that asks to close.
+fn keep_alive(server: http.Server) -> Result[i64, string] {
+    let client = net.connect("127.0.0.1", server.port())?
+    client.write("GET /one HTTP/1.1\r\n\r\nGET /two HTTP/1.1\r\n\r\n")?
+    let first = server.next()?
+    first.respond(http.text(200, "one"))?
+    let second = server.next()?
+    second.respond(http.text(200, "two"))?
+    let other = net.connect("127.0.0.1", server.port())?
+    other.write("GET /other HTTP/1.0\r\n\r\n")?
+    let third = server.next()?
+    third.respond(http.text(200, "other"))?
+    print("other: " + other.read_all()?.replace("\r\n", " | "))
+    other.close()
+    client.write("GET /three HTTP/1.1\r\nConnection: close\r\n\r\n")?
+    let last = server.next()?
+    last.respond(http.text(200, "three"))?
+    print("kept: " + first.path + " " + second.path + " " + third.path + " " + last.path)
+    print("kept: " + client.read_all()?.replace("\r\n", " | "))
+    client.close()
+    // A kept connection the client closes is dropped quietly.
+    let quiet = net.connect("127.0.0.1", server.port())?
+    quiet.write("GET /quiet HTTP/1.1\r\n\r\n")?
+    let request = server.next()?
+    request.respond(http.text(200, "quiet"))?
+    quiet.close()
+    print(exchange(server, "GET /after-quiet HTTP/1.1\r\n\r\n")?)
+    return Ok(0)
+}
+
 fn run() -> Result[i64, string] {
     let server: http.Server = http.serve("127.0.0.1", 0)?
     print(exchange(server, "GET /hi?name=Ada+L&x=%C3%A9 HTTP/1.1\r\nHost: x\r\n\r\n")?)
     print(exchange(server, "POST /form HTTP/1.1\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello")?)
     print(exchange(server, "POST /chunks HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n7\r\n, world\r\n0\r\n\r\n")?)
     print(exchange(server, "HEAD /hi HTTP/1.1\r\n\r\n")?)
+    keep_alive(server)?
     // Not HTTP: the client gets 400 and the server waits for the next.
     let bad: net.Conn = net.connect("127.0.0.1", server.port())?
     bad.write("nonsense\r\n\r\n")?

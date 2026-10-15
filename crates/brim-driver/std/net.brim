@@ -63,6 +63,22 @@ impl Listener {
         return Ok(Conn { handle: checked(handle, "cannot accept a connection")? })
     }
 
+    // The next connection with something to read: a new one, or one given
+    // back with `keep` whose other side sent more. Kept connections that
+    // stay quiet for `idle_millis`, or that the other side closes, are
+    // closed. A server can wait this way without one quiet client keeping
+    // the others out.
+    pub fn next_ready(self, idle_millis: i64) -> Result[Conn, string] {
+        let handle: i64 = __net_next_ready(self.handle, idle_millis)
+        return Ok(Conn { handle: checked(handle, "cannot accept a connection")? })
+    }
+
+    // Gives a connection back, for `next_ready` to return when the other
+    // side sends more. A listener keeps at most 256; more close the oldest.
+    pub fn keep(self, conn: Conn) {
+        __net_keep(self.handle, conn.handle)
+    }
+
     // The port it listens on.
     pub fn port(self) -> i64 {
         return __net_local_port(self.handle)

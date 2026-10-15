@@ -336,6 +336,24 @@ pub const BUILTINS: &[Builtin] = &[
         }],
     },
     Builtin {
+        name: "__net_next_ready",
+        summary: "std.net: the next connection with something to read.",
+        overloads: &[Overload {
+            params: &[Prim::I64, Prim::I64],
+            ret: Prim::I64,
+            runtime: RuntimeFn::NetNextReady,
+        }],
+    },
+    Builtin {
+        name: "__net_keep",
+        summary: "std.net: give a connection back to its listener.",
+        overloads: &[Overload {
+            params: &[Prim::I64, Prim::I64],
+            ret: Prim::Void,
+            runtime: RuntimeFn::NetKeep,
+        }],
+    },
+    Builtin {
         name: "__net_close",
         summary: "std.net: close a socket.",
         overloads: &[Overload {

@@ -478,6 +478,7 @@ error: 3 is odd
 | `net.listen(host, port)` | `Result[Listener, string]` | port 0 picks a free port |
 | `net.connect(host, port)` | `Result[Conn, string]` | |
 | `listener.accept()` | `Result[Conn, string]` | waits for a connection |
+| `listener.next_ready(idle_millis)` | `Result[Conn, string]` | a new connection, or one given back with `listener.keep(conn)` that has something to read |
 | `listener.port()` | `i64` | |
 | `conn.read_line()` | `Result[string, string]` | without the line ending |
 | `conn.read_until(delimiter)` | `Result[string, string]` | the delimiter is dropped |
@@ -512,7 +513,9 @@ fn greet() -> Result[i64, string] {
 
 `import std.http` gives an HTTP/1.1 server and client for text, such as
 HTML and JSON. The server handles one request at a time: ask for the next
-request, decide what to answer, and respond.
+request, decide what to answer, and respond. Connections stay open for the
+client's next request (keep-alive), and a quiet one keeps no other client
+waiting.
 
 ```brim
 import std.http

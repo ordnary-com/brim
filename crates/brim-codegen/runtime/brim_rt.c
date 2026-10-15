@@ -2286,12 +2286,47 @@ int64_t brim_rt_net_write(int64_t handle, const BrimStr *text) {
     return text->len;
 }
 
-void brim_rt_net_close(int64_t handle) {
-    net_start();
+/* Connections given back to a listener (HTTP keep-alive), oldest first:
+ * as `idle` in brim-runtime's net.rs. */
+typedef struct Kept {
+    int64_t listener;
+    int64_t conn;
+    int64_t since;
+} Kept;
+
+static Kept *kept;
+static int64_t kept_count;
+#define MAX_IDLE 256
+
+static void kept_remove(int64_t i) {
+    memmove(&kept[i], &kept[i + 1], sizeof(Kept) * (size_t)(kept_count - i - 1));
+    kept_count--;
+}
+
+int64_t brim_rt_time_monotonic_millis(void);
+
+static void close_socket(int64_t handle) {
     if (handle < 1 || handle > socket_count) {
         return;
     }
     Socket *s = &sockets[handle - 1];
+    if (s->fd >= 0 && s->listening) {
+        for (int64_t i = 0; i < kept_count;) {
+            if (kept[i].listener == handle) {
+                int64_t conn = kept[i].conn;
+                kept_remove(i);
+                close_socket(conn);
+            } else {
+                i++;
+            }
+        }
+    }
+    for (int64_t i = 0; i < kept_count; i++) {
+        if (kept[i].conn == handle) {
+            kept_remove(i);
+            break;
+        }
+    }
     if (s->fd >= 0) {
         if (!s->listening) {
             shutdown(s->fd, SHUT_RDWR);
@@ -2301,6 +2336,139 @@ void brim_rt_net_close(int64_t handle) {
         free(s->buf);
         s->buf = NULL;
         s->len = s->cap = 0;
+    }
+}
+
+void brim_rt_net_close(int64_t handle) {
+    net_start();
+    close_socket(handle);
+}
+
+void brim_rt_net_keep(int64_t listener, int64_t conn) {
+    net_start();
+    if (socket_get(listener, 1) == NULL || socket_get(conn, 0) == NULL) {
+        close_socket(conn);
+        return;
+    }
+    Kept *grown = realloc(kept, sizeof(Kept) * (size_t)(kept_count + 1));
+    if (grown == NULL) {
+        fatal("out of memory");
+    }
+    kept = grown;
+    kept[kept_count++] = (Kept){listener, conn, brim_rt_time_monotonic_millis()};
+    int64_t count = 0;
+    int64_t oldest = -1;
+    for (int64_t i = 0; i < kept_count; i++) {
+        if (kept[i].listener == listener) {
+            if (oldest < 0) {
+                oldest = i;
+            }
+            count++;
+        }
+    }
+    if (count > MAX_IDLE) {
+        int64_t c = kept[oldest].conn;
+        kept_remove(oldest);
+        close_socket(c);
+    }
+}
+
+/* 1 if a kept connection has something to read, 0 if not, -1 if the
+ * other side closed it. */
+static int kept_readiness(int64_t handle) {
+    Socket *s = socket_get(handle, 0);
+    if (s == NULL) {
+        return -1;
+    }
+    if (s->len > 0) {
+        return 1;
+    }
+    struct pollfd fd = {s->fd, POLLIN, 0};
+    int got;
+    do {
+        got = poll(&fd, 1, 0);
+    } while (got < 0 && errno == EINTR);
+    if (got == 0) {
+        return 0;
+    }
+    if (got < 0 || !(fd.revents & (POLLIN | POLLHUP))) {
+        return -1;
+    }
+    /* Readable: data, or the end of the stream. */
+    char byte;
+    ssize_t n;
+    do {
+        n = recv(s->fd, &byte, 1, MSG_PEEK);
+    } while (n < 0 && errno == EINTR);
+    return n > 0 ? 1 : -1;
+}
+
+int64_t brim_rt_net_next_ready(int64_t listener, int64_t idle_ms) {
+    net_start();
+    Socket *l = socket_get(listener, 1);
+    if (l == NULL) {
+        net_fail("invalid socket");
+        return 0;
+    }
+    for (;;) {
+        int64_t now = brim_rt_time_monotonic_millis();
+        int64_t wait = -1;
+        for (int64_t i = 0; i < kept_count;) {
+            if (kept[i].listener != listener) {
+                i++;
+                continue;
+            }
+            int64_t conn = kept[i].conn;
+            int ready = kept_readiness(conn);
+            if (ready > 0) {
+                kept_remove(i);
+                return conn;
+            }
+            int64_t left = kept[i].since + idle_ms - now;
+            if (ready < 0 || left <= 0) {
+                kept_remove(i);
+                close_socket(conn);
+                continue;
+            }
+            if (wait < 0 || left < wait) {
+                wait = left;
+            }
+            i++;
+        }
+        if (wait < 0) {
+            return brim_rt_net_accept(listener);
+        }
+        /* The listener and the kept connections, until one can be read. */
+        int64_t n = 1;
+        struct pollfd *fds = malloc(sizeof(struct pollfd) * (size_t)(kept_count + 1));
+        if (fds == NULL) {
+            fatal("out of memory");
+        }
+        fds[0] = (struct pollfd){l->fd, POLLIN, 0};
+        for (int64_t i = 0; i < kept_count; i++) {
+            if (kept[i].listener == listener) {
+                fds[n++] = (struct pollfd){sockets[kept[i].conn - 1].fd, POLLIN, 0};
+            }
+        }
+        int got = poll(fds, (nfds_t)n, (int)wait);
+        int listener_ready = got > 0 && (fds[0].revents & POLLIN);
+        free(fds);
+        if (got < 0 && errno != EINTR) {
+            net_fail(net_reason(errno));
+            return 0;
+        }
+        if (listener_ready) {
+            /* Kept connections first, as the interpreter checks them. */
+            int any = 0;
+            for (int64_t i = 0; i < kept_count; i++) {
+                if (kept[i].listener == listener && kept_readiness(kept[i].conn) != 0) {
+                    any = 1;
+                }
+            }
+            if (!any) {
+                return brim_rt_net_accept(listener);
+            }
+        }
     }
 }
 
