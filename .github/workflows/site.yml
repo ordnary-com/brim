@@ -1,7 +1,8 @@
 name: Site
 
-# Builds the documentation site (site/, with mdBook) on every change, and
-# publishes it to GitHub Pages when the repository variable SITE_DEPLOY is
+# Builds the site on every change: the landing page (site/landing/) at the
+# root and the documentation (site/, with mdBook) under /docs/. It
+# publishes them to GitHub Pages when the repository variable SITE_DEPLOY is
 # "true" (Pages must use "GitHub Actions" as its source).
 on:
   push:
@@ -34,6 +35,14 @@ jobs:
             | tar xz -C "$HOME/bin"
           echo "$HOME/bin" >> "$GITHUB_PATH"
       - run: mdbook build site
+      - name: Add the landing page
+        run: |
+          cp site/landing/* site/book/
+          # The guide pages used to live at the root; send old links on.
+          for page in introduction getting-started tour projects tools stdlib print; do
+            printf '<!doctype html><meta charset="utf-8"><title>Moved</title><meta http-equiv="refresh" content="0; url=docs/%s.html"><link rel="canonical" href="docs/%s.html"><a href="docs/%s.html">Moved to docs/%s.html</a>\n' \
+              "$page" "$page" "$page" "$page" > "site/book/$page.html"
+          done
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site/book

@@ -6,12 +6,24 @@ language = "en"
 src = "src"
 
 [build]
-build-dir = "book"
+build-dir = "book/docs"
 create-missing = false
 
 [output.html]
 git-repository-url = "https://github.com/ordnary-com/brim"
 edit-url-template = "https://github.com/ordnary-com/brim/edit/main/site/{path}"
-additional-js = ["theme/brim-highlight.js"]
+additional-js = ["theme/brim-highlight.js", "theme/brim-home.js"]
+site-url = "/brim/docs/"
 default-theme = "light"
 preferred-dark-theme = "navy"
+
+# The book moved from the site root to /docs/ when the landing page came.
+# Old links to the reference pages land here; the guide pages are
+# redirected by the Site workflow, because they lie outside the book.
+[output.html.redirect]
+"/architecture.html" = "docs/architecture.html"
+"/development.html" = "docs/development.html"
+"/error-handling.html" = "docs/error-handling.html"
+"/language-spec.html" = "docs/language-spec.html"
+"/releasing.html" = "docs/releasing.html"
+"/roadmap.html" = "docs/roadmap.html"
