@@ -329,12 +329,10 @@ mod tests {
     #[test]
     fn errors() {
         let mut s = Sockets::default();
-        // A port nothing listens on: bind one, note it, close it.
-        let l = s.listen("127.0.0.1", 0).unwrap();
-        let port = s.local_port(l).unwrap();
-        s.close(l);
+        // Port 1 has no listener; a port just closed could be taken by a
+        // test running in parallel.
         assert_eq!(
-            s.connect("127.0.0.1", port),
+            s.connect("127.0.0.1", 1),
             Err("connection refused".to_string())
         );
         assert_eq!(
