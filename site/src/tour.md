@@ -147,6 +147,29 @@ fn main() {
 Structs are values: `let mut b = a` copies `a`, so changing `b` leaves `a`
 alone.
 
+`==` compares structs, enums, lists and maps by their contents, and `print`
+shows them:
+
+```brim
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+fn main() {
+    let a: Point = Point { x: 1, y: 2 }
+    print(a == Point { x: 1, y: 2 })
+    print([a, Point { x: 3, y: 4 }])
+    print(Some("ada"))
+}
+```
+
+```text
+true
+[Point { x: 1, y: 2 }, Point { x: 3, y: 4 }]
+Some("ada")
+```
+
 ## Enums and match
 
 ```brim

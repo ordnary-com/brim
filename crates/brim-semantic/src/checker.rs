@@ -3,6 +3,7 @@ mod decls;
 mod exprs;
 mod matching;
 mod strings;
+mod values;
 
 use std::collections::HashMap;
 

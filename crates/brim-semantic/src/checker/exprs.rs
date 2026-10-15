@@ -1269,7 +1269,9 @@ impl<'a> Checker<'a> {
         ctx: &mut FnCtx,
     ) -> CheckedExpr {
         let lhs = self.check_expr(lhs, ctx);
-        let rhs = self.check_expr(rhs, ctx);
+        // `o == None`: the left side tells what the right side is.
+        let expected = matches!(op, ast::BinaryOp::Eq | ast::BinaryOp::Ne).then_some(lhs.ty);
+        let rhs = self.check_expr_with(rhs, expected, ctx);
         self.resolve_binary(op, op_span, lhs, rhs, span)
     }
 
@@ -1321,6 +1323,16 @@ impl<'a> Checker<'a> {
             (Op::Gt, F64, F64) => Some((BinaryOp::FloatGt, Bool)),
             (Op::Ge, F64, F64) => Some((BinaryOp::FloatGe, Bool)),
             (Op::And | Op::Or, Bool, Bool) => None,
+            (Op::Eq | Op::Ne, a, b)
+                if a == b && matches!(a, Type::Named(_)) && self.not_comparable(a).is_none() =>
+            {
+                let op = if op == Op::Eq {
+                    BinaryOp::ValueEq
+                } else {
+                    BinaryOp::ValueNe
+                };
+                Some((op, Bool))
+            }
             _ => {
                 self.invalid_binary(op, op_span, &lhs, &rhs);
                 return error_expr(span);
@@ -1358,13 +1370,25 @@ impl<'a> Checker<'a> {
             .with_primary(op_span, format!("`{l} {sym} {r}` is not defined"))
             .with_secondary(lhs.span, format!("`{l}`"))
             .with_secondary(rhs.span, format!("`{r}`"));
-        diag = match op {
-            Op::Eq | Op::Ne if named && self.as_struct(lhs.ty).is_some() => diag
-                .with_note(format!("structs cannot be compared with `{sym}` yet"))
-                .with_help("compare their fields instead"),
-            Op::Eq | Op::Ne if named => diag
-                .with_note(format!("enums cannot be compared with `{sym}` yet"))
-                .with_help("use `match` instead"),
+        let inner = if named {
+            self.not_comparable(lhs.ty)
+        } else {
+            None
+        };
+        diag = match (op, inner) {
+            (Op::Eq | Op::Ne, Some(inner @ Type::Param(_))) => {
+                let inner = self.show(inner);
+                diag.with_note(format!(
+                    "`{l}` holds a `{inner}`, which can be any type, and not every type can be compared with `{sym}`"
+                ))
+            }
+            (Op::Eq | Op::Ne, Some(inner)) => {
+                let inner = self.show(inner);
+                diag.with_note(format!(
+                    "`{l}` holds a `{inner}`, which cannot be compared with `{sym}`"
+                ))
+            }
+            (op, _) => match op {
             Op::Eq | Op::Ne if param => diag.with_note(format!(
                 "`{l}` can be any type, and not every type can be compared with `{sym}`"
             )),
@@ -1387,12 +1411,48 @@ impl<'a> Checker<'a> {
             Op::Lt | Op::Le | Op::Gt | Op::Ge => diag.with_note(format!(
                 "`{sym}` compares two numbers of the same type or two `string` values"
             )),
-            Op::Eq | Op::Ne => diag.with_note(format!(
-                "`{sym}` compares two values of the same type (`i64`, `f64`, `bool` or `string`)"
-            )),
+            Op::Eq | Op::Ne => diag.with_note(format!("`{sym}` compares two values of the same type")),
             Op::And | Op::Or => diag.with_note(format!("`{sym}` requires two `bool` operands")),
+            },
         };
         self.diags.push(diag);
+    }
+
+    /// `print(value)` or `to_string(value)` for a struct, enum, list or map.
+    fn show_value(&mut self, name: &str, mut args: Vec<CheckedExpr>, span: Span) -> CheckedExpr {
+        let value = args.pop().expect("one argument");
+        if let Some(inner) = self.not_comparable(value.ty) {
+            let ty = self.show(value.ty);
+            let why = if matches!(inner, Type::Param(_)) {
+                "which can be any type, and not every type has a text form"
+            } else {
+                "which has no text form"
+            };
+            let inner = self.show(inner);
+            self.diags.push(
+                Diagnostic::error(format!("`{name}` cannot show a `{ty}`"))
+                    .with_code("E0206")
+                    .with_primary(value.span, "unsupported argument type")
+                    .with_note(format!("`{ty}` holds a `{inner}`, {why}")),
+            );
+            return error_expr(span);
+        }
+        let shown = CheckedExpr {
+            span: value.span,
+            ty: Type::String,
+            kind: CheckedExprKind::Show(Box::new(value)),
+        };
+        if name == "to_string" {
+            return CheckedExpr { span, ..shown };
+        }
+        CheckedExpr {
+            kind: CheckedExprKind::Builtin {
+                runtime: brim_runtime::RuntimeFn::PrintStr,
+                args: vec![shown],
+            },
+            ty: Type::Void,
+            span,
+        }
     }
 
     // ---- calls ----------------------------------------------------------------
@@ -1460,6 +1520,11 @@ impl<'a> Checker<'a> {
             }
             if args.iter().any(|a| a.ty == Type::Error) {
                 return error_expr(span);
+            }
+            if let ("print" | "to_string", [arg]) = (name, args.as_slice())
+                && matches!(arg.ty, Type::Named(_))
+            {
+                return self.show_value(name, args, span);
             }
             let prims = args
                 .iter()

@@ -48,6 +48,8 @@ use brim_semantic::checked::{
 };
 use brim_semantic::{Def, Type, TypeTable};
 
+mod helpers;
+
 /// Lowers a checked program to IR.
 pub fn lower(program: &CheckedProgram) -> Module {
     lower_tests(program).0
@@ -70,6 +72,7 @@ pub fn lower_tests(program: &CheckedProgram) -> (Module, Vec<FuncId>) {
         ir_types: HashMap::new(),
         enum_layouts: HashMap::new(),
         instances: HashMap::new(),
+        helpers: HashMap::new(),
         queue: VecDeque::new(),
         pairs: HashMap::new(),
     };
@@ -99,8 +102,14 @@ pub fn lower_tests(program: &CheckedProgram) -> (Module, Vec<FuncId>) {
         .iter()
         .map(|t| m.instance(t.0, Vec::new()))
         .collect();
-    while let Some((id, index, type_args)) = m.queue.pop_front() {
-        let mut function = FnLowerer::lower(&mut m, &program.functions[index], type_args);
+    while let Some(job) = m.queue.pop_front() {
+        let (id, mut function) = match job {
+            Job::Function(id, index, type_args) => (
+                id,
+                FnLowerer::lower(&mut m, &program.functions[index], type_args),
+            ),
+            Job::Helper(id, helper, ty) => (id, FnLowerer::helper(&mut m, helper, ty)),
+        };
         function.name = std::mem::take(&mut m.module.functions[id.index()].name);
         m.module.functions[id.index()] = function;
     }
@@ -135,6 +144,22 @@ struct EnumLayout {
     offsets: Vec<usize>,
 }
 
+/// A function generated for a type rather than written in source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Helper {
+    /// `fn(a: T, b: T) -> bool`: `a == b`.
+    Eq,
+    /// `fn(value: T) -> str`: the value as `print` shows it.
+    Show,
+}
+
+/// A function whose body still has to be lowered.
+enum Job {
+    /// An instance of a source function with its type arguments.
+    Function(FuncId, usize, Vec<Type>),
+    Helper(FuncId, Helper, Type),
+}
+
 struct ModuleLowerer<'p> {
     program: &'p CheckedProgram,
     /// The program's types, extended with instantiations made here.
@@ -145,8 +170,10 @@ struct ModuleLowerer<'p> {
     enum_layouts: HashMap<Type, EnumLayout>,
     /// `(function, type arguments)` to its IR function.
     instances: HashMap<(usize, Vec<Type>), FuncId>,
-    /// Instances whose bodies still have to be lowered.
-    queue: VecDeque<(FuncId, usize, Vec<Type>)>,
+    /// Generated `==` and text functions, per concrete type.
+    helpers: HashMap<(Helper, Type), FuncId>,
+    /// Functions whose bodies still have to be lowered.
+    queue: VecDeque<Job>,
     /// Result-and-`self` structs of `mut self` methods.
     pairs: HashMap<(IrType, IrType), StructId>,
 }
@@ -178,7 +205,7 @@ impl ModuleLowerer<'_> {
             blocks: Vec::new(),
         });
         self.instances.insert(key.clone(), id);
-        self.queue.push_back((id, key.0, key.1));
+        self.queue.push_back(Job::Function(id, key.0, key.1));
         id
     }
 
@@ -312,7 +339,9 @@ fn branches(expr: &CheckedExpr) -> bool {
         | CheckedExprKind::Bool(_)
         | CheckedExprKind::Str(_)
         | CheckedExprKind::Local(_) => false,
-        CheckedExprKind::Unary { operand, .. } => branches(operand),
+        CheckedExprKind::Unary { operand, .. } | CheckedExprKind::Show(operand) => {
+            branches(operand)
+        }
         CheckedExprKind::Binary { lhs, rhs, .. } => branches(lhs) || branches(rhs),
         CheckedExprKind::CallMut { .. } => true,
         // Most intrinsics build an `Option` or `Result` with a branch.
@@ -1683,7 +1712,27 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             }
             CheckedExprKind::Binary { op, lhs, rhs } => {
                 let [a, b] = self.values(&[lhs, rhs]).try_into().expect("two operands");
-                self.binary(*op, a, b, span)
+                match op {
+                    BinaryOp::ValueEq | BinaryOp::ValueNe => {
+                        let operand_ty = self.concrete(lhs.ty);
+                        let eq = self.values_equal(a, b, operand_ty, span);
+                        if *op == BinaryOp::ValueEq {
+                            eq
+                        } else {
+                            self.emit_value(
+                                InstKind::Unary(brim_ir::UnaryOp::BNot, eq),
+                                IrType::Bool,
+                                span,
+                            )
+                        }
+                    }
+                    _ => self.binary(*op, a, b, span),
+                }
+            }
+            CheckedExprKind::Show(value) => {
+                let v = self.value(value);
+                let value_ty = self.concrete(value.ty);
+                self.value_text(v, value_ty, span)
             }
             CheckedExprKind::And(lhs, rhs) => self.short_circuit(lhs, rhs, true, span),
             CheckedExprKind::Or(lhs, rhs) => self.short_circuit(lhs, rhs, false, span),
@@ -2068,6 +2117,9 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                     _ => Ir::IGe,
                 };
                 return self.emit_value(InstKind::Binary(cmp, order, zero), IrType::Bool, span);
+            }
+            BinaryOp::ValueEq | BinaryOp::ValueNe => {
+                unreachable!("lowered with the operand type, in `expr`")
             }
             BinaryOp::StrEq | BinaryOp::StrNe => {
                 let kind = InstKind::CallRuntime(RuntimeFn::StrEq, vec![a, b]);

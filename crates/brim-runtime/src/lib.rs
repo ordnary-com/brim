@@ -178,6 +178,29 @@ pub fn bool_to_str(value: bool) -> BrimStr {
     Rc::from(if value { "true" } else { "false" })
 }
 
+/// A string written as a Brim string literal: in double quotes, with `\`,
+/// `"`, and control characters escaped.
+pub fn str_quote(s: &str) -> BrimStr {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\0' => out.push_str("\\0"),
+            c if (c as u32) < 0x20 || c == '\u{7f}' => {
+                out.push_str(&format!("\\u{{{:x}}}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    Rc::from(out)
+}
+
 /// Implements string `==`: byte-wise equality of the UTF-8 text.
 pub fn str_eq(a: &str, b: &str) -> bool {
     a == b
@@ -318,6 +341,10 @@ mod tests {
         assert!(!str_eq("a", "A"));
         assert_eq!(&*i64_to_str(-9223372036854775808), "-9223372036854775808");
         assert_eq!(&*bool_to_str(false), "false");
+        assert_eq!(
+            &*str_quote("a\"b\\c\nd\te\u{1}é"),
+            "\"a\\\"b\\\\c\\nd\\te\\u{1}é\""
+        );
     }
 
     #[test]

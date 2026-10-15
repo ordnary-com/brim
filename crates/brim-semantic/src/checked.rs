@@ -360,6 +360,8 @@ pub enum CheckedExprKind {
     /// `operand?` on an `Option` or `Result`: the payload of `Some`/`Ok`;
     /// `None`/`Err` is returned from the function (as the function's own
     /// `Option`/`Result` type).
+    /// A struct, enum, list or map as text, the way `print` shows it.
+    Show(Box<CheckedExpr>),
     Try {
         operand: Box<CheckedExpr>,
         /// When the error type differs from the function's: the function's
@@ -440,6 +442,11 @@ pub enum BinaryOp {
     FloatLe,
     FloatGt,
     FloatGe,
+    /// `==` on structs, enums, lists and maps: equal when every value in
+    /// them is equal. Maps are equal when they have the same entries, in
+    /// any order.
+    ValueEq,
+    ValueNe,
 }
 
 /// Built-in operations that lower to more than one runtime call.

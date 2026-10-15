@@ -710,6 +710,7 @@ fn call_runtime(
         RuntimeFn::StrConcat => str_value(r::str_concat(s(0), s(1))),
         RuntimeFn::I64ToStr => str_value(r::i64_to_str(args[0].i64())),
         RuntimeFn::BoolToStr => str_value(r::bool_to_str(args[0].bool())),
+        RuntimeFn::StrQuote => str_value(r::str_quote(s(0))),
         RuntimeFn::StrEq => Some(Value::Bool(r::str_eq(s(0), s(1)))),
         RuntimeFn::StrCompare => Some(Value::I64(r::str_compare(s(0), s(1)))),
         RuntimeFn::StrLen => Some(Value::I64(s(0).len() as i64)),

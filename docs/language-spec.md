@@ -249,7 +249,7 @@ A struct declaration introduces a new type with named, typed **fields**. Fields 
 
 **Field assignment.** `p.x = 3`, `p.from.y += 1` change one field of a variable. The variable must be declared with `let mut` (`E0218`); its fields are as mutable as the variable itself.
 
-**Operations.** Structs cannot be compared with `==` or `!=` yet (`E0209`), cannot be printed, and have no methods. Two struct types are compatible only if they are the same declaration.
+**Operations.** Two struct types are compatible only if they are the same declaration. Structs can be compared with `==` and `!=` and shown with `print` and `to_string` (section 5.7). Methods are declared in `impl` blocks.
 
 ### 5.2 Enums
 
@@ -265,7 +265,7 @@ An enum declaration introduces a type whose values are exactly one of its **vari
 
 - `Shape.Circle(3)` and `Shape.Empty` create values. The number of values must match the variant (`E0228`), and an unknown variant is `E0227`.
 - An enum is a value like a struct, and cannot contain itself directly (`E0221`), but it can through a `List` or `Map`: `enum Json { Null, Number(i64), Array(List[Json]), Object(Map[string, Json]) }`. A linked list (`Cons(i64, List)`) needs indirection that Brim does not have yet; use a `List` instead.
-- Enums cannot be compared with `==` yet (`E0209`); use `match`.
+- Enums can be compared with `==` and `!=` and shown with `print` and `to_string` (section 5.7).
 
 ### 5.3 Generics
 
@@ -330,7 +330,7 @@ fn total(a: string, b: string) -> Result[i64, string] {
   | `clear()` | | |
 
   The methods from `push` on change the list, so they need a variable declared with `let mut` (or a field or element of one); calling them on a temporary is `E0104`. An unknown method is `E0231`.
-- `List` cannot be compared with `==` or printed directly; use `join` on a `List[string]`.
+- Lists can be compared with `==` and shown with `print` and `to_string` (section 5.7).
 
 ### 5.6 Maps
 
@@ -355,7 +355,23 @@ fn total(a: string, b: string) -> Result[i64, string] {
 
   `insert`, `remove` and `clear` change the map and need a `let mut` variable. To loop over a map, loop over `keys()` or `values()`.
 
-### 5.7 Methods
+
+### 5.7 Comparing and printing values
+
+Structs, enums, lists and maps support `==` and `!=`, and `print` and `to_string` show them as text, when every value they hold does: integers, floats, booleans, strings, or other such types. A value of a type parameter does not, so inside generic code a `Box[T]` cannot be compared or printed (`E0209`, `E0206`).
+
+- **Equality** is structural. Two structs are equal when their fields are; two enum values when they are the same variant with equal values; two lists when they have the same length and equal elements in order; two maps when they have the same keys with equal values, in any order. Floats follow IEEE 754 inside other values too, so a value holding `NaN` is not equal to itself.
+- **Text** looks like the code that builds the value, with strings in quotes and escaped: `Point { x: 1, y: 2 }`, `Circle(Point { x: 1, y: 2 }, 1.5)`, `Some("ada")`, `None`, `[1, 2, 3]`, `["ada": 36]` and `[:]`. Variants are shown without their enum's name, structs without their type arguments.
+
+```brim
+let a: Point = Point { x: 1, y: 2 }
+print(a == Point { x: 1, y: 2 })   // true
+print([a])                         // [Point { x: 1, y: 2 }]
+```
+
+The right side of `==` and `!=` is checked with the left side's type in mind, so `o == None` needs no annotation.
+
+### 5.8 Methods
 
 ```brim
 impl Stack[T] {
@@ -373,7 +389,7 @@ An `impl` block adds **methods** to a struct or enum declared in the same file. 
 - Calling a method the wrong way is `E0240`; an unknown method is `E0231`. Methods of one type need different names, and an enum's methods cannot share a name with its variants (`E0238`). Built-in types cannot get methods (`E0237`), and `self` outside an `impl` is `E0239`.
 - `self` is a keyword; inside a method it is a variable like a parameter.
 
-### 5.8 Function types
+### 5.9 Function types
 
 A function's type is its parameter type list and its return type, written informally as `fn(i64, i64) -> i64`. Function types cannot be written in source yet, and functions are not values: they can only be called by name (`E0214`).
 
@@ -518,7 +534,7 @@ Operands are evaluated left to right. Function arguments are evaluated left to r
 | `%`                 | `f64`, `f64`               | `f64`    | remainder with the sign of the left operand (like C's `fmod`) |
 | `+`                 | `string`, `string`         | `string` | concatenation |
 | `<` `<=` `>` `>=`   | two `i64`, two `f64` or two `string` | `bool`   | strings compare byte by byte; comparisons with `NaN` are false |
-| `==` `!=`           | both `i64`, both `f64`, both `bool`, or both `string` | `bool` | strings compare by content; `NaN == NaN` is false and `NaN != NaN` true |
+| `==` `!=`           | two values of the same type: `i64`, `f64`, `bool`, `string`, or a struct, enum, list or map of such values | `bool` | strings compare by content; `NaN == NaN` is false and `NaN != NaN` true; other values compare structurally (section 5.7) |
 | `&&` `\|\|`         | `bool`, `bool`             | `bool`   | short-circuit: the right side is evaluated only if needed |
 | unary `-`           | `i64` or `f64`             | same     | `-i64::MIN` is a run-time error |
 | unary `!`           | `bool`                     | `bool`   | |
@@ -616,9 +632,9 @@ Builtins are always in scope and cannot be redefined.
 
 | Builtin | Forms                                             | Effect |
 |---------|---------------------------------------------------|--------|
-| `print` | `print(string)`, `print(i64)`, `print(f64)`, `print(bool)` | writes the value and a newline to standard output |
+| `print` | `print(string)`, `print(i64)`, `print(f64)`, `print(bool)`, and structs, enums, lists and maps (section 5.7) | writes the value and a newline to standard output |
 | `eprint` | `eprint(string)` | writes the text and a newline to standard error |
-| `to_string` | `to_string(i64) -> string`, `to_string(f64) -> string`, `to_string(bool) -> string` | the decimal representation of a number, or `"true"`/`"false"` |
+| `to_string` | `to_string(i64) -> string`, `to_string(f64) -> string`, `to_string(bool) -> string`, and structs, enums, lists and maps | the decimal representation of a number, `"true"`/`"false"`, or the text form of section 5.7 |
 | `to_float` | `to_float(i64) -> f64` | the nearest `f64` |
 | `to_int` | `to_int(f64) -> i64` | rounds toward zero; NaN and numbers outside the `i64` range are run-time error `R0010` |
 | `read_line` | `read_line() -> Option[string]` | the next line of standard input without its line ending (`\n` or `\r\n`); `None` at the end of input |
@@ -694,7 +710,7 @@ These questions are not settled. The current behavior is a reversible default.
 9. **Unicode identifiers.** Identifiers are ASCII-only. Allowing Unicode (UAX #31) is possible later.
 10. **Modules.** Modules are files and `pub` controls visibility; dependencies add their modules under the package's name. Re-exports, visibility of single struct fields, and a package registry with version requirements are undecided.
 11. **Loop forms.** `while` and `for` exist. A dedicated `loop` keyword, labeled `break` for nested loops, and `for` over other collections are candidates.
-12. **Struct and enum equality and printing.** Comparing structs and enums field by field with `==` and printing them are natural next steps. Field-shorthand literals (`Point { x, y }`) and default values are also undecided.
+12. **Struct literals.** Field-shorthand literals (`Point { x, y }`) and default values are undecided. Ordering structs with `<` is not supported.
 13. **`match` as an expression and more patterns.** `match` is a statement. Patterns for struct fields, ranges (`1..5`) and binding a whole value while matching its parts (`x @ Some(_)`) are not supported yet.
 14. **Constraints on type parameters.** Generic code can only store, pass and return values of a type parameter. Constraints (traits or interfaces) would allow `==` or printing in generic code.
 

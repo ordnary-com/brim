@@ -1,0 +1,88 @@
+// `==`, `!=`, `print` and `to_string` on structs, enums, lists and maps.
+
+struct Point {
+    x: i64
+    y: i64
+}
+
+struct Named[T] {
+    name: string
+    value: T
+}
+
+struct Empty {}
+
+enum Shape {
+    Circle(Point, f64)
+    Rect(Point, Point)
+    Nothing
+}
+
+enum Json {
+    Null
+    Number(f64)
+    Text(string)
+    Array(List[Json])
+    Object(Map[string, Json])
+}
+
+fn main() {
+    let p: Point = Point { x: 1, y: 2 }
+    let q: Point = Point { x: 1, y: 2 }
+    let r: Point = Point { x: 2, y: 1 }
+    print(p == q)
+    print(p != q)
+    print(p == r)
+    print(p)
+    print(to_string(r) + "!")
+
+    let a: Shape = Shape.Circle(p, 1.5)
+    print(a == Shape.Circle(q, 1.5))
+    print(a == Shape.Circle(q, 2.5))
+    print(a == Shape.Rect(p, q))
+    print(Shape.Nothing == Shape.Nothing)
+    print(a)
+    print(Shape.Rect(p, r))
+    print(Shape.Nothing)
+
+    let n: Named[string] = Named { name: "quote \"me\"", value: "tab\there" }
+    print(n)
+    print(n == Named { name: "quote \"me\"", value: "tab\there" })
+    print(Named { name: "list", value: [1, 2, 3] })
+    print(Empty {})
+    print(Empty {} == Empty {})
+
+    let xs: List[Point] = [p, r]
+    print(xs)
+    print(xs == [q, r])
+    print(xs == [r, p])
+    print(xs == [p])
+    let none: List[i64] = []
+    print(none)
+
+    let ages: Map[string, i64] = ["ada": 36, "alan": 41]
+    let same: Map[string, i64] = ["alan": 41, "ada": 36]
+    print(ages)
+    print(ages == same)
+    print(ages == ["ada": 36, "alan": 42])
+    print(ages == ["ada": 36])
+    let nothing: Map[string, i64] = [:]
+    print(nothing)
+
+    let o: Option[Point] = Some(p)
+    print(o)
+    print(o == Some(q))
+    print(o == None)
+    let e: Result[i64, string] = Err("bad")
+    print(e)
+    print(e == Err("bad"))
+
+    let doc: Json = Json.Object(["a": Json.Array([Json.Number(1.0), Json.Null]), "b": Json.Text("x")])
+    print(doc)
+    print(doc == Json.Object(["b": Json.Text("x"), "a": Json.Array([Json.Number(1.0), Json.Null])]))
+    print(doc == Json.Object(["a": Json.Array([Json.Number(1.0)]), "b": Json.Text("x")]))
+
+    // NaN is not equal to itself, inside other values too.
+    let nan: f64 = 0.0 / 0.0
+    print(Shape.Circle(p, nan) == Shape.Circle(p, nan))
+}

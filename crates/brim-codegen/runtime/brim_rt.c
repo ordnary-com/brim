@@ -993,6 +993,32 @@ static BrimStr *buffer_finish(Buffer *b) {
     return s;
 }
 
+BrimStr *brim_rt_str_quote(const BrimStr *s) {
+    Buffer b = {0};
+    buffer_add(&b, "\"", 1);
+    for (int64_t i = 0; i < s->len; i++) {
+        unsigned char c = (unsigned char)s->data[i];
+        switch (c) {
+        case '"': buffer_add(&b, "\\\"", 2); break;
+        case '\\': buffer_add(&b, "\\\\", 2); break;
+        case '\n': buffer_add(&b, "\\n", 2); break;
+        case '\r': buffer_add(&b, "\\r", 2); break;
+        case '\t': buffer_add(&b, "\\t", 2); break;
+        case 0: buffer_add(&b, "\\0", 2); break;
+        default:
+            if (c < 0x20 || c == 0x7f) {
+                char esc[16];
+                int n = snprintf(esc, sizeof esc, "\\u{%x}", c);
+                buffer_add(&b, esc, n);
+            } else {
+                buffer_add(&b, (const char *)&s->data[i], 1);
+            }
+        }
+    }
+    buffer_add(&b, "\"", 1);
+    return buffer_finish(&b);
+}
+
 /* The length of the UTF-8 character starting at byte `i`. */
 static int64_t char_len(const BrimStr *s, int64_t i) {
     int64_t n = 1;

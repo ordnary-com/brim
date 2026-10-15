@@ -1,0 +1,22 @@
+struct Box[T] {
+    value: T
+}
+
+fn same[T](a: Box[T], b: Box[T]) -> bool {
+    return a == b
+}
+
+fn show[T](b: Box[T]) {
+    print(b)
+}
+
+struct Point {
+    x: i64
+}
+
+fn main() {
+    let p: Point = Point { x: 1 }
+    print(p == 1)
+    print(p < p)
+    print(to_string([p]) == "x")
+}

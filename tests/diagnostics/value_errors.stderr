@@ -1,0 +1,39 @@
+error[E0209]: cannot apply `==` to `Box[T]` and `Box[T]`
+ --> tests/diagnostics/value_errors.brim:6:14
+  |
+6 |     return a == b
+  |            - `Box[T]`
+  |              ^^ `Box[T] == Box[T]` is not defined
+  |                 - `Box[T]`
+  |
+  = note: `Box[T]` holds a `T`, which can be any type, and not every type can be compared with `==`
+
+error[E0206]: `print` cannot show a `Box[T]`
+  --> tests/diagnostics/value_errors.brim:10:11
+   |
+10 |     print(b)
+   |           ^ unsupported argument type
+   |
+   = note: `Box[T]` holds a `T`, which can be any type, and not every type has a text form
+
+error[E0209]: cannot apply `==` to `Point` and `i64`
+  --> tests/diagnostics/value_errors.brim:19:13
+   |
+19 |     print(p == 1)
+   |           - `Point`
+   |             ^^ `Point == i64` is not defined
+   |                - `i64`
+   |
+   = note: `==` compares two values of the same type
+
+error[E0209]: cannot apply `<` to `Point` and `Point`
+  --> tests/diagnostics/value_errors.brim:20:13
+   |
+20 |     print(p < p)
+   |           - `Point`
+   |             ^ `Point < Point` is not defined
+   |               - `Point`
+   |
+   = note: `<` compares two numbers of the same type or two `string` values
+
+error: could not compile tests/diagnostics/value_errors.brim due to 4 errors

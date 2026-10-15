@@ -1,0 +1,36 @@
+true
+false
+false
+Point { x: 1, y: 2 }
+Point { x: 2, y: 1 }!
+true
+false
+false
+true
+Circle(Point { x: 1, y: 2 }, 1.5)
+Rect(Point { x: 1, y: 2 }, Point { x: 2, y: 1 })
+Nothing
+Named { name: "quote \"me\"", value: "tab\there" }
+true
+Named { name: "list", value: [1, 2, 3] }
+Empty {}
+true
+[Point { x: 1, y: 2 }, Point { x: 2, y: 1 }]
+true
+false
+false
+[]
+["ada": 36, "alan": 41]
+true
+false
+false
+[:]
+Some(Point { x: 1, y: 2 })
+true
+false
+Err("bad")
+true
+Object(["a": Array([Number(1.0), Null]), "b": Text("x")])
+true
+false
+false

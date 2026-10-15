@@ -60,25 +60,6 @@ error[E0224]: `i64` has no fields
    |
    = note: only structs have fields
 
-error[E0209]: cannot apply `==` to `User` and `User`
-  --> tests/diagnostics/struct_errors.brim:15:13
-   |
-15 |     print(w == w)
-   |           - `User`
-   |             ^^ `User == User` is not defined
-   |                - `User`
-   |
-   = note: structs cannot be compared with `==` yet
-   = help: compare their fields instead
-
-error[E0206]: `print` cannot be called with `User`
-  --> tests/diagnostics/struct_errors.brim:16:11
-   |
-16 |     print(w)
-   |           ^ unsupported argument type
-   |
-   = note: available forms: `print(string)`, `print(i64)`, `print(bool)`, `print(f64)`
-
 error[E0212]: unknown type `Usr`
   --> tests/diagnostics/struct_errors.brim:17:12
    |
@@ -98,4 +79,4 @@ error[E0206]: mismatched types
    |
    = note: Brim never converts between types implicitly
 
-error: could not compile tests/diagnostics/struct_errors.brim due to 10 errors
+error: could not compile tests/diagnostics/struct_errors.brim due to 8 errors

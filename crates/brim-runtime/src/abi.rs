@@ -117,6 +117,9 @@ runtime_fns! {
     I64ToStr = "brim_rt_i64_to_str" (I64) -> Str;
     /// `to_string(bool)`
     BoolToStr = "brim_rt_bool_to_str" (Bool) -> Str;
+    /// A string as a Brim string literal, for printing values that
+    /// contain strings: `"a\"b"`.
+    StrQuote = "brim_rt_str_quote" (Str) -> Str;
     /// `s.len()`: the length in bytes.
     StrLen = "brim_rt_str_len" (Str) -> I64;
     /// `s.contains(t)`

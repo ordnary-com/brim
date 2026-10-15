@@ -563,15 +563,15 @@ fn struct_expression_errors() {
         )]
     );
     assert_eq!(
-        check("    let p: Point = Point { x: 1, y: 2 }\n    print(p == p)"),
+        check("    let p: Point = Point { x: 1, y: 2 }\n    print(p < p)"),
         [(
             "E0209",
-            "cannot apply `==` to `Point` and `Point`".to_string()
+            "cannot apply `<` to `Point` and `Point`".to_string()
         )]
     );
     assert_eq!(
-        check("    let p: Point = Point { x: 1, y: 2 }\n    print(p)"),
-        [("E0206", "`print` cannot be called with `Point`".to_string())]
+        check("    let p: Point = Point { x: 1, y: 2 }\n    print(p == p)\n    print(p)"),
+        []
     );
     assert_eq!(
         check("    let p: i64 = Point { x: 1, y: 2 }"),
