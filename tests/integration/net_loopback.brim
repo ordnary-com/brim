@@ -21,9 +21,10 @@ fn run() -> Result[i64, string] {
         Err(e) => print("7: " + e)
     }
     listener.close()
-    match net.connect("127.0.0.1", port) {
+    // Not the port just closed: another program may get it right away.
+    match net.connect("127.0.0.1", 1) {
         Ok(_) => print("unexpected")
-        Err(e) => print("8: " + e.replace(":" + to_string(port), ":PORT"))
+        Err(e) => print("8: " + e)
     }
     match net.listen("127.0.0.1", 70000) {
         Ok(_) => print("unexpected")

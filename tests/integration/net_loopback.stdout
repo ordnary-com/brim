@@ -5,6 +5,6 @@
 5: 
 6: reply
 7: cannot read: invalid socket
-8: cannot connect to 127.0.0.1:PORT: connection refused
+8: cannot connect to 127.0.0.1:1: connection refused
 9: cannot listen on 127.0.0.1:70000: invalid port
 done
