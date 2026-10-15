@@ -60,4 +60,28 @@ error[E0205]: function `lib.public_value` takes 1 argument but 2 were supplied
 13 | pub fn public_value(x: i64) -> i64 {
    |        ------------ `lib.public_value` is defined here
 
-error: could not compile tests/modules/errors/main.brim due to 8 errors
+error[E0241]: field `balance` of `Account` is private to module `lib`
+  --> tests/modules/errors/main.brim:13:19
+   |
+13 |     print(account.balance)
+   |                   ^^^^^^^ not visible here
+  ::: tests/modules/errors/lib.brim:19:5
+   |
+19 |     balance: i64
+   |     ------------ declared without `pub`
+   |
+   = help: declare it as `pub balance` to use it outside `lib`
+
+error[E0241]: field `balance` of `Account` is private to module `lib`
+  --> tests/modules/errors/main.brim:14:59
+   |
+14 |     let forged: lib.Account = lib.Account { owner: "eve", balance: 100 }
+   |                                                           ^^^^^^^ not visible here
+  ::: tests/modules/errors/lib.brim:19:5
+   |
+19 |     balance: i64
+   |     ------------ declared without `pub`
+   |
+   = help: declare it as `pub balance` to use it outside `lib`
+
+error: could not compile tests/modules/errors/main.brim due to 10 errors

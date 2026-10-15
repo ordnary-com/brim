@@ -1,0 +1,18 @@
+// The types of the store, kept in their own module.
+
+pub const MAX_ITEMS: i64 = 3
+
+pub struct Item {
+    pub name: string
+    pub price: i64
+    // Only this module knows how prices are stored.
+    cents: i64
+}
+
+pub fn item(name: string, price: i64) -> Item {
+    return Item { name: name, price: price, cents: price * 100 }
+}
+
+pub fn cents(i: Item) -> i64 {
+    return i.cents
+}

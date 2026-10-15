@@ -1,0 +1,12 @@
+// The public face of the store: it re-exports what callers need from
+// `store.models`, so they import only `api`.
+
+pub import store.models.{Item, item, cents, MAX_ITEMS}
+
+pub fn total(items: List[Item]) -> i64 {
+    let mut sum = 0
+    for i in items {
+        sum += i.price
+    }
+    return sum
+}

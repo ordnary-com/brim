@@ -1,8 +1,8 @@
 // Shapes and their areas. Items marked `pub` can be used by other modules.
 
 pub struct Size {
-    width: i64
-    height: i64
+    pub width: i64
+    pub height: i64
 }
 
 pub enum Shape {

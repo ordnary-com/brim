@@ -76,6 +76,9 @@ pub struct ImportDecl {
     pub alias: Option<Ident>,
     /// `.{X, y}`: items brought into scope by their own names.
     pub items: Option<Vec<Ident>>,
+    /// `pub import a.{X}`: the items are also items of this module, for
+    /// the modules that import it.
+    pub public: bool,
     pub span: Span,
 }
 
@@ -188,6 +191,8 @@ impl Pattern {
 /// `name: type` inside a struct declaration.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FieldDecl {
+    /// `pub name: type`: usable from other modules.
+    pub public: bool,
     pub name: Ident,
     pub ty: TypeExpr,
     pub span: Span,

@@ -62,6 +62,8 @@ struct StructInfo {
 struct FieldInfo {
     name: String,
     ty: Type,
+    /// Declared with `pub`: usable outside the struct's module.
+    public: bool,
     span: Span,
 }
 
@@ -312,6 +314,10 @@ impl<'a> Checker<'a> {
             scope.own_fns = scope.fns.clone();
         }
         for (m, module) in modules.iter().enumerate() {
+            checker.collect_consts(m, &module.program);
+        }
+        checker.collect_reexports(modules);
+        for (m, module) in modules.iter().enumerate() {
             checker.resolve_imports(m, &module.program);
         }
         for (m, module) in modules.iter().enumerate() {
@@ -336,9 +342,7 @@ impl<'a> Checker<'a> {
             checker.collect_impls(&module.program);
             checker.leave();
         }
-        for (m, module) in modules.iter().enumerate() {
-            checker.collect_consts(m, &module.program);
-        }
+
         checker.enter(0);
         let entry = if tests && !checker.by_name.contains_key("main") {
             None
@@ -480,6 +484,61 @@ impl<'a> Checker<'a> {
         std::mem::swap(&mut self.aliases, &mut scope.aliases);
     }
 
+    /// The module an import names, if it exists and is not `m` itself.
+    fn import_target(&self, m: usize, import: &ast::ImportDecl) -> Option<usize> {
+        let joined = import
+            .path
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>()
+            .join(".");
+        self.module_names
+            .iter()
+            .position(|n| *n == joined && !n.is_empty())
+            .filter(|t| *t != m)
+    }
+
+    /// `pub import a.{X}` makes `X` an item of the importing module too.
+    /// Repeated until nothing changes, so re-exports of re-exports work in
+    /// any module order. Errors are reported with the other imports.
+    fn collect_reexports(&mut self, modules: &'a [ModuleAst]) {
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for (m, module) in modules.iter().enumerate() {
+                for import in module.program.imports.iter().filter(|i| i.public) {
+                    let Some(target) = self.import_target(m, import) else {
+                        continue;
+                    };
+                    for item in import.items.iter().flatten() {
+                        let name = item.name.as_str();
+                        if let Some(&def) = self.scopes[target].own_types.get(name)
+                            && self.def_public(def)
+                            && !self.scopes[m].own_types.contains_key(name)
+                        {
+                            self.scopes[m].own_types.insert(name.to_string(), def);
+                            changed = true;
+                        }
+                        if let Some(&f) = self.scopes[target].own_fns.get(name)
+                            && self.fn_decls[f.0].public
+                            && !self.scopes[m].own_fns.contains_key(name)
+                        {
+                            self.scopes[m].own_fns.insert(name, f);
+                            changed = true;
+                        }
+                        if let Some(&c) = self.scopes[target].consts.get(name)
+                            && self.consts[c].decl.public
+                            && !self.scopes[m].consts.contains_key(name)
+                        {
+                            self.scopes[m].consts.insert(name.to_string(), c);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Adds module `m`'s imports to its scope.
     fn resolve_imports(&mut self, m: usize, program: &'a ast::Program) {
         for import in &program.imports {
@@ -532,10 +591,12 @@ impl<'a> Checker<'a> {
                     for item in items {
                         let def = self.scopes[target].own_types.get(&item.name).copied();
                         let func = self.scopes[target].own_fns.get(item.name.as_str()).copied();
-                        let public = match (def, func) {
-                            (Some(def), _) => self.def_public(def),
-                            (None, Some(f)) => self.fn_decls[f.0].public,
-                            (None, None) => {
+                        let konst = self.scopes[target].consts.get(&item.name).copied();
+                        let public = match (def, func, konst) {
+                            (Some(def), _, _) => self.def_public(def),
+                            (None, Some(f), _) => self.fn_decls[f.0].public,
+                            (None, None, Some(c)) => self.consts[c].decl.public,
+                            (None, None, None) => {
                                 self.diags.push(
                                     Diagnostic::error(format!(
                                         "module `{joined}` has no item `{}`",
@@ -553,7 +614,12 @@ impl<'a> Checker<'a> {
                         }
                         let scope = &mut self.scopes[m];
                         let taken = scope.types.contains_key(&item.name)
-                            || scope.fns.contains_key(item.name.as_str());
+                            || scope.fns.contains_key(item.name.as_str())
+                            || (konst.is_some()
+                                && scope
+                                    .consts
+                                    .get(&item.name)
+                                    .is_some_and(|c| Some(*c) != konst));
                         if taken {
                             self.diags.push(
                                 Diagnostic::error(format!(
@@ -576,6 +642,9 @@ impl<'a> Checker<'a> {
                         if let Some(func) = func {
                             let name = self.fn_decls[func.0].name.name.as_str();
                             self.scopes[m].fns.insert(name, func);
+                        }
+                        if let Some(c) = konst {
+                            self.scopes[m].consts.insert(item.name.clone(), c);
                         }
                     }
                 }

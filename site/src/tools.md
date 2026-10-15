@@ -28,9 +28,9 @@ enum:
 
 ```brim
 pub struct Task {
-    id: i64,
-    title: string,
-    assignee: Option[string],
+    pub id: i64,
+    pub title: string,
+    pub assignee: Option[string],
 }
 
 pub enum Priority {

@@ -111,6 +111,7 @@ impl<'a> Checker<'a> {
                 fields.push(FieldInfo {
                     name: field.name.name.clone(),
                     ty,
+                    public: field.public,
                     span: field.span,
                 });
             }

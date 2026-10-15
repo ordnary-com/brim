@@ -381,9 +381,25 @@ impl Parser {
                             }
                             Err(Reported) => self.recover_item(),
                         },
+                        // `pub import a.{X}` re-exports `X`.
+                        TokenKind::Import => match self.import_decl() {
+                            Ok(mut i) if i.items.is_some() => {
+                                i.public = true;
+                                imports.push(i);
+                            }
+                            Ok(i) => {
+                                self.report(
+                                    Diagnostic::error("`pub import` re-exports items, not modules")
+                                        .with_code("E0100")
+                                        .with_primary(i.span, "")
+                                        .with_help("name the items: `pub import module.{Item}`"),
+                                );
+                            }
+                            Err(Reported) => self.recover_item(),
+                        },
                         _ => {
                             self.error_unexpected(
-                                "`fn`, `struct`, `enum`, `trait` or `const` after `pub`",
+                                "`fn`, `struct`, `enum`, `trait`, `const` or `import` after `pub`",
                             );
                             self.recover_item();
                         }
@@ -500,6 +516,7 @@ impl Parser {
             path,
             alias,
             items,
+            public: false,
             span: import_token.span.to(end),
         })
     }
@@ -643,6 +660,7 @@ impl Parser {
             if let Some(close) = self.eat(&TokenKind::RBrace) {
                 break close;
             }
+            let public = self.eat(&TokenKind::Pub).is_some();
             let field_name = self.expect_ident("a field name or `}`")?;
             if !self.at(&TokenKind::Colon) {
                 let diag = Diagnostic::error(format!("field `{}` needs a type", field_name.name))
@@ -658,6 +676,7 @@ impl Parser {
             let ty = self.type_expr()?;
             fields.push(FieldDecl {
                 span: field_name.span.to(ty.span()),
+                public,
                 name: field_name,
                 ty,
             });

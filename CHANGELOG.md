@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Added
 
 - Floating-point numbers: the `f64` type, literals (`1.5`, `6.02e23`), arithmetic and comparisons following IEEE 754, `to_float`, `to_int` (run-time error `R0010` for NaN and out-of-range numbers), `to_string`, `print` and `parse_float`. Numbers are written with the fewest digits that read back exactly, the same in the interpreter and native code (checked on 200,000 values). `std.json` gets `as_float` and `from_float`; `brim gen ts` maps `f64` to `number`; every editor grammar knows `f64`. `i64` and `f64` never mix implicitly, and the diagnostics say how to convert. `E0007` now means a floating-point literal too large for `f64`.
+- Visibility per field: `pub name: type`; other fields are private to the struct's module (`E0241` when read, assigned or given elsewhere). `pub import module.{X}` re-exports items, and import lists can name constants.
 - Tuples: `(i64, string)` types, `(a, b)` values, fields `t.0`, `(p, q)` patterns in `match`, and `let (q, r) = divmod(17, 5)` (`E0251` when the pattern can fail). `==` and `print` work on them, and `brim gen ts` writes TypeScript tuples.
 - f-strings: `f"Hello, {name}! You are {age + 1}."` shows each value as `print` does; `{{` and `}}` are literal braces. Plain strings are unchanged. The formatter, tree-sitter grammar and VS Code grammar know them.
 - `if` and `match` as values: `let sign = if n < 0 { -1 } else { 1 }`, `return match shape { Circle(r) => r * r, ... }`. A block's value is its last line; branches that return or break need none. `E0250` for an `if` without `else` and for blocks without a value.
@@ -23,6 +24,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
+- Struct fields are private to their module unless declared `pub`. The standard library marks the fields programs use (`http.Request`, `http.Response`, `time.Time`, `time.DateTime`) as `pub`; code that reads fields of its own structs from other modules needs `pub` on them.
 - `Box` is a built-in type now, so a struct or enum named `Box` must be renamed (`E0219`).
 
 ### Fixed

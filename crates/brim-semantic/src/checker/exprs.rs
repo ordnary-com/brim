@@ -1221,6 +1221,7 @@ impl<'a> Checker<'a> {
         let info = &self.structs[id.0];
         if let Some(index) = info.fields.iter().position(|f| f.name == field.name) {
             let field_ty = info.fields[index].ty;
+            self.check_field_visible(id, index, field);
             return Some((index, self.types.subst(field_ty, &args)));
         }
         let mut diag = Diagnostic::error(format!(
@@ -1329,6 +1330,7 @@ impl<'a> Checker<'a> {
                 indices.push(None);
                 continue;
             };
+            self.check_field_visible(id, index, &field.name);
             if let Some(first) = given[index] {
                 self.diags.push(
                     Diagnostic::error(format!(
@@ -1807,6 +1809,30 @@ impl<'a> Checker<'a> {
             ty: Type::String,
             span,
         })
+    }
+
+    /// Reports a use of a field without `pub` outside its struct's module.
+    fn check_field_visible(&mut self, id: crate::StructId, index: usize, used: &ast::Ident) {
+        let info = &self.structs[id.0];
+        if info.module == self.module || info.fields[index].public {
+            return;
+        }
+        let module = self.module_names[info.module].clone();
+        let struct_name = info.name.clone();
+        let decl_span = info.fields[index].span;
+        self.diags.push(
+            Diagnostic::error(format!(
+                "field `{}` of `{struct_name}` is private to module `{module}`",
+                used.name
+            ))
+            .with_code("E0241")
+            .with_primary(used.span, "not visible here")
+            .with_secondary(decl_span, "declared without `pub`")
+            .with_help(format!(
+                "declare it as `pub {}` to use it outside `{module}`",
+                used.name
+            )),
+        );
     }
 
     /// The element types of a tuple type.

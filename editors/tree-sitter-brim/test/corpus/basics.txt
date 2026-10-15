@@ -473,3 +473,33 @@ fn divmod(a: i64, b: i64) -> (i64, i64) {
                 (field_expression
                   (identifier)
                   (integer))))))))))
+
+==================
+Public fields and re-exports
+==================
+
+pub import store.models.{Item, MAX}
+
+pub struct User {
+    pub name: string
+    password: string
+}
+
+---
+
+(source_file
+  (import_declaration
+    (visibility)
+    (module_path)
+    (identifier)
+    (identifier))
+  (struct_declaration
+    (visibility)
+    (type_identifier)
+    (field_declaration
+      (visibility)
+      (field_identifier)
+      (primitive_type))
+    (field_declaration
+      (field_identifier)
+      (primitive_type))))

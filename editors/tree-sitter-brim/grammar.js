@@ -43,6 +43,7 @@ module.exports = grammar({
 
     import_declaration: ($) =>
       seq(
+        optional($.visibility),
         'import',
         field('path', $.module_path),
         optional(
@@ -137,7 +138,8 @@ module.exports = grammar({
         '}',
       ),
 
-    field_declaration: ($) => seq(field('name', fieldId($)), ':', field('type', $._type)),
+    field_declaration: ($) =>
+      seq(optional($.visibility), field('name', fieldId($)), ':', field('type', $._type)),
 
     enum_declaration: ($) =>
       seq(

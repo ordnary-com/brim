@@ -13,3 +13,12 @@ pub fn make() -> i64 {
 pub fn public_value(x: i64) -> i64 {
     return x
 }
+
+pub struct Account {
+    pub owner: string
+    balance: i64
+}
+
+pub fn open(owner: string) -> Account {
+    return Account { owner: owner, balance: 0 }
+}

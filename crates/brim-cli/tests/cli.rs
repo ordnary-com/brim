@@ -536,7 +536,7 @@ fn path_dependencies() {
     .unwrap();
     fs::write(
         dir.join("geometry/src/shapes.brim"),
-        "pub struct Square {\n    side: i64,\n}\n\npub fn square(side: i64) -> Square {\n    return Square { side: side }\n}\n",
+        "pub struct Square {\n    pub side: i64,\n}\n\npub fn square(side: i64) -> Square {\n    return Square { side: side }\n}\n",
     )
     .unwrap();
 

@@ -27,29 +27,29 @@ import std.net
 // A request a server received.
 pub struct Request {
     // `GET`, `POST`, ...
-    method: string,
+    pub method: string,
     // The path without the query: `/users/7`.
-    path: string,
+    pub path: string,
     // The query parameters, decoded: `?q=a+b` gives `"q": "a b"`.
-    query: Map[string, string],
+    pub query: Map[string, string],
     // Header names in lower case.
-    headers: Map[string, string],
-    body: string,
+    pub headers: Map[string, string],
+    pub body: string,
     conn: net.Conn,
 }
 
 // A response: from a server, or to a client.
 pub struct Response {
-    status: i64,
-    headers: Map[string, string],
-    body: string,
+    pub status: i64,
+    pub headers: Map[string, string],
+    pub body: string,
 }
 
 // A server, waiting for requests.
 pub struct Server {
     listener: net.Listener,
     // The largest request body it accepts, in bytes; larger ones get 413.
-    max_body: i64,
+    pub max_body: i64,
 }
 
 // Why a request was not accepted, and the status the client gets.

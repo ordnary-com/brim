@@ -8,4 +8,8 @@ fn main() {
     let h: lib.Hidden = lib.make()
     print(lib)
     print(lib.public_value(1, 2))
+    let account: lib.Account = lib.open("ada")
+    print(account.owner)
+    print(account.balance)
+    let forged: lib.Account = lib.Account { owner: "eve", balance: 100 }
 }

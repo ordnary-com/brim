@@ -130,7 +130,7 @@ The grammar below uses EBNF. `NEWLINE` is a newline token; `EOF` is the end of i
 
 ```ebnf
 program     = { separator } { ( import | item ) { separator } } EOF ;
-import      = "import" identifier { "." identifier } [ "." "{" identifier { "," identifier } [ "," ] "}" | "as" identifier ] ;
+import      = [ "pub" ] "import" identifier { "." identifier } [ "." "{" identifier { "," identifier } [ "," ] "}" | "as" identifier ] ;
 item        = [ "pub" ] ( function | struct | enum | trait | const ) | impl ;
 impl        = "impl" [ path "for" ] identifier [ type_params ] "{" { separator } { [ "pub" ] function { separator } } "}" ;
 trait       = "trait" identifier "{" { separator } { trait_fn { separator } } "}" ;
@@ -139,7 +139,7 @@ const       = "const" identifier [ ":" type ] "=" expression ;
 separator   = NEWLINE | ";" ;
 
 struct      = "struct" identifier [ type_params ] "{" { field_sep } [ field { field_sep { field_sep } field } ] { field_sep } "}" ;
-field       = identifier ":" type ;
+field       = [ "pub" ] identifier ":" type ;
 field_sep   = NEWLINE | ";" | "," ;
 
 enum        = "enum" identifier [ type_params ] "{" { field_sep } [ variant { field_sep { field_sep } variant } ] { field_sep } "}" ;
@@ -267,6 +267,8 @@ A struct declaration introduces a new type with named, typed **fields**. Fields 
 **Value semantics.** Structs are values, like integers: assignment, passing an argument and returning copy the whole struct, and changing a copy never changes the original. There are no references to structs.
 
 **Field assignment.** `p.x = 3`, `p.from.y += 1` change one field of a variable. The variable must be declared with `let mut` (`E0218`); its fields are as mutable as the variable itself.
+
+**Visibility.** A field is visible outside the struct's module only when declared `pub` (section 9.2).
 
 **Operations.** Two struct types are compatible only if they are the same declaration. Structs can be compared with `==` and `!=` and shown with `print` and `to_string` (section 5.8). Methods are declared in `impl` blocks.
 
@@ -725,8 +727,10 @@ fn helper() { ... }          // private to geometry
 Every `.brim` file is a module. `import a.b` loads the module in `a/b.brim`, relative to the directory of the root file (`src/` in a project).
 
 - `import a.b` makes the module usable as `b`: `b.function(...)`, `b.Type`, `b.Type { ... }`, `b.Enum.Variant(...)`, `b.Type.method(...)`. `import a.b as c` uses the name `c` instead.
-- `import a.b.{X, y}` brings the named items into the module's scope under their own names.
-- A module's functions, structs and enums are **private** unless declared `pub`; using a private item of another module is `E0241`. Methods are private unless declared `pub fn` inside the `impl` block. A `pub` struct's fields are all visible.
+- `import a.b.{X, y}` brings the named items (functions, types and constants) into the module's scope under their own names.
+- `pub import a.b.{X, y}` also **re-exports** them: modules that import this one can use them as `this.X` or import them by name, as if they were declared here. Only item lists can be re-exported.
+- A module's functions, structs, enums, traits and constants are **private** unless declared `pub`; using a private item of another module is `E0241`. Methods are private unless declared `pub fn` inside the `impl` block (methods of `impl Trait for Type` are as visible as the trait).
+- **Fields** are private too unless declared `pub name: type`: outside the struct's module, reading, assigning or giving a private field (so creating the struct with a literal) is `E0241`. A struct with private fields is made by functions of its module.
 - Methods can only be added in the module that declares the type (`E0237`).
 - A missing module or item is `E0242`; importing two modules under the same name, or an item whose name is already taken, is `E0243`.
 - Modules may import each other in cycles. Every module is loaded once.
@@ -849,7 +853,7 @@ These questions are not settled. The current behavior is a reversible default.
 7. **Statement termination.** Newline termination with continuation after operators is the current rule. Behavior around method chains (`.` at line start) must be decided when methods exist.
 8. **`main` signature.** `main` takes no parameters and returns nothing; arguments come from `args()` and the exit code from `exit`. Returning a `Result` from `main` is undecided.
 9. **Unicode identifiers.** Identifiers are ASCII-only. Allowing Unicode (UAX #31) is possible later.
-10. **Modules.** Modules are files and `pub` controls visibility; dependencies add their modules under the package's name. Re-exports, visibility of single struct fields, and a package registry with version requirements are undecided.
+10. **Modules.** Modules are files and `pub` controls visibility, of items and of fields; `pub import` re-exports items; dependencies add their modules under the package's name. Re-exporting whole modules and a package registry with version requirements are undecided.
 11. **Loop forms.** `while`, `loop` and `for` exist. Labeled `break` for nested loops and `for` over other collections are candidates.
 12. **Struct literals.** Field-shorthand literals (`Point { x, y }`) and default values are undecided. Ordering structs with `<` is not supported.
 13. **More patterns.** Patterns for struct fields, ranges (`1..5`) and binding a whole value while matching its parts (`x @ Some(_)`) are not supported yet.
