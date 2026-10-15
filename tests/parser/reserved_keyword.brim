@@ -1,5 +1,4 @@
 fn main() {
-    loop {
-        print(1)
-    }
+    let type = 1
+    print(type)
 }

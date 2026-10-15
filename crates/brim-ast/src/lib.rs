@@ -19,7 +19,20 @@ pub struct Program {
     pub enums: Vec<EnumDecl>,
     pub impls: Vec<ImplDecl>,
     pub traits: Vec<TraitDecl>,
+    pub consts: Vec<ConstDecl>,
     pub functions: Vec<FnDecl>,
+}
+
+/// `const NAME: type = value` at the top level.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConstDecl {
+    pub public: bool,
+    pub name: Ident,
+    /// `None` when the type is inferred from the value.
+    pub ty: Option<TypeExpr>,
+    pub value: Expr,
+    /// From `const` to the end of the value.
+    pub span: Span,
 }
 
 /// `trait Name { fn method(self, ...) -> type ... }`

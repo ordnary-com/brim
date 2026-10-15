@@ -207,11 +207,9 @@ fn error_missing_type_annotation() {
 
 #[test]
 fn error_reserved_keywords() {
-    assert_eq!(
-        errors("fn main() {\n    loop {\n        print(1)\n    }\n}"),
-        vec![("E0101", "`loop` is not supported yet".to_string())]
-    );
+    parse_ok("fn main() {\n    loop {\n        break\n    }\n}");
     assert_eq!(codes("type Show {}"), vec!["E0101"]);
+    assert_eq!(codes("fn main() {\n    const X = 1\n}"), vec!["E0103"]);
     assert_eq!(codes("fn async() {}"), vec!["E0101"]);
     // Keywords cannot be used as names either.
     assert_eq!(

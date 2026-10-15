@@ -41,6 +41,8 @@ pub enum TokenKind {
     In,
     Impl,
     Trait,
+    Const,
+    Loop,
     /// `self`, the receiver of a method.
     SelfValue,
     Import,
@@ -121,6 +123,8 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("in", TokenKind::In),
     ("impl", TokenKind::Impl),
     ("trait", TokenKind::Trait),
+    ("const", TokenKind::Const),
+    ("loop", TokenKind::Loop),
     ("self", TokenKind::SelfValue),
     ("import", TokenKind::Import),
     ("pub", TokenKind::Pub),
@@ -129,7 +133,7 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
 
 /// Words reserved for planned features. They cannot be used as identifiers,
 /// which lets those features be added later without breaking programs.
-pub const RESERVED: &[&str] = &["async", "await", "const", "loop", "type", "use"];
+pub const RESERVED: &[&str] = &["async", "await", "type", "use"];
 
 impl TokenKind {
     /// A short description used in diagnostics, e.g. "`(`" or "identifier".
@@ -173,6 +177,8 @@ impl fmt::Display for TokenKind {
             TokenKind::In => "in",
             TokenKind::Impl => "impl",
             TokenKind::Trait => "trait",
+            TokenKind::Const => "const",
+            TokenKind::Loop => "loop",
             TokenKind::SelfValue => "self",
             TokenKind::Import => "import",
             TokenKind::Pub => "pub",

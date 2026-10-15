@@ -45,7 +45,7 @@
 (module_path) @namespace
 
 [
-  "fn" "struct" "enum" "impl" "trait" "let"
+  "fn" "struct" "enum" "impl" "trait" "const" "let"
 ] @keyword
 
 [
@@ -53,7 +53,7 @@
 ] @keyword.control.conditional
 
 [
-  "while" "for" "in"
+  "while" "loop" "for" "in"
 ] @keyword.control.repeat
 
 (break_statement) @keyword.control.repeat
@@ -74,3 +74,4 @@
 
 [ "(" ")" "[" "]" "{" "}" ] @punctuation.bracket
 [ "," ";" ":" "." ] @punctuation.delimiter
+(const_declaration name: (identifier) @constant)

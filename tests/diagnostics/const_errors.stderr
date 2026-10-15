@@ -1,0 +1,44 @@
+error[E0249]: constant `A` is defined in terms of itself
+ --> tests/diagnostics/const_errors.brim:2:16
+  |
+1 | const A: i64 = B + 1
+  |       - defined here
+2 | const B: i64 = A
+  |                ^ used here while its value is computed
+
+error[E0249]: the value of constant `NOW` must be computed from literals
+ --> tests/diagnostics/const_errors.brim:3:13
+  |
+3 | const NOW = read_line()
+  |             ^^^^^^^^^^^ not allowed in a constant
+  |
+  = note: a constant can use literals, operators, other constants, and struct, enum, list and map values
+  = help: compute it in a function instead
+
+error[E0206]: mismatched types
+ --> tests/diagnostics/const_errors.brim:4:23
+  |
+4 | const WRONG: string = 5
+  |              ------ expected due to this type
+  |                       ^ expected `string`, found `i64`
+  |
+  = note: Brim never converts between types implicitly
+
+error[E0202]: constant `SAME` is defined more than once
+ --> tests/diagnostics/const_errors.brim:6:7
+  |
+5 | const SAME = 1
+  |       ---- first defined here
+6 | const SAME = 2
+  |       ^^^^ redefined here
+
+error[E0249]: the value of constant `FROM_CALL` must be computed from literals
+  --> tests/diagnostics/const_errors.brim:12:19
+   |
+12 | const FROM_CALL = helper()
+   |                   ^^^^^^^^ not allowed in a constant
+   |
+   = note: a constant can use literals, operators, other constants, and struct, enum, list and map values
+   = help: compute it in a function instead
+
+error: could not compile tests/diagnostics/const_errors.brim due to 5 errors

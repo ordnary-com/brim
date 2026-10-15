@@ -60,6 +60,18 @@ module.exports = grammar({
         $.enum_declaration,
         $.impl_declaration,
         $.trait_declaration,
+        $.const_declaration,
+      ),
+
+    // `const MAX: i64 = 10`
+    const_declaration: ($) =>
+      seq(
+        optional($.visibility),
+        'const',
+        field('name', $.identifier),
+        optional(seq(':', field('type', $._type))),
+        '=',
+        field('value', $._expression),
       ),
 
     // `trait Shape { fn area(self) -> f64 }`
@@ -170,6 +182,7 @@ module.exports = grammar({
         $.assignment_statement,
         $.if_statement,
         $.while_statement,
+        $.loop_statement,
         $.for_statement,
         $.match_statement,
         $.break_statement,
@@ -184,8 +197,7 @@ module.exports = grammar({
         'let',
         optional('mut'),
         field('name', $.identifier),
-        ':',
-        field('type', $._type),
+        optional(seq(':', field('type', $._type))),
         '=',
         field('value', $._expression),
       ),
@@ -210,6 +222,8 @@ module.exports = grammar({
       ),
 
     while_statement: ($) => seq('while', field('condition', $._expression), field('body', $.block)),
+
+    loop_statement: ($) => seq('loop', field('body', $.block)),
 
     for_statement: ($) =>
       seq(

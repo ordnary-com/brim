@@ -1,4 +1,5 @@
 mod collections;
+mod consts;
 mod decls;
 mod exprs;
 mod matching;
@@ -114,6 +115,8 @@ pub(crate) struct Checker<'a> {
     trait_impls: std::collections::HashSet<(traits::TraitId, Def)>,
     /// The bounds of the type parameters in scope.
     type_bounds: Vec<Vec<traits::TraitId>>,
+    /// Every module's constants.
+    consts: Vec<consts::ConstInfo<'a>>,
     /// Type parameter names of the declaration being checked, for resolving
     /// and showing `Type::Param`.
     type_params: Vec<String>,
@@ -143,6 +146,8 @@ struct ModuleScope<'a> {
     /// The module's own items, for imports from other modules.
     own_types: HashMap<String, Def>,
     own_fns: HashMap<&'a str, FnId>,
+    /// The module's constants, by name: indices into `Checker::consts`.
+    consts: HashMap<String, usize>,
 }
 
 /// A module to check: its dotted name (empty for the root module, which
@@ -262,6 +267,7 @@ impl<'a> Checker<'a> {
             trait_by_name: traits::builtin_trait_names(),
             trait_impls: std::collections::HashSet::new(),
             type_bounds: Vec::new(),
+            consts: Vec::new(),
             type_params: Vec::new(),
             list_type_params: vec!["T".into()],
             map_type_params: vec!["K".into(), "V".into()],
@@ -329,6 +335,9 @@ impl<'a> Checker<'a> {
             checker.collect_impls(&module.program);
             checker.leave();
         }
+        for (m, module) in modules.iter().enumerate() {
+            checker.collect_consts(m, &module.program);
+        }
         checker.enter(0);
         let entry = if tests && !checker.by_name.contains_key("main") {
             None
@@ -346,6 +355,12 @@ impl<'a> Checker<'a> {
         for (i, f) in decls.iter().enumerate() {
             checker.enter(checker.sigs[i].module);
             functions.push(checker.check_fn(f, FnId(i)));
+            checker.leave();
+        }
+        // Constants nothing uses are checked too.
+        for id in 0..checker.consts.len() {
+            checker.enter(checker.consts[id].module);
+            checker.const_value(id, None);
             checker.leave();
         }
         functions.extend(

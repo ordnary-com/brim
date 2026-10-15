@@ -1,0 +1,16 @@
+const A: i64 = B + 1
+const B: i64 = A
+const NOW = read_line()
+const WRONG: string = 5
+const SAME = 1
+const SAME = 2
+
+fn helper() -> i64 {
+    return 1
+}
+
+const FROM_CALL = helper()
+
+fn main() {
+    print(A)
+}

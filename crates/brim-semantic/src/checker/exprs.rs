@@ -113,6 +113,9 @@ impl<'a> Checker<'a> {
                     return self.check_variant_name(e, field, None, span, expected, ctx);
                 }
                 if let Some(target) = self.module_alias(base, ctx) {
+                    if let Some(value) = self.module_const(target, field, span) {
+                        return value;
+                    }
                     let module = self.module_names[target].clone();
                     let scope = &self.scopes[target];
                     let what = if scope.own_fns.contains_key(field.name.as_str()) {
@@ -834,6 +837,9 @@ impl<'a> Checker<'a> {
             };
         }
         let name = ident.name.as_str();
+        if let Some(id) = self.const_named(name) {
+            return self.const_value(id, Some(ident.span));
+        }
         if self.aliases.contains_key(name) {
             self.diags.push(
                 Diagnostic::error(format!("`{name}` is a module, not a value"))

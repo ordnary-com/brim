@@ -291,3 +291,45 @@ fn total[T: Shape + Show](xs: List[T]) -> f64 {
     (block
       (return_statement
         (float)))))
+
+==================
+Constants, loop and inferred let
+==================
+
+const MAX: i64 = 3
+
+fn main() {
+    let mut n = 0
+    loop {
+        n += 1
+        if n == MAX {
+            break
+        }
+    }
+}
+
+---
+
+(source_file
+  (const_declaration
+    (identifier)
+    (primitive_type)
+    (integer))
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (let_statement
+        (identifier)
+        (integer))
+      (loop_statement
+        (block
+          (assignment_statement
+            (identifier)
+            (integer))
+          (if_statement
+            (binary_expression
+              (identifier)
+              (identifier))
+            (block
+              (break_statement))))))))

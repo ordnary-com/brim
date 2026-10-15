@@ -1,0 +1,49 @@
+// `const` names a value computed from literals; `loop` repeats until
+// `break`.
+
+const MAX_TRIES: i64 = 5
+const GREETING = "hello"
+const LIMIT: u8 = 200
+const DOUBLE_MAX = MAX_TRIES * 2
+const ORIGIN: Point = Point { x: 0, y: 0 }
+const PRIMES: List[i64] = [2, 3, 5, 7]
+const DEFAULT_NAME: Option[string] = None
+
+struct Point {
+    x: i64
+    y: i64
+}
+
+fn first_over(limit: i64) -> i64 {
+    let mut n = 0
+    loop {
+        n += 1
+        if n * n > limit {
+            return n
+        }
+    }
+}
+
+fn main() {
+    print(MAX_TRIES)
+    print(GREETING + ", world")
+    print(LIMIT + 55)
+    print(DOUBLE_MAX)
+    print(ORIGIN)
+    print(PRIMES)
+    print(DEFAULT_NAME)
+    print(first_over(50))
+
+    let mut tries = 0
+    loop {
+        tries += 1
+        if tries == MAX_TRIES {
+            break
+        }
+        if tries % 2 == 0 {
+            continue
+        }
+        print("odd try " + to_string(tries))
+    }
+    print(tries)
+}

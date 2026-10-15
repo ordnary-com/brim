@@ -123,8 +123,11 @@ The grammar below uses EBNF. `NEWLINE` is a newline token; `EOF` is the end of i
 ```ebnf
 program     = { separator } { ( import | item ) { separator } } EOF ;
 import      = "import" identifier { "." identifier } [ "." "{" identifier { "," identifier } [ "," ] "}" | "as" identifier ] ;
-item        = [ "pub" ] ( function | struct | enum ) | impl ;
-impl        = "impl" identifier [ type_params ] "{" { separator } { [ "pub" ] function { separator } } "}" ;
+item        = [ "pub" ] ( function | struct | enum | trait | const ) | impl ;
+impl        = "impl" [ path "for" ] identifier [ type_params ] "{" { separator } { [ "pub" ] function { separator } } "}" ;
+trait       = "trait" identifier "{" { separator } { trait_fn { separator } } "}" ;
+trait_fn    = "fn" identifier "(" "self" { "," param } [ "," ] ")" [ "->" type ] ;
+const       = "const" identifier [ ":" type ] "=" expression ;
 separator   = NEWLINE | ";" ;
 
 struct      = "struct" identifier [ type_params ] "{" { field_sep } [ field { field_sep { field_sep } field } ] { field_sep } "}" ;
@@ -480,6 +483,15 @@ fn total_area[T: Shape](shapes: List[T]) -> f64 {
 - The built-in traits **`Eq`** and **`Show`** are implemented by every type whose values can all be compared with `==`, or shown with `print` (section 5.8), and by type parameters bounded by them. They cannot be implemented by hand.
 - Generic code is compiled per type, so a call through a bound is an ordinary call of the type's method. Traits are not types: a `List` holds values of one type, and there are no trait objects.
 
+### 5.12 Constants
+
+`const NAME: T = value` at the top level of a module names a value; the type may be left out, as with `let`. The value is computed from literals, operators, other constants, and struct, enum, list, map and box values; calls and variables are not allowed (`E0249`, also for constants defined in terms of themselves). A constant is used by name, and a `pub const` from another module as `module.NAME`. Two constants with the same name are `E0202`. `const` inside a function is `E0103`: use `let`.
+
+```brim
+const MAX_TRIES: i64 = 5
+const ORIGIN: Point = Point { x: 0, y: 0 }
+```
+
 ## 6. Statements
 
 ### 6.1 Statement termination
@@ -533,7 +545,7 @@ Assignment is a statement, not an expression: it produces no value.
 - `continue` jumps to the next evaluation of the innermost loop's condition.
 - `break` or `continue` outside a loop is error `E0217`.
 
-There is no separate infinite-loop keyword: write `while true { ... }`.
+`loop { ... }` runs the block until a `break` (or `return`); it is the same as `while true { ... }`, and diverges when it contains no `break` for it.
 
 ### 6.6 `return`
 
@@ -800,7 +812,7 @@ These questions are not settled. The current behavior is a reversible default.
 8. **`main` signature.** `main` takes no parameters and returns nothing; arguments come from `args()` and the exit code from `exit`. Returning a `Result` from `main` is undecided.
 9. **Unicode identifiers.** Identifiers are ASCII-only. Allowing Unicode (UAX #31) is possible later.
 10. **Modules.** Modules are files and `pub` controls visibility; dependencies add their modules under the package's name. Re-exports, visibility of single struct fields, and a package registry with version requirements are undecided.
-11. **Loop forms.** `while` and `for` exist. A dedicated `loop` keyword, labeled `break` for nested loops, and `for` over other collections are candidates.
+11. **Loop forms.** `while`, `loop` and `for` exist. Labeled `break` for nested loops and `for` over other collections are candidates.
 12. **Struct literals.** Field-shorthand literals (`Point { x, y }`) and default values are undecided. Ordering structs with `<` is not supported.
 13. **`match` as an expression and more patterns.** `match` is a statement. Patterns for struct fields, ranges (`1..5`) and binding a whole value while matching its parts (`x @ Some(_)`) are not supported yet.
 14. **More from traits.** Default method bodies, traits with static methods (`T.new()`), traits for built-in types, and trait objects (a list of values of different types that share a trait) are not supported yet.

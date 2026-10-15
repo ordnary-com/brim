@@ -1,10 +1,17 @@
-error[E0101]: `loop` is not supported yet
- --> tests/parser/reserved_keyword.brim:2:5
+error[E0101]: `type` is not supported yet
+ --> tests/parser/reserved_keyword.brim:2:9
   |
-2 |     loop {
-  |     ^^^^ reserved keyword
+2 |     let type = 1
+  |         ^^^^ reserved keyword
   |
-  = note: `loop` is reserved for a future version of Brim and cannot be used as a name
-  = help: use a `while` loop instead
+  = note: `type` is reserved for a future version of Brim and cannot be used as a name
 
-error: could not compile tests/parser/reserved_keyword.brim due to 1 error
+error[E0101]: `type` is not supported yet
+ --> tests/parser/reserved_keyword.brim:3:11
+  |
+3 |     print(type)
+  |           ^^^^ reserved keyword
+  |
+  = note: `type` is reserved for a future version of Brim and cannot be used as a name
+
+error: could not compile tests/parser/reserved_keyword.brim due to 2 errors

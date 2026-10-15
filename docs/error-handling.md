@@ -56,7 +56,7 @@ Guidelines for writing diagnostics:
 | E0100 | Unexpected token ("expected X, found Y"), including unclosed blocks and parentheses |
 | E0101 | Reserved keyword used (`for`, `trait`, `impl`, ...): the feature is not supported yet |
 | E0102 | Missing type annotation on a parameter or a struct field |
-| E0103 | Something other than a function, struct or enum declaration at the top level, or a struct or enum declared inside a function |
+| E0103 | Something other than a declaration at the top level, or a struct, enum or `const` declared inside a function |
 | E0104 | Invalid assignment target, or a list method that changes the list called on something other than a variable (only variables, their fields and list elements can be changed) |
 | E0105 | Blocks or expressions nested too deeply (implementation limit: 128) |
 | E0106 | Chained comparison such as `a < b < c` |
@@ -68,7 +68,7 @@ Guidelines for writing diagnostics:
 |-------|---------|
 | E0200 | Undefined variable |
 | E0201 | Undefined function |
-| E0202 | Function defined more than once |
+| E0202 | Function or constant defined more than once |
 | E0203 | Variable declared twice in the same scope |
 | E0204 | Duplicate parameter name |
 | E0205 | Wrong number of arguments |
@@ -115,6 +115,7 @@ Guidelines for writing diagnostics:
 | E0246 | A malformed trait (a method without `self`, or with `mut self`), a duplicate trait or trait method, or an unknown trait |
 | E0247 | An `impl Trait for Type` that misses a method of the trait, has a method with another signature or one the trait does not declare, implements the trait twice, or implements `Eq` or `Show` |
 | E0248 | A type argument that does not implement a bound of its type parameter |
+| E0249 | A constant whose value is not computed from literals, or that is defined in terms of itself |
 
 ### Warnings
 

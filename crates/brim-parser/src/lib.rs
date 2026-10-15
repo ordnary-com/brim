@@ -21,9 +21,9 @@
 //! phases.
 
 use brim_ast::{
-    BinaryOp, Block, EnumDecl, Expr, ExprKind, FieldDecl, FieldInit, FnDecl, ForIter, Ident,
-    ImplDecl, ImportDecl, MatchArm, Param, Pattern, PatternKind, PlaceElem, Program, Receiver,
-    Stmt, StmtKind, StructDecl, TraitDecl, TraitMethod, TypeExpr, UnaryOp, VariantDecl,
+    BinaryOp, Block, ConstDecl, EnumDecl, Expr, ExprKind, FieldDecl, FieldInit, FnDecl, ForIter,
+    Ident, ImplDecl, ImportDecl, MatchArm, Param, Pattern, PatternKind, PlaceElem, Program,
+    Receiver, Stmt, StmtKind, StructDecl, TraitDecl, TraitMethod, TypeExpr, UnaryOp, VariantDecl,
 };
 use brim_diagnostics::{Diagnostic, Span};
 use brim_lexer::{Token, TokenKind, lex};
@@ -268,15 +268,12 @@ impl Parser {
     #[cold]
     #[inline(never)]
     fn reserved_keyword(&mut self, word: &str, span: Span) -> Reported {
-        let mut diag = Diagnostic::error(format!("`{word}` is not supported yet"))
+        let diag = Diagnostic::error(format!("`{word}` is not supported yet"))
             .with_code("E0101")
             .with_primary(span, "reserved keyword")
             .with_note(format!(
                 "`{word}` is reserved for a future version of Brim and cannot be used as a name"
             ));
-        if word == "loop" {
-            diag = diag.with_help("use a `while` loop instead");
-        }
         self.report(diag)
     }
 
@@ -293,6 +290,7 @@ impl Parser {
                 | TokenKind::Enum
                 | TokenKind::Impl
                 | TokenKind::Trait
+                | TokenKind::Const
                 | TokenKind::Pub
                 | TokenKind::Import
                 | TokenKind::Eof
@@ -331,6 +329,7 @@ impl Parser {
         let mut enums = Vec::new();
         let mut impls = Vec::new();
         let mut traits = Vec::new();
+        let mut consts = Vec::new();
         let mut imports = Vec::new();
         loop {
             while matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Semi) {
@@ -374,8 +373,17 @@ impl Parser {
                             }
                             Err(Reported) => self.recover_item(),
                         },
+                        TokenKind::Const => match self.const_decl() {
+                            Ok(mut c) => {
+                                c.public = true;
+                                consts.push(c);
+                            }
+                            Err(Reported) => self.recover_item(),
+                        },
                         _ => {
-                            self.error_unexpected("`fn`, `struct`, `enum` or `trait` after `pub`");
+                            self.error_unexpected(
+                                "`fn`, `struct`, `enum`, `trait` or `const` after `pub`",
+                            );
                             self.recover_item();
                         }
                     }
@@ -394,6 +402,10 @@ impl Parser {
                 },
                 TokenKind::Trait => match self.trait_decl() {
                     Ok(t) => traits.push(t),
+                    Err(Reported) => self.recover_item(),
+                },
+                TokenKind::Const => match self.const_decl() {
+                    Ok(c) => consts.push(c),
                     Err(Reported) => self.recover_item(),
                 },
                 TokenKind::Impl => match self.impl_decl() {
@@ -421,13 +433,13 @@ impl Parser {
                 }
                 _ => {
                     let diag = Diagnostic::error(format!(
-                        "expected `fn`, `struct`, `enum`, `trait` or `impl`, found {}",
+                        "expected `fn`, `struct`, `enum`, `trait`, `const` or `impl`, found {}",
                         token.kind.describe()
                     ))
                     .with_code("E0103")
                     .with_primary(token.span, "expected a declaration")
                     .with_note(
-                        "only functions, structs, enums, traits and `impl` blocks can be declared at the top level",
+                        "only functions, structs, enums, traits, constants and `impl` blocks can be declared at the top level",
                     );
                     self.report(diag);
                     self.bump();
@@ -441,6 +453,7 @@ impl Parser {
             enums,
             impls,
             traits,
+            consts,
             functions,
         }
     }
@@ -962,6 +975,30 @@ impl Parser {
         Ok(name)
     }
 
+    /// `const NAME: type = value`
+    fn const_decl(&mut self) -> PResult<ConstDecl> {
+        let const_token = self.expect(&TokenKind::Const)?;
+        let name = self.expect_ident("a constant name")?;
+        let ty = if self.eat(&TokenKind::Colon).is_some() {
+            Some(self.type_expr()?)
+        } else {
+            None
+        };
+        if !self.at(&TokenKind::Eq) {
+            return Err(self.error_unexpected("`=` and the constant's value"));
+        }
+        self.bump();
+        self.skip_newlines();
+        let value = self.expr()?;
+        Ok(ConstDecl {
+            public: false,
+            span: const_token.span.to(value.span),
+            name,
+            ty,
+            value,
+        })
+    }
+
     /// `trait Name { fn method(self) -> type ... }`
     fn trait_decl(&mut self) -> PResult<TraitDecl> {
         let trait_token = self.expect(&TokenKind::Trait)?;
@@ -1116,6 +1153,30 @@ impl Parser {
                     span: token.span.to(body.span),
                     kind: StmtKind::While { cond, body },
                 })
+            }
+            // `loop { ... }` is `while true { ... }`.
+            TokenKind::Loop => {
+                self.bump();
+                self.skip_newlines();
+                if !self.at(&TokenKind::LBrace) {
+                    return Err(self.error_unexpected("`{` after `loop`"));
+                }
+                let body = self.block()?;
+                let cond = Expr {
+                    kind: ExprKind::Bool(true),
+                    span: token.span,
+                };
+                Ok(Stmt {
+                    span: token.span.to(body.span),
+                    kind: StmtKind::While { cond, body },
+                })
+            }
+            TokenKind::Const => {
+                let diag = Diagnostic::error("`const` is only allowed at the top level")
+                    .with_code("E0103")
+                    .with_primary(token.span, "")
+                    .with_help("use `let` inside a function");
+                Err(self.report(diag))
             }
             TokenKind::Break | TokenKind::Continue => {
                 self.bump();
