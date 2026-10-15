@@ -366,6 +366,7 @@ impl Lexer<'_> {
             '>' => TokenKind::Gt,
             '&' if self.eat('&') => TokenKind::AndAnd,
             '|' if self.eat('|') => TokenKind::OrOr,
+            '|' => TokenKind::Pipe,
             _ => {
                 self.unexpected_char(c, start);
                 TokenKind::Unknown
@@ -380,7 +381,6 @@ impl Lexer<'_> {
             .with_primary(Span::new(start, self.pos), "");
         diag = match c {
             '&' => diag.with_help("logical AND is written `&&`"),
-            '|' => diag.with_help("logical OR is written `||`"),
             '\'' => diag.with_help("string literals use double quotes: \"...\""),
             '#' => diag.with_help("comments start with `//`"),
             c if c.is_alphabetic() => {
@@ -449,10 +449,10 @@ mod tests {
     fn lexes_all_operators() {
         use TokenKind::*;
         assert_eq!(
-            kinds("+ - * / % = == != < <= > >= && || ! ; += -= *= /= %="),
+            kinds("+ - * / % = == != < <= > >= && || | ! ; += -= *= /= %="),
             vec![
                 Plus, Minus, Star, Slash, Percent, Eq, EqEq, BangEq, Lt, LtEq, Gt, GtEq, AndAnd,
-                OrOr, Bang, Semi, PlusEq, MinusEq, StarEq, SlashEq, PercentEq, Eof
+                OrOr, Pipe, Bang, Semi, PlusEq, MinusEq, StarEq, SlashEq, PercentEq, Eof
             ]
         );
     }

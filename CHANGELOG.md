@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Added
 
 - Floating-point numbers: the `f64` type, literals (`1.5`, `6.02e23`), arithmetic and comparisons following IEEE 754, `to_float`, `to_int` (run-time error `R0010` for NaN and out-of-range numbers), `to_string`, `print` and `parse_float`. Numbers are written with the fewest digits that read back exactly, the same in the interpreter and native code (checked on 200,000 values). `std.json` gets `as_float` and `from_float`; `brim gen ts` maps `f64` to `number`; every editor grammar knows `f64`. `i64` and `f64` never mix implicitly, and the diagnostics say how to convert. `E0007` now means a floating-point literal too large for `f64`.
+- Richer `match` patterns: patterns nest (`Some(Shape.Circle(r))`, `Ok(0)`), `|` joins alternatives (`1 | 2 | 3`, `Some(Empty) | None`), a lowercase name binds the whole value, and `pattern if condition` adds a guard. Exhaustiveness is checked at every depth, and the error lists example values that no arm matches (`not covered: Some(Rect(_, _))`). Unreachable arms and alternatives warn with `W0004`; alternatives that bind different names are `E0245`. The tree-sitter grammar and the Helix, Zed and Neovim queries know the new syntax.
 - A Dockerfile for the notes example (`examples/http`), which CI builds, runs and calls. The example reads `HOST` as well as `PORT`.
 
 ## [0.2.0] - 2026-10-15

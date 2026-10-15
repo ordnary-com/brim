@@ -1116,8 +1116,18 @@ impl Parser {
 
     fn match_arm(&mut self) -> PResult<MatchArm> {
         let pattern = self.pattern()?;
+        let guard = if self.eat(&TokenKind::If).is_some() {
+            Some(self.expr()?)
+        } else {
+            None
+        };
         if !self.at(&TokenKind::FatArrow) {
-            return Err(self.error_unexpected("`=>` after the pattern"));
+            let expected = if guard.is_some() {
+                "`=>` after the guard"
+            } else {
+                "`=>` after the pattern"
+            };
+            return Err(self.error_unexpected(expected));
         }
         self.bump();
         self.skip_newlines();
@@ -1139,11 +1149,31 @@ impl Parser {
         Ok(MatchArm {
             span: pattern.span.to(body.span),
             pattern,
+            guard,
             body,
         })
     }
 
+    /// A pattern, possibly with `|` between alternatives.
     fn pattern(&mut self) -> PResult<Pattern> {
+        let first = self.single_pattern()?;
+        if !self.at(&TokenKind::Pipe) {
+            return Ok(first);
+        }
+        let mut alternatives = vec![first];
+        while self.eat(&TokenKind::Pipe).is_some() {
+            alternatives.push(self.single_pattern()?);
+        }
+        let span = alternatives[0]
+            .span
+            .to(alternatives.last().expect("at least two").span);
+        Ok(Pattern {
+            span,
+            kind: PatternKind::Or(alternatives),
+        })
+    }
+
+    fn single_pattern(&mut self) -> PResult<Pattern> {
         let token = self.peek().clone();
         let literal = |kind| Expr {
             kind,
@@ -1197,13 +1227,20 @@ impl Parser {
                 } else {
                     (None, first)
                 };
+                if enum_name.is_none() && !self.at(&TokenKind::LParen) {
+                    // A unit variant or a binding: the checker decides.
+                    return Ok(Pattern {
+                        span: variant.span,
+                        kind: PatternKind::Binding(variant),
+                    });
+                }
                 let mut end = variant.span;
-                let mut bindings = Vec::new();
+                let mut fields = Vec::new();
                 if self.at(&TokenKind::LParen) {
                     self.bump();
                     let close = self.in_parens(|p| {
                         while !p.at(&TokenKind::RParen) {
-                            bindings.push(p.expect_ident("a name for the value, or `_`")?);
+                            fields.push(p.pattern()?);
                             if p.eat(&TokenKind::Comma).is_none() {
                                 break;
                             }
@@ -1221,7 +1258,7 @@ impl Parser {
                     kind: PatternKind::Variant {
                         enum_name,
                         variant,
-                        bindings,
+                        fields,
                     },
                 });
             }

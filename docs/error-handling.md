@@ -111,6 +111,7 @@ Guidelines for writing diagnostics:
 | E0242 | Module not found, or imported item not found in its module |
 | E0243 | Two imports with the same name, or an import whose name is already defined |
 | E0244 | A test function (`fn test_...`) with parameters or a return type (only reported by `brim test`) |
+| E0245 | The alternatives of a `p \| q` pattern bind different names, or a name with different types |
 
 ### Warnings
 
@@ -119,7 +120,7 @@ Guidelines for writing diagnostics:
 | W0001 | Unreachable code after `return`, `break`, `continue` or a diverging `if`/`while` |
 | W0002 | Value of a non-call expression statement is unused |
 | W0003 | Variable declared `mut` but never reassigned |
-| W0004 | Unreachable `match` arm: earlier arms already cover it |
+| W0004 | Unreachable `match` arm, or alternative of `\|`: earlier patterns already cover it |
 
 ### Manifest errors (`brim-manifest`)
 

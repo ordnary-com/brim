@@ -68,15 +68,6 @@ error[E0209]: cannot apply `==` to `Shape` and `Shape`
    = note: enums cannot be compared with `==` yet
    = help: use `match` instead
 
-error[E0229]: `match` does not cover every value
-  --> tests/diagnostics/enum_errors.brim:19:11
-   |
-19 |     match a {
-   |           ^ some values have no matching arm
-   |
-   = note: not covered: `Rect(_, _)`, `Empty`
-   = help: add an arm for each, or a `_ => ...` arm
-
 error[E0228]: variant `Rect` has 2 values but the pattern has 1
   --> tests/diagnostics/enum_errors.brim:21:9
    |
@@ -101,15 +92,6 @@ warning[W0004]: unreachable pattern
    |
    = note: an earlier arm already matches every value this pattern matches
 
-error[E0229]: `match` does not cover every value
-  --> tests/diagnostics/enum_errors.brim:29:11
-   |
-29 |     match 5 {
-   |           ^ some values have no matching arm
-   |
-   = note: `i64` has too many values to list each one
-   = help: add a `_ => ...` arm for the remaining values
-
 error[E0230]: pattern does not match the type of the value
   --> tests/diagnostics/enum_errors.brim:31:9
    |
@@ -126,4 +108,4 @@ error[E0214]: `Shape` is an enum, not a value
    |
    = help: use one of its variants, such as `Shape.Circle`
 
-error: could not compile tests/diagnostics/enum_errors.brim due to 13 errors; 2 warnings emitted
+error: could not compile tests/diagnostics/enum_errors.brim due to 11 errors; 2 warnings emitted

@@ -87,6 +87,8 @@ pub enum TokenKind {
     GtEq,
     AndAnd,
     OrOr,
+    /// `|`, between the alternatives of a pattern.
+    Pipe,
     Bang,
 
     /// A character that is not valid Brim. The lexer has already reported
@@ -206,6 +208,7 @@ impl fmt::Display for TokenKind {
             TokenKind::GtEq => ">=",
             TokenKind::AndAnd => "&&",
             TokenKind::OrOr => "||",
+            TokenKind::Pipe => "|",
             TokenKind::Bang => "!",
             TokenKind::Unknown => "<unknown>",
             TokenKind::Newline => "\\n",

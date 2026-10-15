@@ -105,7 +105,8 @@ impl Shape {
             pattern: (variant_pattern
               type: (type_identifier)
               name: (identifier)
-              (identifier))
+              (variant_pattern
+                name: (identifier)))
             body: (return_statement
               (binary_expression
                 left: (identifier)
@@ -114,3 +115,59 @@ impl Shape {
             pattern: (wildcard_pattern)
             body: (return_statement
               (integer))))))))
+
+==================
+Nested patterns, alternatives and guards
+==================
+
+fn f(s: Option[Shape]) {
+    match s {
+        Some(Circle(0)) | None => {}
+        Some(Rect(w, _)) if w > 1 => {}
+        other => {}
+    }
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (generic_type
+          (path_type
+            (identifier))
+          (path_type
+            (identifier)))))
+    (block
+      (match_statement
+        (identifier)
+        (match_arm
+          (or_pattern
+            (variant_pattern
+              (identifier)
+              (variant_pattern
+                (identifier)
+                (literal_pattern
+                  (integer))))
+            (variant_pattern
+              (identifier)))
+          (block))
+        (match_arm
+          (variant_pattern
+            (identifier)
+            (variant_pattern
+              (identifier)
+              (variant_pattern
+                (identifier))
+              (wildcard_pattern)))
+          (binary_expression
+            (identifier)
+            (integer))
+          (block))
+        (match_arm
+          (variant_pattern
+            (identifier))
+          (block))))))

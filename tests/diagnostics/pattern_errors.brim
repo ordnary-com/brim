@@ -1,0 +1,58 @@
+enum Shape {
+    Circle(i64)
+    Rect(i64, i64)
+    Empty
+}
+
+fn main() {
+    let s: Option[Shape] = None
+    match s {
+        Some(Circle(r)) => print(r)
+        None => print(0)
+    }
+    match s {
+        Some(Circle(r)) | Some(Rect(w, _)) => print(r)
+        _ => print(0)
+    }
+    match s {
+        Some(Circle(r)) | Some(Empty) => print(1)
+        _ => print(0)
+    }
+    match s {
+        Some(Circle(x)) | Some(Rect(_, x)) => print(x)
+        Some(_) => print(1)
+        Some(Rect(1, 2)) => print(2)
+        None | Some(Empty) => print(3)
+    }
+    match s {
+        Some(x) if x == x => print(1)
+        None => print(0)
+    }
+    let n: i64 = 3
+    match n {
+        n if n > 0 => print(n)
+        0 => print(0)
+    }
+    match n {
+        1 | 2 | 1 => print(1)
+        _ => print(0)
+    }
+    match true {
+        true => print(1)
+        x if x => print(2)
+    }
+    match s {
+        Some(Square) => print(1)
+        _ => print(0)
+    }
+    let r: Result[Option[bool], string] = Ok(None)
+    match r {
+        Ok(Some(true)) => print(1)
+        Ok(None) => print(2)
+        Err("x") => print(3)
+    }
+    match n {
+        x if 5 => print(x)
+        _ => print(0)
+    }
+}

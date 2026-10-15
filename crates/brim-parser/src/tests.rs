@@ -634,30 +634,60 @@ fn parses_match() {
     let PatternKind::Variant {
         enum_name,
         variant,
-        bindings,
+        fields,
     } = &arms[0].pattern.kind
     else {
         panic!()
     };
     assert_eq!(enum_name.as_ref().unwrap().name, "Shape");
     assert_eq!(variant.name, "Circle");
-    assert_eq!(bindings.len(), 1);
+    assert!(
+        matches!(&fields[..], [Pattern { kind: PatternKind::Binding(r), .. }] if r.name == "r")
+    );
     let PatternKind::Variant {
-        enum_name,
-        bindings,
-        ..
+        enum_name, fields, ..
     } = &arms[1].pattern.kind
     else {
         panic!()
     };
     assert!(enum_name.is_none());
-    assert_eq!(bindings[1].name, "_");
+    assert!(matches!(fields[1].kind, PatternKind::Wildcard));
     let PatternKind::Literal(lit) = &arms[2].pattern.kind else {
         panic!()
     };
     assert_eq!(lit.to_string(), "(-1)");
     assert!(matches!(arms[5].pattern.kind, PatternKind::Wildcard));
     assert_eq!(arms[1].body.stmts.len(), 1);
+}
+
+#[test]
+fn parses_nested_patterns_alternatives_and_guards() {
+    let StmtKind::Match { arms, .. } = stmt(
+        "match x {\n    Some(Shape.Circle(r)) if r > 0 => {}\n    1 | -2 | 3 => {}\n    Ok(0) => {}\n    None => {}\n}",
+    ) else {
+        panic!()
+    };
+    let PatternKind::Variant { fields, .. } = &arms[0].pattern.kind else {
+        panic!()
+    };
+    assert!(matches!(
+        &fields[0].kind,
+        PatternKind::Variant {
+            enum_name: Some(_),
+            ..
+        }
+    ));
+    assert_eq!(arms[0].guard.as_ref().unwrap().to_string(), "(r > 0)");
+    let PatternKind::Or(alternatives) = &arms[1].pattern.kind else {
+        panic!()
+    };
+    assert_eq!(alternatives.len(), 3);
+    assert!(arms[1].guard.is_none());
+    let PatternKind::Variant { fields, .. } = &arms[2].pattern.kind else {
+        panic!()
+    };
+    assert!(matches!(fields[0].kind, PatternKind::Literal(_)));
+    assert!(matches!(&arms[3].pattern.kind, PatternKind::Binding(n) if n.name == "None"));
 }
 
 #[test]

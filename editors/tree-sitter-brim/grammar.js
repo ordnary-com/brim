@@ -185,9 +185,20 @@ module.exports = grammar({
       seq('match', field('value', $._expression), '{', repeat(choice($.match_arm, ',', ';')), '}'),
 
     match_arm: ($) =>
-      prec.right(seq(field('pattern', $._pattern), '=>', field('body', $._statement))),
+      prec.right(
+        seq(
+          field('pattern', $._pattern),
+          optional(seq('if', field('guard', $._expression))),
+          '=>',
+          field('body', $._statement),
+        ),
+      ),
 
-    _pattern: ($) => choice($.wildcard_pattern, $.literal_pattern, $.variant_pattern),
+    _pattern: ($) => choice($._single_pattern, $.or_pattern),
+
+    or_pattern: ($) => seq($._single_pattern, repeat1(seq('|', $._single_pattern))),
+
+    _single_pattern: ($) => choice($.wildcard_pattern, $.literal_pattern, $.variant_pattern),
 
     wildcard_pattern: (_) => '_',
 
@@ -198,7 +209,7 @@ module.exports = grammar({
       seq(
         optional(seq(field('type', typeId($)), '.')),
         field('name', $.identifier),
-        optional(seq('(', commaSep(choice($.identifier, '_')), ')')),
+        optional(seq('(', commaSep($._pattern), ')')),
       ),
 
     break_statement: (_) => 'break',

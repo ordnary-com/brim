@@ -1468,8 +1468,9 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         self.switch_to(exit);
     }
 
-    /// The scrutinee is stored in a slot; each arm tests it in its own block
-    /// and falls through to the next arm's test when it does not match.
+    /// The scrutinee is stored in a slot. Each arm tests it, binds its
+    /// names and checks its guard, and falls through to the next arm when
+    /// any of that fails.
     fn match_stmt(&mut self, scrutinee: &CheckedExpr, arms: &[CheckedArm]) {
         let span = scrutinee.span;
         let value = self.value(scrutinee);
@@ -1477,85 +1478,21 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         let ir_ty = self.m.ir_type(ty);
         let slot = self.new_slot("match", ir_ty);
         self.emit(InstKind::Store(slot, value), None, span);
-        let layout = match self.m.types_def(ty) {
-            Some(Def::Enum(_)) => Some(self.m.enum_layout(ty)),
-            _ => None,
-        };
 
         let join = self.new_block();
         let mut falls_through = false;
         for arm in arms {
-            let body = self.new_block();
             let next = self.new_block();
-            let cond = match &arm.pattern {
-                CheckedPattern::Wildcard => None,
-                CheckedPattern::Variant { index, .. } => {
-                    let v = self.emit_value(InstKind::Load(slot), ir_ty, span);
-                    let tag = self.emit_value(InstKind::Extract(v, 0), IrType::I64, span);
-                    let expected = self.emit_value(
-                        InstKind::Const(Const::I64(*index as i64)),
-                        IrType::I64,
-                        span,
-                    );
-                    Some(self.emit_value(
-                        InstKind::Binary(brim_ir::BinaryOp::IEq, tag, expected),
-                        IrType::Bool,
-                        span,
-                    ))
-                }
-                CheckedPattern::Int(n) => {
-                    let v = self.emit_value(InstKind::Load(slot), IrType::I64, span);
-                    let c = self.emit_value(InstKind::Const(Const::I64(*n)), IrType::I64, span);
-                    Some(self.emit_value(
-                        InstKind::Binary(brim_ir::BinaryOp::IEq, v, c),
-                        IrType::Bool,
-                        span,
-                    ))
-                }
-                CheckedPattern::Bool(b) => {
-                    let v = self.emit_value(InstKind::Load(slot), IrType::Bool, span);
-                    let c = self.emit_value(InstKind::Const(Const::Bool(*b)), IrType::Bool, span);
-                    Some(self.emit_value(
-                        InstKind::Binary(brim_ir::BinaryOp::BEq, v, c),
-                        IrType::Bool,
-                        span,
-                    ))
-                }
-                CheckedPattern::Str(s) => {
-                    let v = self.emit_value(InstKind::Load(slot), IrType::Str, span);
-                    let c =
-                        self.emit_value(InstKind::Const(Const::Str(s.clone())), IrType::Str, span);
-                    Some(self.emit_value(
-                        InstKind::CallRuntime(RuntimeFn::StrEq, vec![v, c]),
-                        IrType::Bool,
-                        span,
-                    ))
-                }
-            };
-            match cond {
-                Some(cond) => self.terminate(Terminator::Branch {
+            self.match_pattern(&arm.pattern, slot, ty, next, span);
+            if let Some(guard) = &arm.guard {
+                let cond = self.value(guard);
+                let body = self.new_block();
+                self.terminate(Terminator::Branch {
                     cond,
                     then_block: body,
                     else_block: next,
-                }),
-                None => self.terminate(Terminator::Jump(body)),
-            }
-
-            self.switch_to(body);
-            if let CheckedPattern::Variant { index, bindings } = &arm.pattern {
-                let offset = layout
-                    .as_ref()
-                    .expect("variant patterns match enums")
-                    .offsets[*index];
-                let v = self.emit_value(InstKind::Load(slot), ir_ty, span);
-                for (j, binding) in bindings.iter().enumerate() {
-                    if let Some(local) = binding {
-                        let local_slot = SlotId(local.0 as u32);
-                        let field_ty = self.func.slots[local_slot.index()].ty;
-                        let x = self.emit_value(InstKind::Extract(v, offset + j), field_ty, span);
-                        self.emit(InstKind::Store(local_slot, x), None, span);
-                    }
-                }
+                });
+                self.switch_to(body);
             }
             falls_through |= self.stmts_then_jump(&arm.body, join);
             self.switch_to(next);
@@ -1566,6 +1503,113 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         self.switch_to(join);
         if !falls_through {
             self.terminated = true;
+        }
+    }
+
+    /// Tests the value in `slot`, of type `ty`, against `pattern` and
+    /// stores the parts it binds. Continues in a new block when it matches;
+    /// jumps to `fail` when it does not.
+    fn match_pattern(
+        &mut self,
+        pattern: &CheckedPattern,
+        slot: SlotId,
+        ty: Type,
+        fail: BlockId,
+        span: Span,
+    ) {
+        let ir_ty = self.func.slots[slot.index()].ty;
+        let cond = match pattern {
+            CheckedPattern::Wildcard => return,
+            CheckedPattern::Binding(local) => {
+                let v = self.emit_value(InstKind::Load(slot), ir_ty, span);
+                self.emit(InstKind::Store(SlotId(local.0 as u32), v), None, span);
+                return;
+            }
+            CheckedPattern::Or(alternatives) => {
+                let matched = self.new_block();
+                let (last, rest) = alternatives.split_last().expect("at least two");
+                for alternative in rest {
+                    let other = self.new_block();
+                    self.match_pattern(alternative, slot, ty, other, span);
+                    self.terminate(Terminator::Jump(matched));
+                    self.switch_to(other);
+                }
+                self.match_pattern(last, slot, ty, fail, span);
+                self.terminate(Terminator::Jump(matched));
+                self.switch_to(matched);
+                return;
+            }
+            CheckedPattern::Variant { index, .. } => {
+                let v = self.emit_value(InstKind::Load(slot), ir_ty, span);
+                let tag = self.emit_value(InstKind::Extract(v, 0), IrType::I64, span);
+                let expected = self.emit_value(
+                    InstKind::Const(Const::I64(*index as i64)),
+                    IrType::I64,
+                    span,
+                );
+                self.emit_value(
+                    InstKind::Binary(brim_ir::BinaryOp::IEq, tag, expected),
+                    IrType::Bool,
+                    span,
+                )
+            }
+            CheckedPattern::Int(n) => {
+                let v = self.emit_value(InstKind::Load(slot), IrType::I64, span);
+                let c = self.emit_value(InstKind::Const(Const::I64(*n)), IrType::I64, span);
+                self.emit_value(
+                    InstKind::Binary(brim_ir::BinaryOp::IEq, v, c),
+                    IrType::Bool,
+                    span,
+                )
+            }
+            CheckedPattern::Bool(b) => {
+                let v = self.emit_value(InstKind::Load(slot), IrType::Bool, span);
+                let c = self.emit_value(InstKind::Const(Const::Bool(*b)), IrType::Bool, span);
+                self.emit_value(
+                    InstKind::Binary(brim_ir::BinaryOp::BEq, v, c),
+                    IrType::Bool,
+                    span,
+                )
+            }
+            CheckedPattern::Str(s) => {
+                let v = self.emit_value(InstKind::Load(slot), IrType::Str, span);
+                let c = self.emit_value(InstKind::Const(Const::Str(s.clone())), IrType::Str, span);
+                self.emit_value(
+                    InstKind::CallRuntime(RuntimeFn::StrEq, vec![v, c]),
+                    IrType::Bool,
+                    span,
+                )
+            }
+        };
+        let matched = self.new_block();
+        self.terminate(Terminator::Branch {
+            cond,
+            then_block: matched,
+            else_block: fail,
+        });
+        self.switch_to(matched);
+
+        let CheckedPattern::Variant { index, fields } = pattern else {
+            return;
+        };
+        let offset = self.m.enum_layout(ty).offsets[*index];
+        for (j, (field, field_ty)) in fields.iter().enumerate() {
+            if matches!(field, CheckedPattern::Wildcard) {
+                continue;
+            }
+            let field_ty = self.concrete(*field_ty);
+            let field_ir_ty = self.m.ir_type(field_ty);
+            let v = self.emit_value(InstKind::Load(slot), ir_ty, span);
+            let x = self.emit_value(InstKind::Extract(v, offset + j), field_ir_ty, span);
+            let field_slot = match field {
+                CheckedPattern::Binding(local) => {
+                    self.emit(InstKind::Store(SlotId(local.0 as u32), x), None, span);
+                    continue;
+                }
+                _ => self.new_slot("match", field_ir_ty),
+            };
+            self.emit(InstKind::Store(field_slot, x), None, span);
+            self.match_pattern(field, field_slot, field_ty, fail, span);
         }
     }
 
@@ -2087,14 +2131,6 @@ impl ModuleLowerer<'_> {
         });
         self.pairs.insert((result, self_ty), id);
         id
-    }
-
-    /// The declaration a concrete type refers to, if it is named.
-    fn types_def(&self, ty: Type) -> Option<Def> {
-        match ty {
-            Type::Named(id) => Some(self.types.get(id).def),
-            _ => None,
-        }
     }
 }
 

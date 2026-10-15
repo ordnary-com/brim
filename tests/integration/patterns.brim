@@ -1,0 +1,96 @@
+// Nested patterns, alternatives with `|` and guards with `if`.
+
+enum Shape {
+    Circle(i64)
+    Rect(i64, i64)
+    Empty
+}
+
+enum Tree {
+    Leaf(i64)
+    Pair(Shape, Shape)
+}
+
+fn describe(s: Option[Shape]) -> string {
+    match s {
+        Some(Shape.Circle(0)) => return "a dot"
+        Some(Shape.Circle(r)) if r > 100 => return "a big circle"
+        Some(Circle(r)) => return "a circle of " + to_string(r)
+        Some(Rect(w, h)) if w == h => return "a square of " + to_string(w)
+        Some(Rect(w, h)) => return "a rect of " + to_string(w) + "x" + to_string(h)
+        Some(Empty) | None => return "nothing"
+    }
+}
+
+fn kind(n: i64) -> string {
+    match n {
+        0 => return "zero"
+        1 | 3 | 5 | 7 | 9 => return "odd digit"
+        2 | 4 | 6 | 8 => return "even digit"
+        n if n < 0 => return "negative"
+        other => return "big: " + to_string(other)
+    }
+}
+
+fn first_circle(t: Tree) -> i64 {
+    match t {
+        Pair(Circle(r), _) | Pair(_, Circle(r)) => return r
+        Leaf(n) if n > 0 => return n
+        _ => return -1
+    }
+}
+
+fn unwrap_or[T](o: Option[T], fallback: T) -> T {
+    match o {
+        Some(x) => return x
+        None => return fallback
+    }
+}
+
+fn parse_flag(r: Result[bool, string]) -> string {
+    match r {
+        Ok(true) => return "on"
+        Ok(false) => return "off"
+        Err("") => return "error without message"
+        Err(e) => return "error: " + e
+    }
+}
+
+fn main() {
+    print(describe(Some(Shape.Circle(0))))
+    print(describe(Some(Shape.Circle(500))))
+    print(describe(Some(Shape.Circle(3))))
+    print(describe(Some(Shape.Rect(4, 4))))
+    print(describe(Some(Shape.Rect(2, 5))))
+    print(describe(Some(Shape.Empty)))
+    print(describe(None))
+
+    for n in [0, 3, 8, -4, 42] {
+        print(kind(n))
+    }
+
+    print(first_circle(Tree.Pair(Shape.Circle(1), Shape.Circle(2))))
+    print(first_circle(Tree.Pair(Shape.Empty, Shape.Circle(2))))
+    print(first_circle(Tree.Pair(Shape.Empty, Shape.Rect(1, 1))))
+    print(first_circle(Tree.Leaf(7)))
+    print(first_circle(Tree.Leaf(-7)))
+
+    print(unwrap_or(Some("x"), "y"))
+    print(unwrap_or(None, 9))
+
+    print(parse_flag(Ok(true)))
+    print(parse_flag(Ok(false)))
+    print(parse_flag(Err("")))
+    print(parse_flag(Err("bad")))
+
+    // A guard that fails falls through to the next arm, even when the
+    // pattern matched.
+    let words: List[string] = ["apple", "kiwi", "banana"]
+    for w in words {
+        match w.len() {
+            n if n > 5 => print(w + " is long")
+            4 | 5 => print(w + " is medium")
+            _ => print(w + " is short")
+        }
+    }
+}

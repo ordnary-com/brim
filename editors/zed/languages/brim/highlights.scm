@@ -35,7 +35,9 @@
 (field_initializer name: (field_identifier) @property)
 (field_expression field: (field_identifier) @property)
 (variant name: (identifier) @constructor)
-(variant_pattern name: (identifier) @constructor)
+; In patterns, capitalized names are variants and lowercase names bind the value.
+((variant_pattern name: (identifier) @constructor)
+  (#match? @constructor "^[A-Z]"))
 (module_path) @type
 
 [
@@ -63,7 +65,7 @@
 
 [
   "=" "+=" "-=" "*=" "/=" "%=" "+" "-" "*" "/" "%" "==" "!=" "<" "<=" ">" ">="
-  "&&" "||" "!" "?" ".." "->" "=>"
+  "&&" "||" "|" "!" "?" ".." "->" "=>"
 ] @operator
 
 [ "(" ")" "[" "]" "{" "}" ] @punctuation.bracket

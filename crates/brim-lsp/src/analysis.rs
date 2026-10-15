@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use brim_ast::{Block, FnDecl, ForIter, Ident, PatternKind, Program, Stmt, StmtKind};
+use brim_ast::{Block, FnDecl, ForIter, Ident, Program, Stmt, StmtKind};
 use brim_diagnostics::{Diagnostic, SourceFile, SourceMap, Sources, Span};
 use brim_driver::Loaded;
 use brim_lexer::TokenKind;
@@ -452,11 +452,9 @@ impl Analysis {
             }
             StmtKind::Match { arms, .. } => {
                 for arm in arms {
-                    if let PatternKind::Variant { bindings, .. } = &arm.pattern.kind {
-                        for b in bindings {
-                            consider(b, format!("{} in {}", b.name, self.text(arm.pattern.span)));
-                        }
-                    }
+                    arm.pattern.for_each_binding(&mut |b| {
+                        consider(b, format!("{} in {}", b.name, self.text(arm.pattern.span)));
+                    });
                     self.block_locals(&arm.body, consider);
                 }
             }

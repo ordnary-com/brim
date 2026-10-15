@@ -180,6 +180,37 @@ nothing
 `match` must cover every variant; `_` matches the rest. It also works on
 integers, strings and booleans.
 
+Patterns nest, `|` joins alternatives, and `if` adds a condition to an arm:
+
+```brim
+fn classify(o: Option[i64]) -> string {
+    match o {
+        Some(0) => return "zero"
+        Some(1) | Some(2) | Some(3) => return "small"
+        Some(n) if n < 0 => return "negative"
+        Some(n) => return "large: " + to_string(n)
+        None => return "nothing"
+    }
+}
+
+fn main() {
+    print(classify(Some(2)))
+    print(classify(Some(-5)))
+    print(classify(Some(40)))
+    print(classify(None))
+}
+```
+
+```text
+small
+negative
+large: 40
+nothing
+```
+
+A lowercase name in a pattern binds the value; a guard that is false moves
+on to the next arm.
+
 ## Lists and maps
 
 ```brim

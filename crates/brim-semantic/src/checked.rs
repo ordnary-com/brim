@@ -267,21 +267,28 @@ pub enum ListReceiver {
 #[derive(Clone, Debug)]
 pub struct CheckedArm {
     pub pattern: CheckedPattern,
+    /// `if guard`: the arm only runs when this is also true.
+    pub guard: Option<CheckedExpr>,
     pub body: Vec<CheckedStmt>,
 }
 
 #[derive(Clone, Debug)]
 pub enum CheckedPattern {
     Wildcard,
-    /// Variant `index` of the matched enum. Each payload value is bound to a
-    /// local, or ignored (`_`).
+    /// Matches anything and stores the value in a local.
+    Binding(LocalId),
+    /// Variant `index` of the matched enum. Each payload value, of the
+    /// given type, is matched by a nested pattern.
     Variant {
         index: usize,
-        bindings: Vec<Option<LocalId>>,
+        fields: Vec<(CheckedPattern, Type)>,
     },
     Int(i64),
     Str(String),
     Bool(bool),
+    /// Matches when any alternative matches. Every alternative binds the
+    /// same locals.
+    Or(Vec<CheckedPattern>),
 }
 
 #[derive(Clone, Debug)]

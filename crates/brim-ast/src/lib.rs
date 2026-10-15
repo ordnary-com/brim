@@ -81,10 +81,11 @@ pub struct VariantDecl {
     pub span: Span,
 }
 
-/// One `pattern => body` arm of a `match`.
+/// One `pattern => body` or `pattern if guard => body` arm of a `match`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MatchArm {
     pub pattern: Pattern,
+    pub guard: Option<Expr>,
     pub body: Block,
     pub span: Span,
 }
@@ -99,15 +100,37 @@ pub struct Pattern {
 pub enum PatternKind {
     /// `_`: matches anything.
     Wildcard,
-    /// `Variant`, `Enum.Variant`, `Variant(a, _)` or `Enum.Variant(a, b)`.
-    /// A binding named `_` ignores that payload value.
+    /// A name that binds the matched value.
+    Binding(Ident),
+    /// `Variant`, `Enum.Variant`, `Variant(a, _)` or `Enum.Variant(p, q)`:
+    /// each payload value is matched by a nested pattern.
     Variant {
         enum_name: Option<Ident>,
         variant: Ident,
-        bindings: Vec<Ident>,
+        fields: Vec<Pattern>,
     },
     /// An integer (possibly negative), string or boolean literal.
     Literal(Expr),
+    /// `p | q`: matches when any alternative matches.
+    Or(Vec<Pattern>),
+}
+
+impl Pattern {
+    /// Calls `f` for every name the pattern binds, in source order. In an
+    /// or-pattern only the first alternative is visited, since every
+    /// alternative binds the same names.
+    pub fn for_each_binding(&self, f: &mut impl FnMut(&Ident)) {
+        match &self.kind {
+            PatternKind::Binding(name) => f(name),
+            PatternKind::Variant { fields, .. } => {
+                for field in fields {
+                    field.for_each_binding(f);
+                }
+            }
+            PatternKind::Or(alternatives) => alternatives[0].for_each_binding(f),
+            PatternKind::Wildcard | PatternKind::Literal(_) => {}
+        }
+    }
 }
 
 /// `name: type` inside a struct declaration.

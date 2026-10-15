@@ -1,0 +1,125 @@
+error[E0229]: `match` does not cover every value
+ --> tests/diagnostics/pattern_errors.brim:9:11
+  |
+9 |     match s {
+  |           ^ some values have no matching arm
+  |
+  = note: not covered: `Some(Rect(_, _))`, `Some(Empty)`
+  = help: add an arm for each, or a `_ => ...` arm
+
+error[E0245]: `r` is not bound in every alternative
+  --> tests/diagnostics/pattern_errors.brim:14:27
+   |
+14 |         Some(Circle(r)) | Some(Rect(w, _)) => print(r)
+   |                           ^^^^^^^^^^^^^^^^ this alternative does not bind `r`
+   |
+   = note: the arm can only use names that every alternative binds
+
+error[E0245]: `w` is not bound in every alternative
+  --> tests/diagnostics/pattern_errors.brim:14:37
+   |
+14 |         Some(Circle(r)) | Some(Rect(w, _)) => print(r)
+   |                                     ^ the first alternative does not bind this
+   |
+   = note: the arm can only use names that every alternative binds
+
+error[E0245]: `r` is not bound in every alternative
+  --> tests/diagnostics/pattern_errors.brim:18:27
+   |
+18 |         Some(Circle(r)) | Some(Empty) => print(1)
+   |                           ^^^^^^^^^^^ this alternative does not bind `r`
+   |
+   = note: the arm can only use names that every alternative binds
+
+warning[W0004]: unreachable pattern
+  --> tests/diagnostics/pattern_errors.brim:24:9
+   |
+24 |         Some(Rect(1, 2)) => print(2)
+   |         ^^^^^^^^^^^^^^^^ this arm will never run
+   |
+   = note: an earlier arm already matches every value this pattern matches
+
+warning[W0004]: unreachable pattern
+  --> tests/diagnostics/pattern_errors.brim:25:16
+   |
+25 |         None | Some(Empty) => print(3)
+   |                ^^^^^^^^^^^ this alternative never matches
+   |
+   = note: earlier patterns already match every value it matches
+
+error[E0229]: `match` does not cover every value
+  --> tests/diagnostics/pattern_errors.brim:27:11
+   |
+27 |     match s {
+   |           ^ some values have no matching arm
+   |
+   = note: not covered: `Some(_)`
+   = help: add an arm for each, or a `_ => ...` arm
+
+error[E0209]: cannot apply `==` to `Shape` and `Shape`
+  --> tests/diagnostics/pattern_errors.brim:28:22
+   |
+28 |         Some(x) if x == x => print(1)
+   |                    - `Shape`
+   |                      ^^ `Shape == Shape` is not defined
+   |                         - `Shape`
+   |
+   = note: enums cannot be compared with `==` yet
+   = help: use `match` instead
+
+error[E0229]: `match` does not cover every value
+  --> tests/diagnostics/pattern_errors.brim:32:11
+   |
+32 |     match n {
+   |           ^ some values have no matching arm
+   |
+   = note: `i64` has too many values to list each one
+   = help: add a `_ => ...` arm for the remaining values
+
+warning[W0004]: unreachable pattern
+  --> tests/diagnostics/pattern_errors.brim:37:17
+   |
+37 |         1 | 2 | 1 => print(1)
+   |                 ^ this alternative never matches
+   |
+   = note: earlier patterns already match every value it matches
+
+error[E0229]: `match` does not cover every value
+  --> tests/diagnostics/pattern_errors.brim:40:11
+   |
+40 |     match true {
+   |           ^^^^ some values have no matching arm
+   |
+   = note: not covered: `false`
+   = help: add an arm for each, or a `_ => ...` arm
+
+error[E0227]: enum `Shape` has no variant `Square`
+  --> tests/diagnostics/pattern_errors.brim:45:14
+   |
+ 1 | enum Shape {
+   |      ----- `Shape` is declared here
+...
+45 |         Some(Square) => print(1)
+   |              ^^^^^^ unknown variant
+   |
+   = note: the variants are `Circle`, `Rect`, `Empty`
+
+error[E0229]: `match` does not cover every value
+  --> tests/diagnostics/pattern_errors.brim:49:11
+   |
+49 |     match r {
+   |           ^ some values have no matching arm
+   |
+   = note: not covered: `Ok(Some(false))`, `Err(_)`
+   = help: add an arm for each, or a `_ => ...` arm
+
+error[E0206]: mismatched types
+  --> tests/diagnostics/pattern_errors.brim:55:14
+   |
+55 |         x if 5 => print(x)
+   |              ^ expected `bool`, found `i64`
+   |
+   = note: the condition of `if` must be a `bool`
+   = help: compare explicitly, for example `x != 0`
+
+error: could not compile tests/diagnostics/pattern_errors.brim due to 11 errors; 3 warnings emitted

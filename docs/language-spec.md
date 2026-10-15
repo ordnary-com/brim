@@ -155,10 +155,11 @@ if_stmt     = "if" expression block [ "else" ( if_stmt | block ) ] ;
 while_stmt  = "while" expression block ;
 for_stmt    = "for" identifier "in" expression [ ".." expression ] block ;
 match_stmt  = "match" expression "{" { arm_sep } [ arm { arm_sep { arm_sep } arm } ] { arm_sep } "}" ;
-arm         = pattern "=>" ( block | statement ) ;
+arm         = pattern [ "if" expression ] "=>" ( block | statement ) ;
 arm_sep     = NEWLINE | ";" | "," ;
-pattern     = "_" | [ "-" ] integer_literal | string_literal | "true" | "false"
-            | [ identifier "." ] identifier [ "(" identifier { "," identifier } [ "," ] ")" ] ;
+pattern     = single_pat { "|" single_pat } ;
+single_pat  = "_" | [ "-" ] integer_literal | string_literal | "true" | "false"
+            | [ identifier "." ] identifier [ "(" pattern { "," pattern } [ "," ] ")" ] ;
 return_stmt = "return" [ expression ] ;
 expr_stmt   = expression ;
 
@@ -469,10 +470,14 @@ match shape {
 `match value { pattern => body ... }` runs the body of the first arm whose pattern matches `value`. A body is a block or a single statement. Arms are separated by newlines or commas. Patterns:
 
 - `_` matches anything.
-- A variant pattern, `Enum.Variant(a, b)` or just `Variant(a, b)`, matches that variant of an enum and binds its values to new immutable variables in the arm. `_` in place of a name ignores that value. The pattern must have exactly as many names as the variant has values (`E0228`).
+- A name binds the matched value to a new immutable variable in the arm. A name that is a variant of the matched enum (`None`, `Empty`) is a variant pattern instead, and a capitalized name that is not one is an error (`E0227`, `E0230`), so a misspelled variant never silently matches everything.
+- A variant pattern, `Enum.Variant(p, q)` or just `Variant(p, q)`, matches that variant of an enum when each of its values matches the pattern in that position. Patterns nest to any depth: `Some(Shape.Circle(r))`, `Ok(0)`, `Pair(_, Leaf(n))`. The pattern must have exactly as many patterns as the variant has values (`E0228`).
 - An integer (possibly negative), string or boolean literal matches that value of an `i64`, `string` or `bool`.
+- `p | q | ...` matches when any alternative matches. Every alternative must bind the same names, with the same types (`E0245`).
 
-A pattern must fit the type of the matched value (`E0230`). The arms must be **exhaustive** (`E0229`): every variant of an enum, both `true` and `false`, or a `_` arm for integers, strings and other types. An arm that can never run because earlier arms cover everything it matches produces warning `W0004`.
+An arm may have a **guard**, `pattern if condition => body`: the arm only runs when the pattern matches and the condition, a `bool` that can use the pattern's names, is true. Otherwise the next arm is tried.
+
+A pattern must fit the type of the matched value (`E0230`). The arms must be **exhaustive** (`E0229`): together they must match every value, so every variant of an enum (at every depth of nesting), both `true` and `false`, and some arm that matches any integer, string or value of another type. Arms with a guard do not count towards this, since the guard may be false. The error lists examples of values no arm matches. An arm, or an alternative of `|`, that can never match because earlier arms cover everything it matches produces warning `W0004`.
 
 `match` is a statement. It diverges (section 6.11) when it is exhaustive and every arm diverges.
 
@@ -690,7 +695,7 @@ These questions are not settled. The current behavior is a reversible default.
 10. **Modules.** Modules are files and `pub` controls visibility; dependencies add their modules under the package's name. Re-exports, visibility of single struct fields, and a package registry with version requirements are undecided.
 11. **Loop forms.** `while` and `for` exist. A dedicated `loop` keyword, labeled `break` for nested loops, and `for` over other collections are candidates.
 12. **Struct and enum equality and printing.** Comparing structs and enums field by field with `==` and printing them are natural next steps. Field-shorthand literals (`Point { x, y }`) and default values are also undecided.
-13. **`match` as an expression, or-patterns and nested patterns.** `match` is a statement; arms with several patterns (`A | B`) and patterns inside variant patterns (`Some(Circle(r))`) are not supported yet.
+13. **`match` as an expression and more patterns.** `match` is a statement. Patterns for struct fields, ranges (`1..5`) and binding a whole value while matching its parts (`x @ Some(_)`) are not supported yet.
 14. **Constraints on type parameters.** Generic code can only store, pass and return values of a type parameter. Constraints (traits or interfaces) would allow `==` or printing in generic code.
 
 ## 12. Possible future features
