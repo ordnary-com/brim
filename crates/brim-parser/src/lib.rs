@@ -1993,6 +1993,14 @@ impl Parser {
         // Each postfix operation nests the expression one level deeper.
         let mut chain = 0;
         loop {
+            // A line that starts with `.` continues the expression:
+            //     words
+            //         .filter(...)
+            if *self.peek_kind() == TokenKind::Newline
+                && *self.peek_past_newlines() == TokenKind::Dot
+            {
+                self.skip_newlines();
+            }
             match self.peek_kind() {
                 TokenKind::LParen if matches!(expr.kind, ExprKind::Field { .. }) => {
                     let ExprKind::Field { base, field } = expr.kind else {

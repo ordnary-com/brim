@@ -186,6 +186,11 @@ stops the program; `get` returns an `Option` instead.
 | `sorted_by(less)` | `List[T]` | a copy sorted by `fn(a, b) -> bool` |
 | `slice(a, b)` | `List[T]` | elements `a` up to `b`, clamped to the list |
 | `index_of(x)` | `Option[i64]` | where `x` is first |
+| `map(f)`, `filter(keep)` | `List` | |
+| `any(test)`, `all(test)` | `bool` | |
+| `fold(init, f)` | | combines the elements, left to right |
+| `find(test)`, `min()`, `max()` | `Option[T]` | |
+| `each(f)` | | calls `f` with each element |
 
 `push` up to `clear` change the list, so it needs `let mut`. The others
 return a new list and leave the original as it was:
@@ -207,6 +212,25 @@ fn main() {
 [2, 1]
 Some(2)
 ["a", "bb", "ccc"]
+```
+
+Functions passed to `map`, `filter` and the others are `fn` expressions
+or named functions. A chain can put one call per line:
+
+```brim
+fn main() {
+    let words = "the quick brown fox".split(" ")
+    let long = words
+        .filter(fn(w: string) -> bool { return w.len() > 3 })
+        .map(fn(w: string) -> string { return w.to_upper() })
+    print(long)
+    print(words.fold(0, fn(n: i64, w: string) -> i64 { return n + w.len() }))
+}
+```
+
+```text
+["QUICK", "BROWN"]
+16
 ```
 
 ```brim

@@ -88,6 +88,15 @@ const LIST_METHODS: &[&str] = &[
     "reversed",
     "slice",
     "index_of",
+    "map",
+    "filter",
+    "any",
+    "all",
+    "fold",
+    "find",
+    "each",
+    "min",
+    "max",
 ];
 
 impl<'a> Checker<'a> {
@@ -376,7 +385,10 @@ impl<'a> Checker<'a> {
                 "sort" => Some("sorted"),
                 "reverse" => Some("reversed"),
                 "append" | "add" => Some("push"),
-                "find" | "position" => Some("index_of"),
+                "position" => Some("index_of"),
+                "for_each" | "foreach" => Some("each"),
+                "reduce" => Some("fold"),
+                "select" | "where_" => Some("filter"),
                 _ => None,
             };
             let similar =

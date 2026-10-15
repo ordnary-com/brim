@@ -712,3 +712,9 @@ fn match_errors() {
     assert_eq!(diags.len(), 1);
     assert_eq!(program.functions.len(), 2);
 }
+
+#[test]
+fn a_line_starting_with_a_dot_continues_the_expression() {
+    let stmts = body("    let n = xs\n        .filter(f)\n        .len()\n    print(n)");
+    assert_eq!(stmts.len(), 2);
+}

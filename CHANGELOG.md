@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- List methods `map`, `filter`, `any`, `all`, `fold`, `find`, `each`, `min` and `max`, also in the prelude. A line that starts with `.` continues the expression above it, for method chains.
 - List methods `sorted()`, `sorted_by(less)`, `reversed()`, `slice(start, end)` and `index_of(x)`. They are written in Brim, in the new module `std.prelude` that every program has. The built-in trait `Ord` allows `<` in generic code.
 
 ## [0.3.0] - 2026-10-15

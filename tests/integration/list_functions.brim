@@ -1,0 +1,43 @@
+// map, filter, any, all, fold, find, each, min and max on lists.
+
+struct Item {
+    name: string
+    price: f64
+}
+
+fn main() {
+    let xs = [3, 1, 4, 1, 5, 9, 2, 6]
+    print(xs.map(fn(x: i64) -> i64 { return x * x }))
+    print(xs.filter(fn(x: i64) -> bool { return x % 2 == 0 }))
+    print(xs.any(fn(x: i64) -> bool { return x > 8 }))
+    print(xs.all(fn(x: i64) -> bool { return x > 0 }))
+    print(xs.fold(0, fn(sum: i64, x: i64) -> i64 { return sum + x }))
+    print(xs.find(fn(x: i64) -> bool { return x > 4 }))
+    print(xs.find(fn(x: i64) -> bool { return x > 100 }))
+    print(xs.min())
+    print(xs.max())
+    let none: List[i64] = []
+    print(none.max())
+    print(none.all(fn(x: i64) -> bool { return false }))
+
+    let items = [Item { name: "tea", price: 3.5 }, Item { name: "cake", price: 4.25 }]
+    let names = items.map(fn(i: Item) -> string { return i.name })
+    print(names)
+    let total = items.fold(0.0, fn(sum: f64, i: Item) -> f64 { return sum + i.price })
+    print(f"total: {total}")
+    let limit = 4.0
+    let cheap = items.filter(fn(i: Item) -> bool { return i.price < limit })
+    print(cheap.map(fn(i: Item) -> string { return i.name }))
+    items.each(fn(i: Item) {
+        print(f"- {i.name}: {i.price}")
+    })
+
+    // Chained: the words of three letters or more, upper case, sorted.
+    let words = "the quick brown fox jumps over a lazy dog".split(" ")
+    let long = words
+        .filter(fn(w: string) -> bool { return w.len() > 3 })
+        .map(fn(w: string) -> string { return w.to_upper() })
+        .sorted()
+    print(long)
+    print(words.map(fn(w: string) -> i64 { return w.len() }).max())
+}

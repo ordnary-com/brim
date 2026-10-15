@@ -84,6 +84,94 @@ pub fn list_index_of[T: Eq](xs: List[T], x: T) -> Option[i64] {
     return None
 }
 
+// `f(x)` for each element `x`, in a new list.
+pub fn list_map[T, U](xs: List[T], f: fn(T) -> U) -> List[U] {
+    let mut out: List[U] = []
+    for x in xs {
+        out.push(f(x))
+    }
+    return out
+}
+
+// The elements for which `keep` is true, in order.
+pub fn list_filter[T](xs: List[T], keep: fn(T) -> bool) -> List[T] {
+    let mut out: List[T] = []
+    for x in xs {
+        if keep(x) {
+            out.push(x)
+        }
+    }
+    return out
+}
+
+// Whether `test` is true for at least one element.
+pub fn list_any[T](xs: List[T], test: fn(T) -> bool) -> bool {
+    for x in xs {
+        if test(x) {
+            return true
+        }
+    }
+    return false
+}
+
+// Whether `test` is true for every element (also for an empty list).
+pub fn list_all[T](xs: List[T], test: fn(T) -> bool) -> bool {
+    for x in xs {
+        if !test(x) {
+            return false
+        }
+    }
+    return true
+}
+
+// `init` combined with each element in turn: `f(f(f(init, a), b), c)`.
+pub fn list_fold[T, A](xs: List[T], init: A, f: fn(A, T) -> A) -> A {
+    let mut acc = init
+    for x in xs {
+        acc = f(acc, x)
+    }
+    return acc
+}
+
+// The first element for which `test` is true, or `None`.
+pub fn list_find[T](xs: List[T], test: fn(T) -> bool) -> Option[T] {
+    for x in xs {
+        if test(x) {
+            return Some(x)
+        }
+    }
+    return None
+}
+
+// Calls `f` with each element, in order.
+pub fn list_each[T](xs: List[T], f: fn(T)) {
+    for x in xs {
+        f(x)
+    }
+}
+
+// The smallest element, or `None` for an empty list.
+pub fn list_min[T: Ord](xs: List[T]) -> Option[T] {
+    let mut best = xs.first()?
+    for x in xs {
+        if x < best {
+            best = x
+        }
+    }
+    return Some(best)
+}
+
+// The largest element, or `None` for an empty list.
+pub fn list_max[T: Ord](xs: List[T]) -> Option[T] {
+    let mut best = xs.first()?
+    for x in xs {
+        if x > best {
+            best = x
+        }
+    }
+    return Some(best)
+}
+
 fn min_i64(a: i64, b: i64) -> i64 {
     return if a < b { a } else { b }
 }

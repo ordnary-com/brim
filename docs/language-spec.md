@@ -354,6 +354,13 @@ fn total(a: string, b: string) -> Result[i64, string] {
   | `reversed()` | `List[T]` | a copy in the opposite order |
   | `slice(start, end)` | `List[T]` | the elements from `start` up to `end`; indices outside the list are moved to its ends, so `slice` never fails |
   | `index_of(x)` | `Option[i64]` | the index of the first element equal to `x`; `T` must implement `Eq` |
+  | `map(f)` | `List[U]` | `f(x)` for each element, with `f: fn(T) -> U` |
+  | `filter(keep)` | `List[T]` | the elements for which `keep: fn(T) -> bool` is true |
+  | `any(test)`, `all(test)` | `bool` | whether `test` holds for some, or every, element (`all` of an empty list is `true`) |
+  | `fold(init, f)` | `A` | `f(...f(f(init, x0), x1)..., xn)`, with `f: fn(A, T) -> A` |
+  | `find(test)` | `Option[T]` | the first element for which `test` holds |
+  | `each(f)` | | calls `f: fn(T)` with each element |
+  | `min()`, `max()` | `Option[T]` | the smallest or largest element; `T` must implement `Ord` |
 
   The methods from `push` to `clear` change the list, so they need a variable declared with `let mut` (or a field or element of one); calling them on a temporary is `E0104`. An unknown method is `E0231`.
 - Lists can be compared with `==` and shown with `print` and `to_string` (section 5.8).
@@ -537,7 +544,14 @@ Newlines do **not** end a statement:
 - inside parentheses, so argument and parameter lists may span lines;
 - directly after a binary operator, an assignment operator (`=`, `+=`, ...), `->` or `,`;
 - before the `{` that opens a function body or the block of an `if`, `else` or `while`;
-- between the `}` of an `if` block and a following `else`.
+- between the `}` of an `if` block and a following `else`;
+- before a line that starts with `.`, which continues the expression above it, so method chains can put one call per line:
+
+  ```brim
+  let names = people
+      .filter(fn(p: Person) -> bool { return p.age > 30 })
+      .map(fn(p: Person) -> string { return p.name })
+  ```
 
 To continue a long expression, end the line with the operator:
 
@@ -856,7 +870,7 @@ These questions are not settled. The current behavior is a reversible default.
 4. **Overflow semantics.** Checked arithmetic that traps is the current rule. Whether release builds keep the checks, and whether explicit wrapping operations are added, is open.
 5. **String model.** Strings are immutable, reference-counted UTF-8. Methods work on byte positions. Unicode-aware case conversion, grapheme handling and a byte type are undecided.
 6. **Error handling in the language.** Recoverable errors are `Result` values with `?` propagation. `?` wraps errors in a variant of the function's error enum. Open: a standard error type with context, and whether `main` may return a `Result`. Run-time errors (`R` codes) still abort. See `docs/error-handling.md`.
-7. **Statement termination.** Newline termination with continuation after operators is the current rule. Behavior around method chains (`.` at line start) must be decided when methods exist.
+7. **Statement termination.** Newline termination, with continuation after operators and before a line that starts with `.`, is the current rule.
 8. **`main` signature.** `main` takes no parameters and returns nothing; arguments come from `args()` and the exit code from `exit`. Returning a `Result` from `main` is undecided.
 9. **Unicode identifiers.** Identifiers are ASCII-only. Allowing Unicode (UAX #31) is possible later.
 10. **Modules.** Modules are files and `pub` controls visibility, of items and of fields; `pub import` re-exports items; dependencies add their modules under the package's name. Re-exporting whole modules and a package registry with version requirements are undecided.

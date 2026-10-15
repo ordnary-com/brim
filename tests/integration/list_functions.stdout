@@ -1,0 +1,18 @@
+[9, 1, 16, 1, 25, 81, 4, 36]
+[4, 2, 6]
+true
+true
+31
+Some(5)
+None
+Some(1)
+Some(9)
+None
+true
+["tea", "cake"]
+total: 7.75
+["tea"]
+- tea: 3.5
+- cake: 4.25
+["BROWN", "JUMPS", "LAZY", "OVER", "QUICK"]
+Some(5)
