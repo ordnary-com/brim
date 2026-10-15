@@ -16,7 +16,7 @@
 (type_identifier) @type
 (path_type (identifier) @type)
 ((path_type (identifier) @type.builtin)
-  (#any-of? @type.builtin "Option" "Result" "List" "Map" "Box"))
+  (#any-of? @type.builtin "Option" "Result" "List" "Map" "Set" "Box"))
 (type_parameter name: (identifier) @type)
 (type_parameter bound: (path_type (identifier) @type))
 (trait_declaration name: (type_identifier) @type)

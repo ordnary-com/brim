@@ -1,0 +1,16 @@
+struct Point {
+    x: i64
+}
+
+fn distinct[T](xs: List[T]) -> Set[T] {
+    return Set(xs)
+}
+
+fn main() {
+    let empty = Set()
+    let points: Set[Point] = Set()
+    let s = Set([1, 2])
+    s.add(3)
+    print(s.size())
+    print(s.contains("a"))
+}

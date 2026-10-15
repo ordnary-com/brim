@@ -340,8 +340,9 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                     },
                 );
             }
-            Def::Map => {
-                let (key, value) = (args[0], args[1]);
+            // A set is a map to `true`: equal when the keys are.
+            Def::Map | Def::Set => {
+                let (key, value) = (args[0], args.get(1).copied().unwrap_or(Type::Bool));
                 let (key_ir, value_ir) = (self.m.ir_type(key), self.m.ir_type(value));
                 let ma = self.load(a);
                 let len_a = self.emit_value(InstKind::MapLen(ma), IrType::I64, NO_SPAN);
@@ -459,11 +460,13 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 }
                 self.terminate(Terminator::Unreachable);
             }
-            Def::List | Def::Map => {
-                let is_map = def == Def::Map;
+            Def::List | Def::Map | Def::Set => {
+                // A set shows its elements in braces: `{1, 2}`.
+                let is_set = def == Def::Set;
+                let is_map = def == Def::Map || is_set;
                 let acc = self.new_slot("text", IrType::Str);
                 let sep = self.new_slot("separator", IrType::Str);
-                let open = self.text("[");
+                let open = self.text(if is_set { "{" } else { "[" });
                 self.emit(InstKind::Store(acc, open), None, NO_SPAN);
                 let nothing = self.text("");
                 self.emit(InstKind::Store(sep, nothing), None, NO_SPAN);
@@ -476,7 +479,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                     };
                     s.emit_value(kind, IrType::I64, NO_SPAN)
                 };
-                if is_map {
+                if is_map && !is_set {
                     // `[:]`, as an empty map is written.
                     let not_empty = self.new_block();
                     let n = len(self);
@@ -495,7 +498,11 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 }
                 self.count_loop(len, |s, i| {
                     let (v, index) = (s.load(value), s.load(i));
-                    let item = if is_map {
+                    let item = if is_set {
+                        let key_ir = s.m.ir_type(args[0]);
+                        let k = s.emit_value(InstKind::MapKeyAt(v, index), key_ir, NO_SPAN);
+                        s.value_text(k, args[0], NO_SPAN)
+                    } else if is_map {
                         let (key, val) = (args[0], args[1]);
                         let (key_ir, val_ir) = (s.m.ir_type(key), s.m.ir_type(val));
                         let k = s.emit_value(InstKind::MapKeyAt(v, index), key_ir, NO_SPAN);
@@ -518,7 +525,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                     s.emit(InstKind::Store(sep, comma), None, NO_SPAN);
                 });
                 let before = self.load(acc);
-                let close = self.text("]");
+                let close = self.text(if is_set { "}" } else { "]" });
                 let result = self.concat(before, close);
                 self.terminate(Terminator::Return(Some(result)));
             }

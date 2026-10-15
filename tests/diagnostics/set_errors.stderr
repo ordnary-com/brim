@@ -1,0 +1,68 @@
+error[E0236]: `T` cannot be a set element
+ --> tests/diagnostics/set_errors.brim:5:36
+  |
+5 | fn distinct[T](xs: List[T]) -> Set[T] {
+  |                                    ^
+  |
+  = note: map keys and set elements are integers, `bool` or `string`
+  = help: add a bound: `T: Key`
+
+error[E0248]: `T` does not implement `Key`
+ --> tests/diagnostics/set_errors.brim:6:12
+  |
+6 |     return Set(xs)
+  |            ^^^^^^^ `set_from_list` needs `Key`
+  |
+  = help: add the bound to this function's type parameter: `T: Key`
+
+error[E0226]: cannot infer the element type of an empty set
+  --> tests/diagnostics/set_errors.brim:10:17
+   |
+10 |     let empty = Set()
+   |                 ^^^^^ the type is not known here
+   |
+   = help: add a type annotation, for example `let s: Set[string] = Set()`
+
+error[E0236]: `Point` cannot be a set element
+  --> tests/diagnostics/set_errors.brim:11:21
+   |
+11 |     let points: Set[Point] = Set()
+   |                     ^^^^^
+   |
+   = note: map keys and set elements are integers, `bool` or `string`
+
+error[E0226]: cannot infer the element type of an empty set
+  --> tests/diagnostics/set_errors.brim:11:30
+   |
+11 |     let points: Set[Point] = Set()
+   |                              ^^^^^ the type is not known here
+   |
+   = help: add a type annotation, for example `let s: Set[string] = Set()`
+
+error[E0218]: cannot call `add` on immutable variable `s`
+  --> tests/diagnostics/set_errors.brim:13:5
+   |
+12 |     let s = Set([1, 2])
+   |         - declared here
+13 |     s.add(3)
+   |     ^ declared without `mut`
+   |
+   = help: make it mutable: `let mut s`
+
+error[E0231]: `Set[i64]` has no method `size`
+  --> tests/diagnostics/set_errors.brim:14:13
+   |
+14 |     print(s.size())
+   |             ^^^^ unknown method
+   |
+   = help: did you mean `len`?
+
+error[E0206]: mismatched types
+  --> tests/diagnostics/set_errors.brim:15:22
+   |
+15 |     print(s.contains("a"))
+   |                      ^^^ expected `i64`, found `string`
+   |
+   = note: Brim never converts between types implicitly
+
+error: could not compile tests/diagnostics/set_errors.brim due to 8 errors

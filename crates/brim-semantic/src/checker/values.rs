@@ -25,6 +25,19 @@ impl<'a> Checker<'a> {
         need: TraitId,
         seen: &mut HashSet<Type>,
     ) -> Option<Type> {
+        // Map keys: integers, booleans and strings.
+        if need == super::traits::KEY && !matches!(ty, Type::Param(_)) {
+            return match ty {
+                Type::I64
+                | Type::I32
+                | Type::U8
+                | Type::U64
+                | Type::Bool
+                | Type::String
+                | Type::Error => None,
+                _ => Some(ty),
+            };
+        }
         // Ordering: numbers and strings, and type parameters with `Ord`.
         if need == super::traits::ORD && !matches!(ty, Type::Param(_)) {
             return match ty {
@@ -66,7 +79,7 @@ impl<'a> Checker<'a> {
         let inner: Vec<Type> = match named.def {
             // Functions cannot be compared or shown.
             Def::Fn => return Some(ty),
-            Def::List | Def::Map | Def::Box | Def::Tuple => named.args.clone(),
+            Def::List | Def::Map | Def::Set | Def::Box | Def::Tuple => named.args.clone(),
             Def::Struct(s) => self.structs[s.0].fields.iter().map(|f| f.ty).collect(),
             Def::Enum(e) => self.enums[e.0]
                 .variants

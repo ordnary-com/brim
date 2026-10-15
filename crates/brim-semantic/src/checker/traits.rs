@@ -26,6 +26,8 @@ pub(super) const EQ: TraitId = TraitId(0);
 pub(super) const SHOW: TraitId = TraitId(1);
 /// `T: Ord`: `<`, `<=`, `>` and `>=` work on `T`.
 pub(super) const ORD: TraitId = TraitId(2);
+/// `T: Key`: `T` can be the key of a `Map` and the element of a `Set`.
+pub(super) const KEY: TraitId = TraitId(3);
 
 pub(super) struct TraitInfo {
     pub name: String,
@@ -46,7 +48,7 @@ pub(super) struct TraitMethodInfo {
 }
 
 pub(super) fn builtin_traits() -> Vec<TraitInfo> {
-    ["Eq", "Show", "Ord"]
+    ["Eq", "Show", "Ord", "Key"]
         .into_iter()
         .map(|name| TraitInfo {
             name: name.into(),
@@ -182,7 +184,7 @@ impl<'a> Checker<'a> {
     pub(super) fn check_trait_impl(&mut self, decl: &ast::ImplDecl, trait_id: TraitId, def: Def) {
         let trait_name = self.traits[trait_id.0].name.clone();
         let type_name = decl.type_name.name.clone();
-        if trait_id == EQ || trait_id == SHOW || trait_id == ORD {
+        if trait_id.0 <= KEY.0 {
             self.diags.push(
                 Diagnostic::error(format!("`{trait_name}` cannot be implemented by hand"))
                     .with_code("E0247")
@@ -192,7 +194,8 @@ impl<'a> Checker<'a> {
                         match trait_id {
                             EQ => "compared",
                             SHOW => "shown",
-                            _ => "ordered with `<`",
+                            ORD => "ordered with `<`",
+                            _ => "used as map keys",
                         }
                     )),
             );
@@ -277,7 +280,7 @@ impl<'a> Checker<'a> {
         if ty == Type::Error {
             return true;
         }
-        if trait_id == EQ || trait_id == SHOW || trait_id == ORD {
+        if trait_id.0 <= KEY.0 {
             return self.not_comparable(ty, trait_id).is_none();
         }
         match ty {
@@ -315,7 +318,7 @@ impl<'a> Checker<'a> {
                         Type::Param(_) => diag.with_help(format!(
                             "add the bound to this function's type parameter: `{shown}: {trait_name}`"
                         )),
-                        _ if trait_id == EQ || trait_id == SHOW || trait_id == ORD => diag.with_note(format!(
+                        _ if trait_id.0 <= KEY.0 => diag.with_note(format!(
                             "`{trait_name}` needs every value inside `{shown}` to support it"
                         )),
                         Type::Named(id)
@@ -414,6 +417,7 @@ pub(super) fn builtin_trait_names() -> HashMap<String, TraitId> {
         ("Eq".to_string(), EQ),
         ("Show".to_string(), SHOW),
         ("Ord".to_string(), ORD),
+        ("Key".to_string(), KEY),
     ]
     .into_iter()
     .collect()

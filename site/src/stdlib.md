@@ -335,6 +335,42 @@ removed 0
 false
 ```
 
+## Sets
+
+`Set[T]` holds distinct values, in the order they were first added.
+`Set()` makes an empty one and `Set(list)` one from a list.
+
+| Method | Result | |
+|--------|--------|---|
+| `add(x)`, `remove(x)` | , `bool` | `remove` tells whether `x` was there |
+| `contains(x)` | `bool` | |
+| `len()`, `is_empty()`, `to_list()` | | |
+| `union(s)`, `intersection(s)`, `difference(s)` | `Set[T]` | |
+| `is_subset(s)` | `bool` | |
+
+```brim
+fn main() {
+    let mut tags: Set[string] = Set()
+    tags.add("rust")
+    tags.add("brim")
+    tags.add("rust")
+    print(tags)
+    let other = Set(["brim", "go"])
+    print(tags.intersection(other))
+    for tag in tags.union(other) {
+        print(tag)
+    }
+}
+```
+
+```text
+{"rust", "brim"}
+{"brim"}
+rust
+brim
+go
+```
+
 ## Option and Result
 
 `Option[T]` is a value that may be absent (`Some(x)` or `None`);

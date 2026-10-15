@@ -1,0 +1,19 @@
+{"the", "cat", "saw", "dog", "and", "ran"}
+6
+true
+false
+true
+false
+["and", "cat", "ran", "saw", "the"]
+{1, 2, 3, 4, 5}
+{3, 4}
+{1, 2}
+true
+true
+false
+10
+{}
+true
+0
+{true}
+{1, 2}

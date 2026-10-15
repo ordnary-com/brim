@@ -238,6 +238,7 @@ Comparison operators at the same level cannot be chained: `a < b < c` and `a == 
 | enums    | declared with `enum` (section 5.2); `Option[T]` and `Result[T, E]` are built in (section 5.4) |
 | `List[T]` | ordered sequences of `T` (section 5.5)  |
 | `Map[K, V]` | values of type `V` looked up by keys of type `K` (section 5.6) |
+| `Set[T]` | distinct values of type `T` (section 5.6.1) |
 | `Box[T]` | one value of type `T` on the heap, so a type can contain itself (section 5.7) |
 | `(A, B, ...)` | tuples: two or more values of the given types (section 5.13) |
 
@@ -367,7 +368,7 @@ fn total(a: string, b: string) -> Result[i64, string] {
 
 ### 5.6 Maps
 
-`Map[K, V]` maps keys of type `K` to values of type `V`. Keys must be `i64`, `bool` or `string` (`E0236`). `["ada": 36, "alan": 41]` creates one; `[:]` is an empty map and needs known types (`E0226`).
+`Map[K, V]` maps keys of type `K` to values of type `V`. Keys must be integers, `bool` or `string`, or a type parameter bounded by the built-in trait `Key` (`E0236`). `["ada": 36, "alan": 41]` creates one; `[:]` is an empty map and needs known types (`E0226`).
 
 - `m[key]` is the value for a key; a missing key is run-time error `R0006` (use `get` when the key may be missing). `m[key] = v` adds or replaces an entry; `m[key] += 1` and other changes through `m[key]` need the key to exist.
 - Entries keep the **order in which their keys were first added**. Replacing a value keeps the entry's position; removing a key closes the gap.
@@ -387,6 +388,23 @@ fn total(a: string, b: string) -> Result[i64, string] {
   | `clear()` | | |
 
   `insert`, `remove` and `clear` change the map and need a `let mut` variable. To loop over a map, loop over `keys()` or `values()`.
+
+#### 5.6.1 Sets
+
+`Set[T]` holds distinct values, with the same element types as map keys. `Set()` is an empty set of the type the context expects (`E0226` without one), and `Set(list)` holds the distinct elements of a list. Like a map, a set keeps the order in which its elements were first added; `for x in set` goes through them in that order.
+
+| Method | Result | |
+|--------|--------|---|
+| `add(x)` | | adds `x` if it is not there yet |
+| `remove(x)` | `bool` | removes `x`; whether it was there |
+| `contains(x)` | `bool` | |
+| `len()`, `is_empty()` | `i64`, `bool` | |
+| `to_list()` | `List[T]` | in order |
+| `clear()` | | |
+| `union(other)`, `intersection(other)`, `difference(other)` | `Set[T]` | new sets |
+| `is_subset(other)` | `bool` | whether every element is in `other` |
+
+`add`, `remove` and `clear` change the set and need a `let mut` variable. Two sets are equal when they have the same elements, in any order; `print` shows `{1, 2}`.
 
 
 ### 5.7 Boxes
@@ -504,7 +522,7 @@ fn total_area[T: Shape](shapes: List[T]) -> f64 {
 - A trait method is a signature without a body. It takes `self` (not `mut self`) and is called on a value. `Self` in its types is the type that implements the trait (`E0246` for malformed traits, unknown traits and duplicates).
 - `impl Trait for Type` implements a trait for a struct or enum declared in the same module. It must have every method of the trait, with the same signature (`Self` replaced by the type), and nothing else; other methods go in a plain `impl Type` block (`E0247`). A type implements a trait at most once. The methods are also ordinary methods of the type.
 - A type parameter of a function can have **bounds**, `[T: Shape + Show]`: the type arguments must implement every bound (`E0248`), and inside the function a `T` has the bounds' methods.
-- The built-in traits **`Eq`** and **`Show`** are implemented by every type whose values can all be compared with `==`, or shown with `print` (section 5.8), and by type parameters bounded by them. **`Ord`** allows `<`, `<=`, `>` and `>=` and is implemented by the integer types, `f64` and `string`. They cannot be implemented by hand.
+- The built-in traits **`Eq`** and **`Show`** are implemented by every type whose values can all be compared with `==`, or shown with `print` (section 5.8), and by type parameters bounded by them. **`Ord`** allows `<`, `<=`, `>` and `>=` and is implemented by the integer types, `f64` and `string`. **`Key`** allows a type to be a map key or set element, and is implemented by the integer types, `bool` and `string`. They cannot be implemented by hand.
 - Methods of built-in types that are written in Brim itself, such as `sorted` on lists, live in the module `std.prelude`, which every program has.
 - Generic code is compiled per type, so a call through a bound is an ordinary call of the type's method. Traits are not types: a `List` holds values of one type, and there are no trait objects.
 

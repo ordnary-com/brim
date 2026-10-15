@@ -260,12 +260,17 @@ pub enum MapOp {
     Insert,
     /// `Option[V]`: removes a key and returns its value.
     Remove,
+    /// `bool`: removes a key and tells whether it was there (`set.remove`).
+    Discard,
     Clear,
 }
 
 impl MapOp {
     pub fn changes_map(self) -> bool {
-        matches!(self, MapOp::Insert | MapOp::Remove | MapOp::Clear)
+        matches!(
+            self,
+            MapOp::Insert | MapOp::Remove | MapOp::Discard | MapOp::Clear
+        )
     }
 }
 

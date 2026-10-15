@@ -177,7 +177,7 @@ impl<'a> Checker<'a> {
         match def {
             Def::Struct(id) => Some(self.structs[id.0].name_span),
             Def::Enum(id) => self.enums[id.0].name_span,
-            Def::List | Def::Map | Def::Box | Def::Fn | Def::Tuple => None,
+            Def::List | Def::Map | Def::Set | Def::Box | Def::Fn | Def::Tuple => None,
         }
     }
 
@@ -216,7 +216,7 @@ impl<'a> Checker<'a> {
         let node = |def: Def| match def {
             Def::Struct(s) => s.0,
             Def::Enum(e) => struct_count + e.0,
-            Def::List | Def::Map | Def::Box | Def::Fn | Def::Tuple => {
+            Def::List | Def::Map | Def::Set | Def::Box | Def::Fn | Def::Tuple => {
                 unreachable!("collections and boxes keep their contents on the heap")
             }
         };
@@ -308,7 +308,9 @@ impl<'a> Checker<'a> {
                 let kind = match def {
                     Def::Struct(_) => "struct",
                     Def::Enum(_) => "enum",
-                    Def::List | Def::Map | Def::Box | Def::Fn | Def::Tuple => "built-in type",
+                    Def::List | Def::Map | Def::Set | Def::Box | Def::Fn | Def::Tuple => {
+                        "built-in type"
+                    }
                 };
                 let mut diag =
                     Diagnostic::error(format!("`{name}` is already the name of a {kind}"))
@@ -620,14 +622,23 @@ impl<'a> Checker<'a> {
                 if args.contains(&Type::Error) {
                     return Type::Error;
                 }
-                if def == Def::Map && !matches!(args[0], Type::I64 | Type::Bool | Type::String) {
+                if matches!(def, Def::Map | Def::Set)
+                    && self.not_comparable(args[0], super::traits::KEY).is_some()
+                {
                     let key = self.show(args[0]);
-                    self.diags.push(
-                        Diagnostic::error(format!("`{key}` cannot be a map key"))
-                            .with_code("E0236")
-                            .with_primary(ty.args[0].span(), "")
-                            .with_note("map keys are `i64`, `bool` or `string`"),
-                    );
+                    let what = if def == Def::Map {
+                        "a map key"
+                    } else {
+                        "a set element"
+                    };
+                    let mut diag = Diagnostic::error(format!("`{key}` cannot be {what}"))
+                        .with_code("E0236")
+                        .with_primary(ty.args[0].span(), "")
+                        .with_note("map keys and set elements are integers, `bool` or `string`");
+                    if matches!(args[0], Type::Param(_)) {
+                        diag = diag.with_help(format!("add a bound: `{key}: Key`"));
+                    }
+                    self.diags.push(diag);
                     return Type::Error;
                 }
                 self.types.intern(def, args)
@@ -639,7 +650,7 @@ impl<'a> Checker<'a> {
         match def {
             Def::Struct(id) => &self.structs[id.0].type_params,
             Def::Enum(id) => &self.enums[id.0].type_params,
-            Def::List | Def::Box => &self.list_type_params,
+            Def::List | Def::Box | Def::Set => &self.list_type_params,
             // Function and tuple types are written `fn(...) -> R` and
             // `(A, B)`, never by name.
             Def::Fn | Def::Tuple => &[],

@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- `Set[T]`: `Set()`, `Set(list)`, `add`, `remove`, `contains`, `len`, `to_list`, `union`, `intersection`, `difference`, `is_subset`, `for x in set`, `==` and `print` (`{1, 2}`). The built-in trait `Key` lets generic code use maps and sets; map keys can now be any integer type.
 - Math: `abs`, `sqrt`, `floor`, `ceil`, `round` and `pow` (overflow and `abs(i64::MIN)` are `R0001`), and in the prelude `min`, `max`, `clamp`, `PI` and `E`. Native programs now link with libm.
 - List methods `map`, `filter`, `any`, `all`, `fold`, `find`, `each`, `min` and `max`, also in the prelude. A line that starts with `.` continues the expression above it, for method chains.
 - List methods `sorted()`, `sorted_by(less)`, `reversed()`, `slice(start, end)` and `index_of(x)`. They are written in Brim, in the new module `std.prelude` that every program has. The built-in trait `Ord` allows `<` in generic code.

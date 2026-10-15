@@ -321,6 +321,7 @@ impl ModuleLowerer<'_> {
                     Def::Enum(e) => &self.program.enum_def(e).name,
                     Def::List => "List",
                     Def::Map => "Map",
+                    Def::Set => "Set",
                     Def::Box => "Box",
                     Def::Fn => "fn",
                     Def::Tuple => {
@@ -360,7 +361,8 @@ impl ModuleLowerer<'_> {
                 // Types can contain themselves through lists and maps
                 // (`struct Node { children: List[Node] }`), so each type's
                 // id is reserved before its contents are lowered.
-                if named.def == Def::Map {
+                // A set is a map to `bool`.
+                if matches!(named.def, Def::Map | Def::Set) {
                     let id = MapId(
                         u32::try_from(self.module.maps.len()).expect("map count fits in u32"),
                     );
@@ -368,7 +370,10 @@ impl ModuleLowerer<'_> {
                     let ir = IrType::Map(id);
                     self.ir_types.insert(ty, ir);
                     let key = self.ir_type(named.args[0]);
-                    let value = self.ir_type(named.args[1]);
+                    let value = match named.args.get(1) {
+                        Some(value) => self.ir_type(*value),
+                        None => IrType::Bool,
+                    };
                     self.module.maps[id.index()] = (key, value);
                     return ir;
                 }
@@ -433,7 +438,9 @@ impl ModuleLowerer<'_> {
                             });
                         }
                     }
-                    Def::List | Def::Map | Def::Box | Def::Fn => unreachable!("handled above"),
+                    Def::List | Def::Map | Def::Set | Def::Box | Def::Fn => {
+                        unreachable!("handled above")
+                    }
                 }
                 self.module.structs[id.index()].fields = fields;
                 ir
@@ -1282,6 +1289,21 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                     }
                     MapOp::Remove => {
                         Some(self.map_remove(place, &indices, args[0], result_ty, span))
+                    }
+                    MapOp::Discard => {
+                        // Removed when `remove` gives `Some`, whose tag is 0.
+                        let option_ty = self.m.types.intern(
+                            Def::Enum(brim_semantic::EnumId(0)),
+                            vec![brim_semantic::Type::Bool],
+                        );
+                        let removed = self.map_remove(place, &indices, args[0], option_ty, span);
+                        let tag = self.emit_value(InstKind::Extract(removed, 0), i64_ty, span);
+                        let some = self.emit_value(InstKind::Const(Const::I64(0)), i64_ty, span);
+                        Some(self.emit_value(
+                            InstKind::Binary(brim_ir::BinaryOp::IEq, tag, some),
+                            IrType::Bool,
+                            span,
+                        ))
                     }
                     _ => unreachable!("only changing operations have a place receiver"),
                 }

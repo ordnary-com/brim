@@ -4,7 +4,7 @@ error[E0236]: `Point` cannot be a map key
 6 |     let bad: Map[Point, i64] = [:]
   |                  ^^^^^
   |
-  = note: map keys are `i64`, `bool` or `string`
+  = note: map keys and set elements are integers, `bool` or `string`
 
 error[E0206]: mismatched types
  --> tests/diagnostics/map_errors.brim:7:45

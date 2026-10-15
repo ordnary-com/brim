@@ -58,14 +58,6 @@ error[E0206]: `to_i32` cannot be called with `string`
    |
    = note: `to_i32` converts an integer of another type
 
-error[E0236]: `u8` cannot be a map key
-  --> tests/diagnostics/int_type_errors.brim:12:16
-   |
-12 |     let m: Map[u8, i64] = [:]
-   |                ^^
-   |
-   = note: map keys are `i64`, `bool` or `string`
-
 error[E0215]: integer literal is out of range for `u8`
   --> tests/diagnostics/int_type_errors.brim:14:9
    |
@@ -88,4 +80,4 @@ error[E0206]: mismatched types
    |
    = note: `string_from_bytes` reads UTF-8 bytes
 
-error: could not compile tests/diagnostics/int_type_errors.brim due to 11 errors
+error: could not compile tests/diagnostics/int_type_errors.brim due to 10 errors

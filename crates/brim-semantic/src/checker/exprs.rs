@@ -354,6 +354,9 @@ impl<'a> Checker<'a> {
         if self.as_map(probe.ty).is_some() {
             return self.check_map_method(base, name, args, span, ctx);
         }
+        if self.as_set(probe.ty).is_some() {
+            return Some(self.check_set_method(base, name, args, span, ctx));
+        }
         self.as_list(probe.ty)?;
         self.check_list_method(base, name, args, span, ctx)
     }
@@ -583,6 +586,64 @@ impl<'a> Checker<'a> {
         }
         let receiver = self.check_expr(base, ctx);
         Some(self.trait_method_call(receiver, name, args, span, ctx))
+    }
+
+    /// `Set()`, an empty set of the type the context expects, or
+    /// `Set(list)`, the distinct elements of a list.
+    fn check_set_new(
+        &mut self,
+        args: &[ast::Expr],
+        span: Span,
+        expected: Option<Type>,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        match args {
+            [] => {
+                if expected == Some(Type::Error) {
+                    return error_expr(span);
+                }
+                let Some(ty) = expected.filter(|t| self.as_set(*t).is_some()) else {
+                    self.diags.push(
+                        Diagnostic::error("cannot infer the element type of an empty set")
+                            .with_code("E0226")
+                            .with_primary(span, "the type is not known here")
+                            .with_help(
+                                "add a type annotation, for example `let s: Set[string] = Set()`",
+                            ),
+                    );
+                    return error_expr(span);
+                };
+                CheckedExpr {
+                    kind: CheckedExprKind::MapLit(Vec::new()),
+                    ty,
+                    span,
+                }
+            }
+            [list] => {
+                let module = self.module_names.iter().position(|n| n == "std.prelude");
+                let id = module.and_then(|m| self.scopes[m].own_fns.get("set_from_list").copied());
+                let Some(id) = id else {
+                    return error_expr(span);
+                };
+                let arg_refs = [list];
+                self.finish_call(id, None, &arg_refs, span, expected, ctx)
+            }
+            _ => {
+                for arg in args {
+                    self.check_expr(arg, ctx);
+                }
+                self.diags.push(
+                    Diagnostic::error(format!(
+                        "`Set` takes 0 or 1 arguments but {} supplied",
+                        supplied(args.len())
+                    ))
+                    .with_code("E0205")
+                    .with_primary(span, "")
+                    .with_help("write `Set()` or `Set([a, b, c])`"),
+                );
+                error_expr(span)
+            }
+        }
     }
 
     /// `Box(value)`.
@@ -905,7 +966,7 @@ impl<'a> Checker<'a> {
         }
         if let Some(def) = self.type_by_name.get(name).copied() {
             let diag = match def {
-                Def::List | Def::Map | Def::Box | Def::Fn | Def::Tuple => {
+                Def::List | Def::Map | Def::Set | Def::Box | Def::Fn | Def::Tuple => {
                     Diagnostic::error(format!("`{name}` is a type, not a value"))
                         .with_code("E0214")
                         .with_primary(ident.span, "types cannot be used as values")
@@ -1318,7 +1379,7 @@ impl<'a> Checker<'a> {
         let found = qualified.or_else(|| self.type_by_name.get(name.name.as_str()).copied());
         let id = match found.as_ref() {
             Some(Def::Struct(id)) => Some(*id),
-            Some(def @ (Def::List | Def::Map | Def::Box | Def::Fn | Def::Tuple)) => {
+            Some(def @ (Def::List | Def::Map | Def::Set | Def::Box | Def::Fn | Def::Tuple)) => {
                 self.diags.push(
                     Diagnostic::error(format!("`{}` is not a struct", name.name))
                         .with_code("E0212")
@@ -2313,6 +2374,9 @@ impl<'a> Checker<'a> {
         if self.type_by_name.get(name) == Some(&Def::Box) {
             return self.check_box_new(callee, args, span, expected, ctx);
         }
+        if self.type_by_name.get(name) == Some(&Def::Set) {
+            return self.check_set_new(args, span, expected, ctx);
+        }
         let int_target = match name {
             "to_i32" => Some(Type::I32),
             "to_u8" => Some(Type::U8),
@@ -2425,7 +2489,7 @@ impl<'a> Checker<'a> {
             .with_code("E0201")
             .with_primary(callee.span, "not found");
         match self.type_by_name.get(name) {
-            Some(Def::List | Def::Map | Def::Box | Def::Fn | Def::Tuple) => {
+            Some(Def::List | Def::Map | Def::Set | Def::Box | Def::Fn | Def::Tuple) => {
                 diag = diag.with_help("create a list with `[...]`, or a map with `[key: value]`");
             }
             Some(Def::Struct(_)) => {

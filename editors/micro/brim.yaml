@@ -7,7 +7,7 @@ detect:
 rules:
     - statement: "\\b(fn|let|mut|return|if|else|while|for|in|match|break|continue|struct|enum|impl|pub|import|as)\\b"
     - error: "\\b(async|await|const|loop|trait|type|use)\\b"
-    - type: "\\b(i64|i32|u8|u64|f64|bool|string|void|Option|Result|List|Map|Box)\\b"
+    - type: "\\b(i64|i32|u8|u64|f64|bool|string|void|Option|Result|List|Map|Set|Box)\\b"
     - type: "\\b[A-Z][A-Za-z0-9_]*\\b"
     - constant.bool: "\\b(true|false)\\b"
     - constant: "\\b(self|Some|None|Ok|Err)\\b"

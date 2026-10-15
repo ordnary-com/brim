@@ -194,3 +194,55 @@ pub fn list_max[T: Ord](xs: List[T]) -> Option[T] {
     }
     return Some(best)
 }
+
+// ---- sets ----------------------------------------------------------------
+
+// The distinct elements of `xs`, in the order they first appear: `Set(xs)`.
+pub fn set_from_list[T: Key](xs: List[T]) -> Set[T] {
+    let mut s: Set[T] = Set()
+    for x in xs {
+        s.add(x)
+    }
+    return s
+}
+
+// The elements in `a`, `b` or both.
+pub fn set_union[T: Key](a: Set[T], b: Set[T]) -> Set[T] {
+    let mut out = a
+    for x in b {
+        out.add(x)
+    }
+    return out
+}
+
+// The elements in both `a` and `b`.
+pub fn set_intersection[T: Key](a: Set[T], b: Set[T]) -> Set[T] {
+    let mut out: Set[T] = Set()
+    for x in a {
+        if b.contains(x) {
+            out.add(x)
+        }
+    }
+    return out
+}
+
+// The elements in `a` but not in `b`.
+pub fn set_difference[T: Key](a: Set[T], b: Set[T]) -> Set[T] {
+    let mut out: Set[T] = Set()
+    for x in a {
+        if !b.contains(x) {
+            out.add(x)
+        }
+    }
+    return out
+}
+
+// Whether every element of `a` is in `b`.
+pub fn set_is_subset[T: Key](a: Set[T], b: Set[T]) -> bool {
+    for x in a {
+        if !b.contains(x) {
+            return false
+        }
+    }
+    return true
+}

@@ -25,6 +25,6 @@ error[E0236]: `f64` cannot be a map key
 6 |     let m: Map[f64, i64] = [:]
   |                ^^^
   |
-  = note: map keys are `i64`, `bool` or `string`
+  = note: map keys and set elements are integers, `bool` or `string`
 
 error: could not compile tests/diagnostics/float_errors.brim due to 3 errors

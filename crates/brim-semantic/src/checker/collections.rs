@@ -70,6 +70,20 @@ const MAP_METHODS: &[&str] = &[
     "clear",
 ];
 
+const SET_METHODS: &[&str] = &[
+    "add",
+    "remove",
+    "contains",
+    "len",
+    "is_empty",
+    "to_list",
+    "clear",
+    "union",
+    "intersection",
+    "difference",
+    "is_subset",
+];
+
 const LIST_METHODS: &[&str] = &[
     "len",
     "is_empty",
@@ -150,13 +164,13 @@ impl<'a> Checker<'a> {
             }
             return error_expr(span);
         };
-        if !matches!(key_ty, Type::I64 | Type::Bool | Type::String) {
+        if self.not_comparable(key_ty, super::traits::KEY).is_some() {
             let key = self.show(key_ty);
             self.diags.push(
                 Diagnostic::error(format!("`{key}` cannot be a map key"))
                     .with_code("E0236")
                     .with_primary(checked[0].0.span, "")
-                    .with_note("map keys are `i64`, `bool` or `string`"),
+                    .with_note("map keys and set elements are integers, `bool` or `string`"),
             );
             return error_expr(span);
         }
@@ -250,6 +264,7 @@ impl<'a> Checker<'a> {
             MapOp::Len => Type::I64,
             MapOp::IsEmpty | MapOp::ContainsKey => Type::Bool,
             MapOp::Get | MapOp::Remove => self.option_of(value),
+            MapOp::Discard => Type::Bool,
             MapOp::Keys => self.list_of(key),
             MapOp::Values => self.list_of(value),
             MapOp::Insert | MapOp::Clear => Type::Void,
@@ -263,6 +278,135 @@ impl<'a> Checker<'a> {
             ty,
             span,
         })
+    }
+
+    /// The element type, if `ty` is a set.
+    pub(super) fn as_set(&self, ty: Type) -> Option<Type> {
+        let Type::Named(id) = ty else { return None };
+        let named = self.types.get(id);
+        (named.def == Def::Set).then(|| named.args[0])
+    }
+
+    /// A method of a set: built in (a map operation on the `Map[T, bool]`
+    /// underneath), or from the prelude (`set_union`, ...).
+    pub(super) fn check_set_method(
+        &mut self,
+        base: &ast::Expr,
+        name: &ast::Ident,
+        args: &[ast::Expr],
+        span: Span,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        let op = match name.name.as_str() {
+            "add" => MapOp::Insert,
+            "remove" => MapOp::Discard,
+            "contains" => MapOp::ContainsKey,
+            "len" => MapOp::Len,
+            "is_empty" => MapOp::IsEmpty,
+            "to_list" => MapOp::Keys,
+            "clear" => MapOp::Clear,
+            _ => {
+                if let Some(result) = self.prelude_method("set", base, name, args, span, ctx) {
+                    return result;
+                }
+                let receiver = self.check_expr(base, ctx);
+                for arg in args {
+                    self.check_expr(arg, ctx);
+                }
+                let ty = self.show(receiver.ty);
+                let mut diag = Diagnostic::error(format!("`{ty}` has no method `{}`", name.name))
+                    .with_code("E0231")
+                    .with_primary(name.span, "unknown method");
+                let alias = match name.name.as_str() {
+                    "size" | "length" | "count" => Some("len"),
+                    "insert" | "push" => Some("add"),
+                    "has" | "contains_key" => Some("contains"),
+                    _ => None,
+                };
+                let similar = alias
+                    .or_else(|| crate::suggest::similar(&name.name, SET_METHODS.iter().copied()));
+                diag = match similar {
+                    Some(similar) => diag.with_help(format!("did you mean `{similar}`?")),
+                    None => diag.with_note(format!(
+                        "set methods: {}",
+                        SET_METHODS
+                            .iter()
+                            .map(|m| format!("`{m}`"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )),
+                };
+                self.diags.push(diag);
+                return error_expr(span);
+            }
+        };
+        let receiver = if op.changes_map() {
+            let Some(place) = self.check_place(base, ctx, &format!("call `{}` on", name.name))
+            else {
+                for arg in args {
+                    self.check_expr(arg, ctx);
+                }
+                return error_expr(span);
+            };
+            ListReceiver::Place(place)
+        } else {
+            ListReceiver::Value(Box::new(self.check_expr(base, ctx)))
+        };
+        let set_ty = match &receiver {
+            ListReceiver::Value(v) => v.ty,
+            ListReceiver::Place(p) => p.ty,
+        };
+        let elem = self.as_set(set_ty).expect("checked by the caller");
+        let wants_element = matches!(op, MapOp::Insert | MapOp::Discard | MapOp::ContainsKey);
+        let expected_args = usize::from(wants_element);
+        if args.len() != expected_args {
+            for arg in args {
+                self.check_expr(arg, ctx);
+            }
+            self.diags.push(
+                Diagnostic::error(format!(
+                    "`{}` takes {} but {} supplied",
+                    name.name,
+                    plural(expected_args, "argument"),
+                    supplied(args.len())
+                ))
+                .with_code("E0205")
+                .with_primary(
+                    span,
+                    format!("expected {}", plural(expected_args, "argument")),
+                ),
+            );
+            return error_expr(span);
+        }
+        let mut checked = Vec::new();
+        if let Some(arg) = args.first() {
+            let value = self.check_expr_with(arg, Some(elem), ctx);
+            self.expect_type(&value, elem, None, "");
+            checked.push(value);
+        }
+        if op == MapOp::Insert {
+            // `add(x)` stores `x: true`.
+            checked.push(CheckedExpr {
+                kind: CheckedExprKind::Bool(true),
+                ty: Type::Bool,
+                span,
+            });
+        }
+        let ty = match op {
+            MapOp::Len => Type::I64,
+            MapOp::IsEmpty | MapOp::ContainsKey | MapOp::Discard => Type::Bool,
+            MapOp::Keys => self.list_of(elem),
+            _ => Type::Void,
+        };
+        CheckedExpr {
+            kind: CheckedExprKind::MapOp {
+                op,
+                receiver,
+                args: checked,
+            },
+            ty,
+            span,
+        }
     }
 
     pub(super) fn list_of(&mut self, elem: Type) -> Type {
@@ -662,7 +806,20 @@ impl<'a> Checker<'a> {
                 (CheckedForIter::Range(start, end), Type::I64)
             }
             ast::ForIter::Each(list) => {
-                let list = self.check_expr(list, ctx);
+                let mut list = self.check_expr(list, ctx);
+                // A set is looped over in the order its elements were added.
+                if let Some(elem) = self.as_set(list.ty) {
+                    let span = list.span;
+                    list = CheckedExpr {
+                        ty: self.list_of(elem),
+                        kind: CheckedExprKind::MapOp {
+                            op: MapOp::Keys,
+                            receiver: ListReceiver::Value(Box::new(list)),
+                            args: Vec::new(),
+                        },
+                        span,
+                    };
+                }
                 let elem = match self.as_list(list.ty) {
                     Some(elem) => elem,
                     None if list.ty == Type::Error => Type::Error,

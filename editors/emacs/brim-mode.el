@@ -35,7 +35,7 @@
 
 (defconst brim-reserved '("async" "await" "const" "loop" "trait" "type" "use"))
 
-(defconst brim-types '("i64" "i32" "u8" "u64" "f64" "bool" "string" "void" "Option" "Result" "List" "Map" "Box"))
+(defconst brim-types '("i64" "i32" "u8" "u64" "f64" "bool" "string" "void" "Option" "Result" "List" "Map" "Set" "Box"))
 
 (defconst brim-builtins
   '("print" "eprint" "to_string" "to_float" "to_int" "to_i32" "to_u8" "to_u64" "string_from_bytes" "abs" "sqrt" "floor" "ceil" "round" "pow" "min" "max" "clamp" "read_line" "read_file" "write_file" "args" "env"

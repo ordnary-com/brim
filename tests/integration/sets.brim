@@ -1,0 +1,40 @@
+// `Set[T]`: distinct values, in the order they were first added.
+
+fn main() {
+    let mut seen: Set[string] = Set()
+    for word in "the cat saw the dog and the cat ran".split(" ") {
+        seen.add(word)
+    }
+    print(seen)
+    print(seen.len())
+    print(seen.contains("dog"))
+    print(seen.contains("fox"))
+    print(seen.remove("dog"))
+    print(seen.remove("dog"))
+    print(seen.to_list().sorted())
+
+    let a = Set([1, 2, 3, 4])
+    let b = Set([3, 4, 5])
+    print(a.union(b))
+    print(a.intersection(b))
+    print(a.difference(b))
+    print(Set([3, 4]).is_subset(a))
+    print(a == Set([4, 3, 2, 1]))
+    print(a == b)
+    let mut total = 0
+    for x in a {
+        total += x
+    }
+    print(total)
+
+    let mut empty: Set[i64] = Set()
+    print(empty)
+    print(empty.is_empty())
+    empty.add(7)
+    empty.clear()
+    print(empty.len())
+    let flags: Set[bool] = Set([true, true])
+    print(flags)
+    let ids: Set[u8] = Set([1, 2, 2])
+    print(ids)
+}

@@ -218,6 +218,8 @@ impl Generator<'_> {
                 match named.def {
                     // A box is only a way to store a value; JSON holds the value.
                     Def::Box => args[0].clone(),
+                    // JSON has no sets: a set is sent as a list.
+                    Def::Set => format!("Array<{}>", args[0]),
                     Def::Tuple => format!("[{}]", args.join(", ")),
                     Def::Fn => {
                         let (ret, params) = args.split_last().expect("a return type");

@@ -41,7 +41,7 @@ contexts:
       scope: invalid.illegal.reserved.brim
     - match: '\b(i64|i32|u8|u64|f64|bool|string|void)\b'
       scope: storage.type.primitive.brim
-    - match: '\b(Option|Result|List|Map|Box)\b'
+    - match: '\b(Option|Result|List|Map|Set|Box)\b'
       scope: support.type.brim
     - match: '\b(Some|None|Ok|Err)\b'
       scope: support.constant.brim
