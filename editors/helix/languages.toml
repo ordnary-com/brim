@@ -18,4 +18,4 @@ args = ["lsp"]
 
 [[grammar]]
 name = "brim"
-source = { git = "https://github.com/ordnary-com/brim", rev = "6fdbc63aae8c3fa1f1d3089af39c1e9a5e99d32c", subpath = "editors/tree-sitter-brim" }
+source = { git = "https://github.com/ordnary-com/brim", rev = "7c17622e6f2737286124595a628825dd4032a503", subpath = "editors/tree-sitter-brim" }
