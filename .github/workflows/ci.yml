@@ -91,6 +91,9 @@ jobs:
     runs-on: windows-latest
     env:
       LLVM_VERSION: 22.1.8
+      # The LLVM release uses the static C runtime (with its own malloc), so
+      # the compiler must too.
+      RUSTFLAGS: -D warnings -C target-feature=+crt-static
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
