@@ -73,7 +73,14 @@ impl Conn {
     // The text before `delimiter`, which is read and dropped. Waits until
     // the delimiter arrives.
     pub fn read_until(self, delimiter: string) -> Result[string, string] {
-        let text: string = __net_read_until(self.handle, delimiter)
+        return self.read_until_max(delimiter, 1073741824)
+    }
+
+    // Like `read_until`, but fails with "message too large" when more than
+    // `max` bytes come before the delimiter, so a client cannot fill the
+    // memory.
+    pub fn read_until_max(self, delimiter: string, max: i64) -> Result[string, string] {
+        let text: string = __net_read_until(self.handle, delimiter, max)
         return checked(text, "cannot read")
     }
 

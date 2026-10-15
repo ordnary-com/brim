@@ -48,6 +48,18 @@ pub struct Response {
 // A server, waiting for requests.
 pub struct Server {
     listener: net.Listener,
+    // The largest request body it accepts, in bytes; larger ones get 413.
+    max_body: i64,
+}
+
+// Why a request was not accepted, and the status the client gets.
+struct Refusal {
+    status: i64,
+    message: string,
+}
+
+fn refuse(status: i64, message: string) -> Refusal {
+    return Refusal { status: status, message: message }
 }
 
 // ---- responses ---------------------------------------------------------
@@ -128,6 +140,7 @@ pub fn reason(status: i64) -> string {
         415 => return "Unsupported Media Type"
         422 => return "Unprocessable Content"
         429 => return "Too Many Requests"
+        431 => return "Request Header Fields Too Large"
         500 => return "Internal Server Error"
         501 => return "Not Implemented"
         502 => return "Bad Gateway"
@@ -139,31 +152,38 @@ pub fn reason(status: i64) -> string {
 
 // ---- servers -----------------------------------------------------------
 
-// Starts a server on a host and port (port 0 picks a free one).
+// Starts a server on a host and port (port 0 picks a free one). It
+// accepts request bodies up to 10 MiB; see `with_max_body`.
 pub fn serve(host: string, port: i64) -> Result[Server, string] {
-    return Ok(Server { listener: net.listen(host, port)? })
+    return Ok(Server { listener: net.listen(host, port)?, max_body: 10485760 })
 }
 
 impl Server {
+    // The server with another largest request body, in bytes.
+    pub fn with_max_body(self, bytes: i64) -> Server {
+        return Server { listener: self.listener, max_body: bytes }
+    }
+
     // The port the server listens on.
     pub fn port(self) -> i64 {
         return self.listener.port()
     }
 
     // Waits for the next request. A client that sends something that is
-    // not HTTP gets a 400 response, and the server waits for the next one.
+    // not HTTP gets a 400 response, headers over 64 KiB get 431 and a body
+    // over the limit 413; the server then waits for the next request.
     pub fn next(self) -> Result[Request, string] {
         while true {
             let conn: net.Conn = self.listener.accept()?
             // A client gets ten seconds to send its request.
             conn.set_timeout(10000)?
-            match read_request(conn) {
+            match read_request(conn, self.max_body) {
                 Ok(request) => {
                     conn.set_timeout(0)?
                     return Ok(request)
                 }
-                Err(message) => {
-                    send(conn, text(400, message + "\n"), false)
+                Err(refusal) => {
+                    send(conn, text(refusal.status, refusal.message + "\n"), false)
                     conn.close()
                 }
             }
@@ -195,27 +215,60 @@ impl Request {
     }
 }
 
-fn read_request(conn: net.Conn) -> Result[Request, string] {
-    let head: string = conn.read_until("\r\n\r\n")?
+// The largest request or response head (request line and headers).
+fn max_head() -> i64 {
+    return 65536
+}
+
+fn read_request(conn: net.Conn, max_body: i64) -> Result[Request, Refusal] {
+    let mut head: string = ""
+    match conn.read_until_max("\r\n\r\n", max_head()) {
+        Ok(text) => head = text
+        Err(e) => {
+            if e.ends_with("message too large") {
+                return Err(refuse(431, "the request headers are too large"))
+            }
+            return Err(refuse(400, e))
+        }
+    }
     let lines: List[string] = head.split("\r\n")
     let parts: List[string] = lines[0].split(" ")
     if parts.len() != 3 || !parts[2].starts_with("HTTP/1.") {
-        return Err("bad request line")
+        return Err(refuse(400, "bad request line"))
     }
     let method: string = parts[0]
     let target: string = parts[1]
-    let headers: Map[string, string] = parse_headers(lines)?
+    let mut headers: Map[string, string] = [:]
+    match parse_headers(lines) {
+        Ok(h) => headers = h
+        Err(e) => return Err(refuse(400, e))
+    }
     let mut path: string = target
     let mut query: Map[string, string] = [:]
     match target.find("?") {
         Some(at) => {
             path = target.slice(0, at)
-            query = parse_query(target.slice(at + 1, target.len()))?
+            match parse_query(target.slice(at + 1, target.len())) {
+                Ok(q) => query = q
+                Err(e) => return Err(refuse(400, e))
+            }
         }
         None => {}
     }
-    path = decode_part(path, false)?
-    let body: string = read_body(conn, headers, false)?
+    match decode_part(path, false) {
+        Ok(p) => path = p
+        Err(e) => return Err(refuse(400, e))
+    }
+    let mut body: string = ""
+    match read_body(conn, headers, false, max_body) {
+        Ok(b) => body = b
+        Err(e) => {
+            if e == body_too_large() {
+                return Err(refuse(413, "the request body is larger than " + to_string(max_body) + " bytes"))
+            }
+            return Err(refuse(400, e))
+        }
+    }
     return Ok(Request {
         method: method,
         path: path,
@@ -327,7 +380,7 @@ fn request_tls(
 }
 
 fn read_response(conn: net.Conn, head_only: bool) -> Result[Response, string] {
-    let head: string = conn.read_until("\r\n\r\n")?
+    let head: string = conn.read_until_max("\r\n\r\n", max_head())?
     let lines: List[string] = head.split("\r\n")
     let status_line: string = lines[0]
     if !status_line.starts_with("HTTP/1.") || status_line.len() < 12 {
@@ -337,7 +390,7 @@ fn read_response(conn: net.Conn, head_only: bool) -> Result[Response, string] {
     let headers: Map[string, string] = parse_headers(lines)?
     let mut body: string = ""
     if !head_only && status != 204 && status != 304 && status >= 200 {
-        body = read_body(conn, headers, true)?
+        body = read_body(conn, headers, true, 1073741824)?
     }
     return Ok(Response { status: status, headers: headers, body: body })
 }
@@ -410,17 +463,33 @@ fn parse_headers(lines: List[string]) -> Result[Map[string, string], string] {
     return Ok(headers)
 }
 
-fn read_body(conn: net.Conn, headers: Map[string, string], to_end: bool) -> Result[string, string] {
+fn body_too_large() -> string {
+    return "body too large"
+}
+
+// The body, at most `max` bytes.
+fn read_body(
+    conn: net.Conn,
+    headers: Map[string, string],
+    to_end: bool,
+    max: i64,
+) -> Result[string, string] {
     match headers.get("transfer-encoding") {
         Some(encoding) => {
             if encoding.to_lower().contains("chunked") {
-                return read_chunked(conn)
+                return read_chunked(conn, max)
             }
         }
         None => {}
     }
     match headers.get("content-length") {
-        Some(length) => return conn.read_exact(match_int(length)?)
+        Some(length) => {
+            let size: i64 = match_int(length)?
+            if size > max {
+                return Err(body_too_large())
+            }
+            return conn.read_exact(size)
+        }
         None => {}
     }
     if to_end {
@@ -429,10 +498,11 @@ fn read_body(conn: net.Conn, headers: Map[string, string], to_end: bool) -> Resu
     return Ok("")
 }
 
-fn read_chunked(conn: net.Conn) -> Result[string, string] {
-    let mut body: string = ""
+fn read_chunked(conn: net.Conn, max: i64) -> Result[string, string] {
+    let mut parts: List[string] = []
+    let mut total: i64 = 0
     while true {
-        let mut size_line: string = conn.read_until("\r\n")?
+        let mut size_line: string = conn.read_until_max("\r\n", 1024)?
         match size_line.find(";") {
             Some(at) => size_line = size_line.slice(0, at)
             None => {}
@@ -441,17 +511,21 @@ fn read_chunked(conn: net.Conn) -> Result[string, string] {
         if size == 0 {
             // Trailers, up to an empty line.
             while true {
-                let trailer: string = conn.read_until("\r\n")?
+                let trailer: string = conn.read_until_max("\r\n", max_head())?
                 if trailer.is_empty() {
                     break
                 }
             }
             break
         }
-        body = body + conn.read_exact(size)?
-        conn.read_until("\r\n")?
+        total += size
+        if total > max {
+            return Err(body_too_large())
+        }
+        parts.push(conn.read_exact(size)?)
+        conn.read_until_max("\r\n", 0)?
     }
-    return Ok(body)
+    return Ok(parts.join(""))
 }
 
 fn parse_hex(text: string) -> Result[i64, string] {

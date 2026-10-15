@@ -1562,7 +1562,7 @@ static BrimStr *socket_take(Socket *s, int64_t count, int64_t drop) {
 
 #define CLOSED_EARLY "connection closed before the end of the message"
 
-BrimStr *brim_rt_net_read_until(int64_t handle, const BrimStr *delimiter) {
+BrimStr *brim_rt_net_read_until(int64_t handle, const BrimStr *delimiter, int64_t max) {
     net_start();
     Socket *s = socket_get(handle, 0);
     if (s == NULL) {
@@ -1574,14 +1574,26 @@ BrimStr *brim_rt_net_read_until(int64_t handle, const BrimStr *delimiter) {
         net_fail("empty delimiter");
         return &EMPTY_STR;
     }
+    if (max < 0) {
+        net_fail("invalid length");
+        return &EMPTY_STR;
+    }
     int64_t searched = 0;
     for (;;) {
         for (int64_t i = searched; i + d <= s->len; i++) {
             if (memcmp(s->buf + i, delimiter->data, (size_t)d) == 0) {
+                if (i > max) {
+                    net_fail("message too large");
+                    return &EMPTY_STR;
+                }
                 return socket_take(s, i, d);
             }
         }
         searched = s->len - d + 1 > 0 ? s->len - d + 1 : 0;
+        if (searched > max) {
+            net_fail("message too large");
+            return &EMPTY_STR;
+        }
         int64_t n = socket_fill(s);
         if (n < 0) {
             return &EMPTY_STR;

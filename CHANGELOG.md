@@ -9,6 +9,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - Standard library modules written in Brim and built into the compiler, imported with `import std.x`.
 - `std.net`: TCP listeners and connections (`listen`, `connect`, `accept`, `read_line`, `read_until`, `read_exact`, `read_all`, `write`, `set_timeout`), in the interpreter and native executables alike.
 - `std.http`: an HTTP/1.1 server (`serve`, `Server.next`, `Request.respond`, text, JSON and HTML responses, query parameters, chunked request bodies, 400 for malformed requests) and client (`get`, `post`, `request`, `content-length`, chunked and until-close bodies), plus URL `encode` and `decode`.
+- Limits in the `std.http` server: request heads over 64 KiB get 431 and bodies over 10 MiB (`Server.with_max_body`) get 413, also for chunked bodies. `net.Conn.read_until_max` reads up to a delimiter with a size limit.
 - `https://` requests in `std.http`, through libcurl: the interpreter uses the `curl` crate, and native programs that use the HTTP client link with libcurl (servers and other programs do not). Certificates are checked; errors are `certificate not trusted`, `TLS handshake failed` and the network reasons.
 - `std.json`: a `Json` value type, `parse` (RFC 8259, with positions in errors), `stringify`, `pretty`, and functions to build and read values. Numbers keep their text, so no precision is lost.
 - `examples/http/notes.brim`, a JSON API for notes built with `std.http` and `std.json`.

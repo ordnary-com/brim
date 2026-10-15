@@ -65,6 +65,7 @@ fn addresses(host: &str, port: u16) -> Result<Vec<std::net::SocketAddr>, NetErro
 }
 
 const CLOSED_EARLY: &str = "connection closed before the end of the message";
+const TOO_LARGE: &str = "message too large";
 
 impl Sockets {
     fn handle(&mut self) -> i64 {
@@ -121,11 +122,18 @@ impl Sockets {
         Ok(handle)
     }
 
-    /// The text before `delimiter`; the delimiter is read and dropped.
-    pub fn read_until(&mut self, handle: i64, delimiter: &str) -> Result<String, NetError> {
+    /// The text before `delimiter`, at most `max` bytes; the delimiter is
+    /// read and dropped.
+    pub fn read_until(
+        &mut self,
+        handle: i64,
+        delimiter: &str,
+        max: i64,
+    ) -> Result<String, NetError> {
         if delimiter.is_empty() {
             return Err("empty delimiter".into());
         }
+        let max = usize::try_from(max).map_err(|_| "invalid length".to_string())?;
         let conn = self.conn(handle)?;
         let delim = delimiter.as_bytes();
         let mut searched = 0;
@@ -135,10 +143,16 @@ impl Sockets {
                 .position(|w| w == delim)
             {
                 let end = searched + at;
+                if end > max {
+                    return Err(TOO_LARGE.into());
+                }
                 let text: Vec<u8> = conn.buffer.drain(..end + delim.len()).take(end).collect();
                 return String::from_utf8(text).map_err(|_| "data is not valid UTF-8".into());
             }
             searched = conn.buffer.len().saturating_sub(delim.len() - 1);
+            if searched > max {
+                return Err(TOO_LARGE.into());
+            }
             if fill(conn)? == 0 {
                 return Err(if conn.buffer.is_empty() {
                     "connection closed".into()
@@ -275,13 +289,17 @@ mod tests {
         let client = s.connect("127.0.0.1", port).unwrap();
         let server = s.accept(listener).unwrap();
         s.write(client, "hello\r\nwörld!rest").unwrap();
-        assert_eq!(s.read_until(server, "\r\n").unwrap(), "hello");
+        assert_eq!(
+            s.read_until(server, "\r\n", 3),
+            Err("message too large".to_string())
+        );
+        assert_eq!(s.read_until(server, "\r\n", 100).unwrap(), "hello");
         assert_eq!(s.read_exact(server, 6).unwrap(), "wörld");
-        assert_eq!(s.read_until(server, "!").unwrap(), "");
+        assert_eq!(s.read_until(server, "!", 100).unwrap(), "");
         s.close(client);
         assert_eq!(s.read_all(server).unwrap(), "rest");
         assert_eq!(
-            s.read_until(server, "\n"),
+            s.read_until(server, "\n", 100),
             Err("connection closed".to_string())
         );
         assert_eq!(s.write(99, "x"), Err("invalid socket".to_string()));

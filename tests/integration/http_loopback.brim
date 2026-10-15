@@ -29,6 +29,23 @@ fn exchange(server: http.Server, raw: string) -> Result[string, string] {
     return Ok(reply.replace("\r\n", " | "))
 }
 
+// Sends a request the server refuses, then shows the client's response.
+fn refused(server: http.Server, raw: string) -> Result[i64, string] {
+    let client: net.Conn = net.connect("127.0.0.1", server.port())?
+    client.write(raw)?
+    // The server reads the next request after refusing this one; this
+    // client answers that with a request of its own.
+    let next: net.Conn = net.connect("127.0.0.1", server.port())?
+    next.write("GET /next HTTP/1.1\r\n\r\n")?
+    let request: http.Request = server.next()?
+    request.respond(http.text(200, "next"))?
+    next.close()
+    let reply: string = client.read_all()?
+    print("refused: " + reply.split("\r\n")[0] + " / " + reply.split("\r\n\r\n")[1].trim())
+    client.close()
+    return Ok(0)
+}
+
 fn run() -> Result[i64, string] {
     let server: http.Server = http.serve("127.0.0.1", 0)?
     print(exchange(server, "GET /hi?name=Ada+L&x=%C3%A9 HTTP/1.1\r\nHost: x\r\n\r\n")?)
@@ -40,6 +57,13 @@ fn run() -> Result[i64, string] {
     bad.write("nonsense\r\n\r\n")?
     print(exchange(server, "GET /after-bad HTTP/1.1\r\n\r\n")?)
     print("bad client: " + bad.read_all()?.replace("\r\n", " | "))
+    // Limits: a small body limit, then bodies and headers that are too big.
+    let small: http.Server = server.with_max_body(10)
+    print(exchange(small, "POST /ok HTTP/1.1\r\nContent-Length: 10\r\n\r\n0123456789")?)
+    refused(small, "POST /big HTTP/1.1\r\nContent-Length: 11\r\n\r\n01234567890")?
+    refused(small, "POST /big HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n6\r\n012345\r\n6\r\n678901\r\n0\r\n\r\n")?
+    refused(small, "GET / HTTP/1.1\r\nX-Big: " + "x".repeat(70000) + "\r\n\r\n")?
+    print(exchange(small, "GET /hi HTTP/1.1\r\n\r\n")?)
     server.close()
     print(http.encode("a b/é"))
     print(http.decode("a+b%2F%C3%A9")?)

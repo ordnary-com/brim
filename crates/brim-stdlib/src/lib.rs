@@ -199,7 +199,7 @@ pub const BUILTINS: &[Builtin] = &[
         name: "__net_read_until",
         summary: "std.net: read up to a delimiter.",
         overloads: &[Overload {
-            params: &[Prim::I64, Prim::String],
+            params: &[Prim::I64, Prim::String, Prim::I64],
             ret: Prim::String,
             runtime: RuntimeFn::NetReadUntil,
         }],

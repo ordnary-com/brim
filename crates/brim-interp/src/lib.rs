@@ -760,7 +760,7 @@ fn call_runtime(
         ),
         RuntimeFn::NetReadUntil => net(
             state,
-            |n| n.read_until(args[0].i64(), s(1)),
+            |n| n.read_until(args[0].i64(), s(1), args[2].i64()),
             Value::Str(BrimStr::from("")),
             |t| Value::Str(BrimStr::from(t)),
         ),

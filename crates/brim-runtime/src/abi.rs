@@ -172,8 +172,9 @@ runtime_fns! {
     NetAccept = "brim_rt_net_accept" (I64) -> I64;
     /// A connection to a host and port.
     NetConnect = "brim_rt_net_connect" (Str, I64) -> I64;
-    /// The text up to a delimiter, which is read and dropped.
-    NetReadUntil = "brim_rt_net_read_until" (I64, Str) -> Str;
+    /// The text up to a delimiter, which is read and dropped; at most this
+    /// many bytes before it ("message too large" otherwise).
+    NetReadUntil = "brim_rt_net_read_until" (I64, Str, I64) -> Str;
     /// Exactly this many bytes, as text.
     NetReadExact = "brim_rt_net_read_exact" (I64, I64) -> Str;
     /// Everything until the other side closes the connection.
