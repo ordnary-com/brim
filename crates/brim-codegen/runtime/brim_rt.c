@@ -3468,13 +3468,13 @@ void brim_rt_time_sleep_millis(int64_t millis) {
     }
 #ifdef _WIN32
     Sleep((DWORD)millis);
-    return;
-#endif
+#else
     struct timespec t;
     t.tv_sec = (time_t)(millis / 1000);
     t.tv_nsec = (long)((millis % 1000) * 1000000);
     while (nanosleep(&t, &t) != 0 && errno == EINTR) {
     }
+#endif
 }
 
 /* ---- f64 (format, parse) --------------------------------------------------- */
