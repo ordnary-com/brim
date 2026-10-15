@@ -362,7 +362,8 @@ module.exports = grammar({
       );
     },
 
-    arguments: ($) => seq('(', commaSep($._expression), ')'),
+    // The `(` directly after the callee: on a new line it starts a tuple.
+    arguments: ($) => seq(token.immediate('('), commaSep($._expression), ')'),
 
     // `f[T](x)` and `xs[i]` start alike; the parser tries both.
     call_expression: ($) =>

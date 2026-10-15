@@ -936,6 +936,51 @@ impl Parser {
         })
     }
 
+    /// `if` and `match` as values: parsed as the statements, whose blocks
+    /// are newline-sensitive even inside parentheses. Kept out of
+    /// `primary`, like the other rarer forms, so that deeply nested
+    /// expressions use little stack.
+    #[inline(never)]
+    fn branch_expr(&mut self) -> PResult<Expr> {
+        let saved_parens = std::mem::replace(&mut self.paren_depth, 0);
+        let no_struct = std::mem::replace(&mut self.no_struct_literal, false);
+        let stmt = if self.at(&TokenKind::If) {
+            self.if_stmt()
+        } else {
+            self.match_stmt()
+        };
+        self.paren_depth = saved_parens;
+        self.no_struct_literal = no_struct;
+        let stmt = stmt?;
+        Ok(Expr {
+            span: stmt.span,
+            kind: ExprKind::Branch(Box::new(stmt)),
+        })
+    }
+
+    /// `(a)`, which is just `a`, or the tuple `(a, b, ...)`.
+    #[inline(never)]
+    fn paren_or_tuple(&mut self, open: Span) -> PResult<Expr> {
+        self.bump();
+        let (mut items, close) = self.in_parens(|p| {
+            let mut items = vec![p.expr()?];
+            while p.eat(&TokenKind::Comma).is_some() {
+                if p.at(&TokenKind::RParen) {
+                    break;
+                }
+                items.push(p.expr()?);
+            }
+            Ok((items, p.expect(&TokenKind::RParen)?))
+        })?;
+        let span = open.to(close.span);
+        let kind = if items.len() == 1 {
+            items.pop().expect("one item").kind
+        } else {
+            ExprKind::Tuple(items)
+        };
+        Ok(Expr { kind, span })
+    }
+
     /// The rest of an f-string after its `StrHead`: values and text up to
     /// the `StrTail`.
     fn fstring(&mut self, head: String, start: Span) -> PResult<Expr> {
@@ -1208,12 +1253,45 @@ impl Parser {
         }
     }
 
+    /// One statement. The rarer forms are parsed by separate functions
+    /// that are never inlined, so that this one, which recursion through
+    /// nested blocks passes on every level, keeps a small stack frame.
     fn statement(&mut self) -> PResult<Stmt> {
-        let token = self.peek().clone();
-        match token.kind {
+        match self.peek_kind() {
             TokenKind::Let => self.let_stmt(),
-            TokenKind::Return => {
-                self.bump();
+            TokenKind::If => self.if_stmt(),
+            TokenKind::Match => self.match_stmt(),
+            TokenKind::For => self.for_stmt(),
+            TokenKind::LBrace => self.block_stmt(),
+            TokenKind::Return | TokenKind::Break | TokenKind::Continue => self.jump_stmt(),
+            TokenKind::While | TokenKind::Loop => self.loop_stmt(),
+            TokenKind::Const
+            | TokenKind::Else
+            | TokenKind::Reserved(_)
+            | TokenKind::Impl
+            | TokenKind::Struct
+            | TokenKind::Enum => Err(self.misplaced_statement()),
+            _ => self.expr_stmt(),
+        }
+    }
+
+    #[inline(never)]
+    fn block_stmt(&mut self) -> PResult<Stmt> {
+        let block = self.block()?;
+        Ok(Stmt {
+            span: block.span,
+            kind: StmtKind::Block(block),
+        })
+    }
+
+    /// `return`, `return value`, `break` or `continue`.
+    #[inline(never)]
+    fn jump_stmt(&mut self) -> PResult<Stmt> {
+        let token = self.bump();
+        let kind = match token.kind {
+            TokenKind::Break => StmtKind::Break,
+            TokenKind::Continue => StmtKind::Continue,
+            _ => {
                 let value = match self.peek_kind() {
                     TokenKind::Newline | TokenKind::Semi | TokenKind::RBrace | TokenKind::Eof => {
                         None
@@ -1221,72 +1299,75 @@ impl Parser {
                     _ => Some(self.expr()?),
                 };
                 let span = value.as_ref().map_or(token.span, |v| token.span.to(v.span));
-                Ok(Stmt {
+                return Ok(Stmt {
                     kind: StmtKind::Return(value),
                     span,
-                })
+                });
             }
-            TokenKind::LBrace => {
-                let block = self.block()?;
-                Ok(Stmt {
-                    span: block.span,
-                    kind: StmtKind::Block(block),
-                })
+        };
+        Ok(Stmt {
+            kind,
+            span: token.span,
+        })
+    }
+
+    /// `while cond { ... }`, or `loop { ... }`, which is `while true`.
+    #[inline(never)]
+    fn loop_stmt(&mut self) -> PResult<Stmt> {
+        let token = self.bump();
+        let cond = if token.kind == TokenKind::While {
+            self.condition("while")?
+        } else {
+            self.skip_newlines();
+            if !self.at(&TokenKind::LBrace) {
+                return Err(self.error_unexpected("`{` after `loop`"));
             }
-            TokenKind::If => self.if_stmt(),
-            TokenKind::While => {
-                self.bump();
-                let cond = self.condition("while")?;
-                let body = self.block()?;
-                Ok(Stmt {
-                    span: token.span.to(body.span),
-                    kind: StmtKind::While { cond, body },
-                })
+            Expr {
+                kind: ExprKind::Bool(true),
+                span: token.span,
             }
-            // `loop { ... }` is `while true { ... }`.
-            TokenKind::Loop => {
-                self.bump();
-                self.skip_newlines();
-                if !self.at(&TokenKind::LBrace) {
-                    return Err(self.error_unexpected("`{` after `loop`"));
-                }
-                let body = self.block()?;
-                let cond = Expr {
-                    kind: ExprKind::Bool(true),
-                    span: token.span,
-                };
-                Ok(Stmt {
-                    span: token.span.to(body.span),
-                    kind: StmtKind::While { cond, body },
-                })
-            }
+        };
+        let body = self.block()?;
+        Ok(Stmt {
+            span: token.span.to(body.span),
+            kind: StmtKind::While { cond, body },
+        })
+    }
+
+    /// An expression, or an assignment to it.
+    #[inline(never)]
+    fn expr_stmt(&mut self) -> PResult<Stmt> {
+        let expr = self.expr()?;
+        if let Some(op) = Self::assign_op(self.peek_kind()) {
+            return self.assignment(expr, op);
+        }
+        Ok(Stmt {
+            span: expr.span,
+            kind: StmtKind::Expr(expr),
+        })
+    }
+
+    /// Something that cannot start a statement: reports it (skipping a
+    /// whole declaration that does not belong in a function).
+    #[inline(never)]
+    fn misplaced_statement(&mut self) -> Reported {
+        let token = self.peek().clone();
+        match token.kind {
+            TokenKind::Reserved(word) => self.reserved_keyword(word, token.span),
             TokenKind::Const => {
                 let diag = Diagnostic::error("`const` is only allowed at the top level")
                     .with_code("E0103")
                     .with_primary(token.span, "")
                     .with_help("use `let` inside a function");
-                Err(self.report(diag))
-            }
-            TokenKind::Break | TokenKind::Continue => {
-                self.bump();
-                let kind = if token.kind == TokenKind::Break {
-                    StmtKind::Break
-                } else {
-                    StmtKind::Continue
-                };
-                Ok(Stmt {
-                    kind,
-                    span: token.span,
-                })
+                self.report(diag)
             }
             TokenKind::Else => {
                 let diag = Diagnostic::error("`else` without a preceding `if`")
                     .with_code("E0100")
                     .with_primary(token.span, "")
                     .with_note("`else` must directly follow the closing `}` of an `if` block");
-                Err(self.report(diag))
+                self.report(diag)
             }
-            TokenKind::Reserved(word) => Err(self.reserved_keyword(word, token.span)),
             TokenKind::Impl => {
                 let diag = Diagnostic::error("`impl` blocks cannot be inside functions")
                     .with_code("E0103")
@@ -1294,9 +1375,9 @@ impl Parser {
                     .with_help("move the `impl` block to the top level of the file");
                 self.report(diag);
                 let _ = self.impl_decl();
-                Err(Reported)
+                Reported
             }
-            TokenKind::Struct | TokenKind::Enum => {
+            _ => {
                 let is_struct = token.kind == TokenKind::Struct;
                 let (what, keyword) = if is_struct {
                     ("structs", "struct")
@@ -1316,19 +1397,7 @@ impl Parser {
                 } else {
                     let _ = self.enum_decl();
                 }
-                Err(Reported)
-            }
-            TokenKind::Match => self.match_stmt(),
-            TokenKind::For => self.for_stmt(),
-            _ => {
-                let expr = self.expr()?;
-                if let Some(op) = Self::assign_op(self.peek_kind()) {
-                    return self.assignment(expr, op);
-                }
-                Ok(Stmt {
-                    span: expr.span,
-                    kind: StmtKind::Expr(expr),
-                })
+                Reported
             }
         }
     }
@@ -1912,7 +1981,15 @@ impl Parser {
     }
 
     fn postfix(&mut self) -> PResult<Expr> {
-        let mut expr = self.primary()?;
+        let expr = self.primary()?;
+        self.postfix_ops(expr)
+    }
+
+    /// The calls, fields, indexing, `?` and struct literals after `expr`.
+    /// Separate from `postfix`, whose frame stays small: it is on the
+    /// stack once per level of nested parentheses.
+    #[inline(never)]
+    fn postfix_ops(&mut self, mut expr: Expr) -> PResult<Expr> {
         // Each postfix operation nests the expression one level deeper.
         let mut chain = 0;
         loop {
@@ -2160,45 +2237,8 @@ impl Parser {
                 self.bump();
                 return self.fstring(text, token.span);
             }
-            // `if` and `match` as values: parsed as the statements, whose
-            // blocks are newline-sensitive even inside parentheses.
-            TokenKind::If | TokenKind::Match => {
-                let saved_parens = std::mem::replace(&mut self.paren_depth, 0);
-                let no_struct = std::mem::replace(&mut self.no_struct_literal, false);
-                let stmt = if token.kind == TokenKind::If {
-                    self.if_stmt()
-                } else {
-                    self.match_stmt()
-                };
-                self.paren_depth = saved_parens;
-                self.no_struct_literal = no_struct;
-                let stmt = stmt?;
-                return Ok(Expr {
-                    span: stmt.span,
-                    kind: ExprKind::Branch(Box::new(stmt)),
-                });
-            }
-            TokenKind::LParen => {
-                self.bump();
-                let (mut items, close) = self.in_parens(|p| {
-                    let mut items = vec![p.expr()?];
-                    // `(a, b)` is a tuple; `(a)` just `a`.
-                    while p.eat(&TokenKind::Comma).is_some() {
-                        if p.at(&TokenKind::RParen) {
-                            break;
-                        }
-                        items.push(p.expr()?);
-                    }
-                    Ok((items, p.expect(&TokenKind::RParen)?))
-                })?;
-                let span = token.span.to(close.span);
-                let kind = if items.len() == 1 {
-                    items.pop().expect("one item").kind
-                } else {
-                    ExprKind::Tuple(items)
-                };
-                return Ok(Expr { kind, span });
-            }
+            TokenKind::If | TokenKind::Match => return self.branch_expr(),
+            TokenKind::LParen => return self.paren_or_tuple(token.span),
             TokenKind::Reserved(word) => return Err(self.reserved_keyword(word, token.span)),
             _ => return Err(self.expected_expression(&token)),
         };

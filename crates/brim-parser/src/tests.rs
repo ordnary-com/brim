@@ -576,7 +576,9 @@ fn struct_errors() {
         vec![("E0100", "field `x` needs a value".to_string())]
     );
     assert_eq!(codes("fn main() {\n    f().x = 1\n}"), vec!["E0104"]);
-    assert_eq!(codes("fn main() {\n    p.1\n}"), vec!["E0100"]);
+    assert_eq!(codes("fn main() {\n    p.\"x\"\n}"), vec!["E0100"]);
+    // `p.1` is a tuple's field.
+    assert_eq!(expr("p.1"), "(p.1)");
     // Structs and functions after an error are still parsed.
     let (program, diags) = parse("struct A { x i64 }\nstruct B { y: i64 }\nfn main() {}");
     assert_eq!(diags.len(), 1);
