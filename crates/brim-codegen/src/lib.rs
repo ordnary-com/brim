@@ -44,6 +44,9 @@ pub struct BuildOptions {
     /// The program's source files. Run-time error messages in the executable
     /// quote them, exactly like `brim run` does.
     pub source: SourceMap,
+    /// Where compiled parts of the runtime are kept between builds (for
+    /// example `~/.brim/cache`); `None` compiles them every time.
+    pub cache_dir: Option<PathBuf>,
 }
 
 /// What a successful build produced.
@@ -190,6 +193,7 @@ mod tests {
                 map.add(SourceFile::new("main.brim", "fn main() {}\n"));
                 map
             },
+            cache_dir: None,
         }
     }
 

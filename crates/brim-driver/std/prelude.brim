@@ -152,6 +152,10 @@ impl StringBuilder {
 // A sorted copy of `xs`, smallest first. The sort is stable: equal values
 // keep their order.
 pub fn list_sorted[T: Ord](xs: List[T]) -> List[T] {
+    // Integers and strings are sorted by the runtime.
+    if __sortable(xs) {
+        return __sort(xs)
+    }
     return list_sorted_by(xs, fn(a: T, b: T) -> bool {
         return a < b
     })

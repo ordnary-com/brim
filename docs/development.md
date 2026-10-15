@@ -90,6 +90,22 @@ BRIM_FUZZ_ITERATIONS=500000 BRIM_FUZZ_SEED=7 cargo test --release -p brim-cli --
 
 It prints how many mutants parsed, passed semantic analysis and ran. A failure shows the smallest failing input; turn it into a fixture in `tests/` once it is fixed.
 
+## Benchmarks
+
+`benches/` holds programs that stress one thing each: calls, loops, lists,
+strings, maps and JSON. `scripts/bench.py` builds `brim` in release mode
+with LLVM and prints, for each, the compile time, the native run time and
+the interpreter run time (the best of three runs):
+
+```sh
+scripts/bench.py --save before.json
+# change something
+scripts/bench.py --compare before.json
+```
+
+The native test suite also runs them, so their output stays the same in
+the interpreter and native code.
+
 ## Documentation site
 
 The site in `site/` is an [mdBook](https://rust-lang.github.io/mdBook/). Its guide pages are in `site/src`; the reference pages include the files in `docs/`, so those stay the single source. Build it with:

@@ -644,6 +644,7 @@ fn build(
             brim_codegen::OptLevel::Debug
         },
         source: map,
+        cache_dir: brim_package::default_home().map(|home| home.join("cache")),
     };
     match brim_codegen::native_backend().build(&module, &options) {
         Ok(_) => {

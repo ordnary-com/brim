@@ -31,27 +31,19 @@ pub(crate) fn link(
     machine
         .write_to_file(module, FileType::Object, &object)
         .map_err(|e| CodegenError::Llvm(e.to_string()))?;
-    let runtime = dir.path.join("brim_rt.c");
-    fs::write(&runtime, RUNTIME_SOURCE)
-        .map_err(|e| CodegenError::Llvm(format!("cannot write the runtime source: {e}")))?;
-
     let linker = linker();
+    let opt = match options.opt_level {
+        OptLevel::Debug => "-O0",
+        OptLevel::Release => "-O2",
+    };
+    let runtime = runtime_object(&linker, opt, "brim_rt", RUNTIME_SOURCE, &dir, options)?;
     let mut command = Command::new(&linker);
-    command
-        .arg("-std=c11")
-        .arg(match options.opt_level {
-            OptLevel::Debug => "-O0",
-            OptLevel::Release => "-O2",
-        })
-        .arg(&object)
-        .arg(&runtime);
+    command.arg(opt).arg(&object).arg(&runtime);
     if module
         .get_function(brim_runtime::RuntimeFn::HttpRequest.symbol())
         .is_some()
     {
-        let https = dir.path.join("brim_rt_https.c");
-        fs::write(&https, HTTPS_SOURCE)
-            .map_err(|e| CodegenError::Llvm(format!("cannot write the runtime source: {e}")))?;
+        let https = runtime_object(&linker, opt, "brim_rt_https", HTTPS_SOURCE, &dir, options)?;
         command.arg(&https).arg("-lcurl");
     }
     // The math functions (`sqrt`, `pow`, ...) are in libm on Linux.
@@ -71,6 +63,69 @@ pub(crate) fn link(
     Ok(BuildOutput {
         artifacts: vec![options.output.clone()],
     })
+}
+
+/// The object file of a part of the runtime: from the cache when it was
+/// compiled before with the same compiler and flags, else compiled now (and
+/// kept in the cache).
+fn runtime_object(
+    linker: &str,
+    opt: &str,
+    name: &str,
+    source: &str,
+    dir: &ScratchDir,
+    options: &BuildOptions,
+) -> Result<PathBuf, CodegenError> {
+    let key_text = format!("{linker}\n{opt}\n{}\n{source}", std::env::consts::ARCH);
+    let key: String = brim_runtime::crypto::sha256(key_text.as_bytes())[..12]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let cached = options
+        .cache_dir
+        .as_ref()
+        .map(|d| d.join(format!("{name}-{key}.o")));
+    if let Some(cached) = &cached
+        && cached.is_file()
+    {
+        return Ok(cached.clone());
+    }
+    let c_file = dir.path.join(format!("{name}.c"));
+    fs::write(&c_file, source)
+        .map_err(|e| CodegenError::Llvm(format!("cannot write the runtime source: {e}")))?;
+    let object = dir.path.join(format!("{name}.o"));
+    let mut command = Command::new(linker);
+    command
+        .arg("-std=c11")
+        .arg(opt)
+        .arg("-c")
+        .arg(&c_file)
+        .arg("-o")
+        .arg(&object);
+    let shown = format!("{command:?}").replace('"', "");
+    let output = command.output().map_err(|e| CodegenError::LinkerNotFound {
+        linker: linker.to_string(),
+        message: e.to_string(),
+    })?;
+    if !output.status.success() {
+        return Err(CodegenError::LinkFailed {
+            command: shown,
+            output: String::from_utf8_lossy(&output.stderr).into_owned(),
+        });
+    }
+    // Into the cache under a temporary name first, so another build never
+    // sees half a file.
+    if let Some(cached) = cached
+        && let Some(cache) = cached.parent()
+        && fs::create_dir_all(cache).is_ok()
+    {
+        let partial = cache.join(format!("{name}-{key}.{}.tmp", std::process::id()));
+        if fs::copy(&object, &partial).is_ok() && fs::rename(&partial, &cached).is_ok() {
+            return Ok(cached);
+        }
+        let _ = fs::remove_file(&partial);
+    }
+    Ok(object)
 }
 
 fn linker() -> String {

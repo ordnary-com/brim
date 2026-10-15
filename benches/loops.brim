@@ -1,0 +1,10 @@
+// A tight loop with arithmetic and comparisons.
+fn main() {
+    let mut total = 0
+    for i in 0..3000000 {
+        if i % 3 == 0 || i % 5 == 0 {
+            total += i
+        }
+    }
+    print(total)
+}

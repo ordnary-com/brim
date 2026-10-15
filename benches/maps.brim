@@ -1,0 +1,10 @@
+// Counting words in a map.
+fn main() {
+    let words = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"]
+    let mut counts: Map[string, i64] = [:]
+    for i in 0..200000 {
+        let w = words[i % words.len()]
+        counts[w] = counts.get(w).unwrap_or(0) + 1
+    }
+    print(counts["alpha"])
+}

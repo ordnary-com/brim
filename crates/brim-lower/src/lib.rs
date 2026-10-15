@@ -2359,6 +2359,26 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             Intrinsic::RandomBytes => self.runtime(RuntimeFn::RandomBytes, args, ty, span),
             Intrinsic::NetReadBytes => self.runtime(RuntimeFn::NetReadBytes, args, ty, span),
             Intrinsic::NetWriteBytes => self.runtime(RuntimeFn::NetWriteBytes, args, ty, span),
+            Intrinsic::Sortable | Intrinsic::Sort => {
+                let list_ty = self.concrete(first_ty.expect("one argument"));
+                let (_, elems) = self.type_args_of(list_ty);
+                let rt = match elems[0] {
+                    brim_semantic::Type::I64
+                    | brim_semantic::Type::I32
+                    | brim_semantic::Type::U8 => Some(RuntimeFn::ListSortI64),
+                    brim_semantic::Type::U64 => Some(RuntimeFn::ListSortU64),
+                    brim_semantic::Type::String => Some(RuntimeFn::ListSortStr),
+                    _ => None,
+                };
+                match (op, rt) {
+                    (Intrinsic::Sortable, rt) => {
+                        self.emit_value(InstKind::Const(Const::Bool(rt.is_some())), bool_ty, span)
+                    }
+                    (_, Some(rt)) => self.runtime(rt, args, ty, span),
+                    // `__sortable` is false: this is never reached.
+                    (_, None) => args[0],
+                }
+            }
             Intrinsic::ServeApi => {
                 let module = api_module.expect("the module's index");
                 self.serve_api(module, args[1], span)

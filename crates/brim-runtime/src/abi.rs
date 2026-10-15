@@ -299,6 +299,12 @@ runtime_fns! {
     ProcessStdout = "brim_rt_process_stdout" () -> Str;
     /// std.process: the standard error of the last `ProcessRun`.
     ProcessStderr = "brim_rt_process_stderr" () -> Str;
+    /// A sorted copy of a list of signed integers (`sorted()`).
+    ListSortI64 = "brim_rt_list_sort_i64" (IntList) -> IntList;
+    /// A sorted copy of a list of `u64`s, compared without sign.
+    ListSortU64 = "brim_rt_list_sort_u64" (IntList) -> IntList;
+    /// A sorted copy of a list of strings, in byte order like `<`.
+    ListSortStr = "brim_rt_list_sort_str" (StrList) -> StrList;
     /// std.crypto: the SHA-256 hash of bytes.
     Sha256 = "brim_rt_sha256" (IntList) -> IntList;
     /// std.crypto: HMAC-SHA-256 of a message (second) with a key (first).

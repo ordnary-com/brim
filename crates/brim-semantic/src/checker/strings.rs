@@ -511,6 +511,31 @@ impl<'a> Checker<'a> {
         if brim_stdlib::is_internal(&callee.name) && !self.in_std_module() {
             return None;
         }
+        if callee.name == "__sort" || callee.name == "__sortable" {
+            let checked: Vec<CheckedExpr> = args.iter().map(|a| self.check_expr(a, ctx)).collect();
+            let list = checked
+                .first()
+                .map(|c| c.ty)
+                .filter(|t| self.as_list(*t).is_some());
+            let (Some(list), 1) = (list, checked.len()) else {
+                self.diags.push(
+                    Diagnostic::error(format!("`{}` takes a list", callee.name))
+                        .with_code("E0206")
+                        .with_primary(span, ""),
+                );
+                return Some(error_expr(span));
+            };
+            let (op, ty) = if callee.name == "__sort" {
+                (Intrinsic::Sort, list)
+            } else {
+                (Intrinsic::Sortable, Type::Bool)
+            };
+            return Some(CheckedExpr {
+                kind: CheckedExprKind::Intrinsic { op, args: checked },
+                ty,
+                span,
+            });
+        }
         if callee.name == "__to_json" || callee.name == "__from_json" {
             return Some(self.check_json_intrinsic(callee, args, span, expected, ctx));
         }

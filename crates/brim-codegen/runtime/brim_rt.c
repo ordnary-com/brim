@@ -2706,6 +2706,53 @@ char *brim_rt_internal_c_string(const BrimStr *s) {
 
 /* ---- time (std.time) ------------------------------------------------------- */
 
+/* ---- sorting (`sorted()` for integers and strings) ------------------------ */
+
+static int compare_i64(const void *a, const void *b) {
+    int64_t x = *(const int64_t *)a, y = *(const int64_t *)b;
+    return (x > y) - (x < y);
+}
+
+static int compare_u64(const void *a, const void *b) {
+    uint64_t x = *(const uint64_t *)a, y = *(const uint64_t *)b;
+    return (x > y) - (x < y);
+}
+
+static int compare_strs(const void *a, const void *b) {
+    return (int)brim_rt_str_compare(*(BrimStr *const *)a, *(BrimStr *const *)b);
+}
+
+/* A copy of a list with its elements sorted by `compare`. */
+static BrimList *sorted_copy(const BrimList *l, int (*compare)(const void *, const void *),
+                             int strings) {
+    int64_t len = brim_rt_list_len(l);
+    if (len == 0) {
+        return NULL;
+    }
+    BrimList *out = list_alloc(l->elem_size, l->release, len);
+    memcpy(out->data, l->data, (size_t)(len * l->elem_size));
+    out->len = len;
+    if (strings) {
+        for (int64_t i = 0; i < len; i++) {
+            brim_rt_retain(*(BrimStr **)elem_at(out, i));
+        }
+    }
+    qsort(out->data, (size_t)len, (size_t)l->elem_size, compare);
+    return out;
+}
+
+BrimList *brim_rt_list_sort_i64(const BrimList *l) {
+    return sorted_copy(l, compare_i64, 0);
+}
+
+BrimList *brim_rt_list_sort_u64(const BrimList *l) {
+    return sorted_copy(l, compare_u64, 0);
+}
+
+BrimList *brim_rt_list_sort_str(const BrimList *l) {
+    return sorted_copy(l, compare_strs, 1);
+}
+
 /* ---- std.crypto: as brim_runtime::crypto ---------------------------------- */
 
 static uint32_t rotr32(uint32_t x, int n) {

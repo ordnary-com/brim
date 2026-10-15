@@ -18,8 +18,8 @@
 //! - Strings are reference counted (`brim_rt_retain` / `brim_rt_release`),
 //!   including strings inside structs: every slot owns the strings it
 //!   holds, every non-constant value holding strings is owned by its block
-//!   and released at the block's end, parameters are borrowed, and functions
-//!   return values at +1.
+//!   and released right after its last use there, parameters are borrowed,
+//!   and functions return values at +1.
 //! - Every call to a Brim function is bracketed by `brim_rt_enter` and
 //!   `brim_rt_leave`, which maintain the call stack shown in run-time errors
 //!   and enforce the same call-depth limit as the interpreter.
@@ -353,10 +353,24 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
         for (block, &llvm_block) in f.blocks.iter().zip(&blocks) {
             self.builder.position_at_end(llvm_block);
             // Values holding strings that this block owns a reference to,
-            // released at its end. Values never outlive their block, so that
-            // is always late enough.
+            // released right after their last use in the block (values never
+            // outlive their block). Releasing early matters: a list or map
+            // with one reference left is changed in place instead of copied.
             let mut owned: Vec<(brim_ir::ValueId, BasicValueEnum<'ctx>, Type)> = Vec::new();
-            for inst in &block.insts {
+            let mut last_use: HashMap<brim_ir::ValueId, usize> = HashMap::new();
+            for (index, inst) in block.insts.iter().enumerate() {
+                for v in inst.kind.operands() {
+                    last_use.insert(v, index);
+                }
+            }
+            // The terminator's operands live to the end.
+            match &block.term {
+                Terminator::Return(Some(v)) | Terminator::Branch { cond: v, .. } => {
+                    last_use.insert(*v, usize::MAX);
+                }
+                _ => {}
+            }
+            for (index, inst) in block.insts.iter().enumerate() {
                 // A consumed operand's reference passes to the instruction.
                 if let Some(consumed) = inst.kind.consumed() {
                     let value = values[consumed.index()].expect("validated IR: defined");
@@ -609,6 +623,21 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                         }
                     }
                     values[dest.index()] = Some(value);
+                }
+                // Values whose last use this was, or that are never used.
+                let mut k = 0;
+                while k < owned.len() {
+                    let (id, value, ty) = owned[k];
+                    let dead = match last_use.get(&id) {
+                        Some(&last) => last == index,
+                        None => inst.result == Some(id),
+                    };
+                    if dead {
+                        self.release_value(value, ty)?;
+                        owned.swap_remove(k);
+                    } else {
+                        k += 1;
+                    }
                 }
             }
             let returned = match &block.term {

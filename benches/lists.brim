@@ -1,0 +1,12 @@
+// Building, sorting and summing lists.
+fn main() {
+    let mut xs: List[i64] = []
+    let mut seed = 12345
+    for _ in 0..100000 {
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        xs.push(seed % 1000000)
+    }
+    let sorted = xs.sorted()
+    let evens = sorted.filter(fn(x: i64) -> bool { return x % 2 == 0 })
+    print(f"{sorted[0]} {sorted[sorted.len() - 1]} {evens.len()} {xs.sum()}")
+}

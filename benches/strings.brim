@@ -1,0 +1,17 @@
+// Building and splitting strings.
+fn main() {
+    let mut out = StringBuilder.new()
+    for i in 0..50000 {
+        out.add(to_string(i))
+        out.add(",")
+    }
+    let text = out.build()
+    let parts = text.split(",")
+    let mut longest = 0
+    for p in parts {
+        if p.len() > longest {
+            longest = p.len()
+        }
+    }
+    print(f"{text.len()} {parts.len()} {longest}")
+}

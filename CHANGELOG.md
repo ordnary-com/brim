@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- Native code releases values right after their last use instead of at the end of the block, so a list or map changed by several `mut self` methods in a row is changed in place instead of copied (a `StringBuilder` with two `add`s per loop went from 6 s to a few ms for 100,000 parts).
+- `brim build` keeps the compiled runtime in `~/.brim/cache` (`$BRIM_HOME/cache`): builds after the first are about ten times faster.
+- `sorted()` on lists of integers and strings is done by the runtime: about 25 times faster in the interpreter.
+- The interpreter frees numbers and shared values without extra work: loops run about 15% faster.
+
 ### Added
 
 - `brim doc`: HTML documentation from doc comments (the `//` lines above `pub` items, and the comment at the top of each module), with linked types and a search box. `brim doc --std` documents the standard library; the site publishes that reference under `/docs/std/`.

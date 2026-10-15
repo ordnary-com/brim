@@ -1,0 +1,12 @@
+// sorted(): integers (signed and u64), bytes and strings by the runtime, floats in Brim.
+fn main() {
+    print([3, -1, 2].sorted())
+    let big: List[u64] = [18446744073709551615, 1, 0]
+    print(big.sorted())
+    print(["b", "é", "a", "B", ""].sorted())
+    print([2.5, -1.0, 0.5].sorted())
+    let bytes: List[u8] = [200, 3, 100]
+    print(bytes.sorted())
+    let empty: List[string] = []
+    print(empty.sorted())
+}

@@ -76,9 +76,29 @@ enum Value {
 /// values inside a value that is about to be freed are moved out and
 /// dropped one at a time instead.
 impl Drop for Value {
+    #[inline]
     fn drop(&mut self) {
+        // Most values hold nothing that needs care: numbers, strings, and
+        // lists, structs and maps that are still shared.
+        let alone = match self {
+            Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Str(_) => false,
+            Value::Struct(fields) => Rc::strong_count(fields) == 1,
+            Value::List(items) => Rc::strong_count(items) == 1,
+            Value::Map(map) => Rc::strong_count(map) == 1,
+            Value::Closure(..) => true,
+        };
+        if alone {
+            drop_nested(self);
+        }
+    }
+}
+
+/// Drops the values inside `value` one at a time.
+#[inline(never)]
+fn drop_nested(value: &mut Value) {
+    {
         let mut pending = Vec::new();
-        take_contents(self, &mut pending);
+        take_contents(value, &mut pending);
         while let Some(mut value) = pending.pop() {
             take_contents(&mut value, &mut pending);
         }
@@ -430,8 +450,8 @@ fn execute(
         }
         let frame = stack.last_mut().expect("the stack is never empty here");
         if let Some((block, ip)) = frame.pending.take() {
-            let last_uses = Rc::clone(&frame.last_uses);
-            for v in &last_uses[block.index()][ip] {
+            // Disjoint fields: no need to clone the `Rc`.
+            for v in &frame.last_uses[block.index()][ip] {
                 frame.values[v.index()] = None;
             }
         }
@@ -932,6 +952,15 @@ fn call_runtime(
                 .and_then(char::from_u32)
                 .map_or(String::new(), String::from),
         )),
+        RuntimeFn::ListSortI64 | RuntimeFn::ListSortU64 | RuntimeFn::ListSortStr => {
+            let mut items: Vec<Value> = args[0].list().to_vec();
+            match rt {
+                RuntimeFn::ListSortI64 => items.sort_by_key(Value::i64),
+                RuntimeFn::ListSortU64 => items.sort_by_key(|v| v.i64() as u64),
+                _ => items.sort_by(|a, b| a.str().as_bytes().cmp(b.str().as_bytes())),
+            }
+            Some(Value::List(Rc::new(items)))
+        }
         RuntimeFn::Sha256 => Some(byte_list(&r::crypto::sha256(&bytes(args[0])))),
         RuntimeFn::HmacSha256 => Some(byte_list(&r::crypto::hmac_sha256(
             &bytes(args[0]),

@@ -272,6 +272,7 @@ fn native_suite(release: bool) {
     let programs = programs("tests/integration")
         .into_iter()
         .chain(programs("examples"))
+        .chain(programs("benches"))
         .chain(modules);
     for program in programs {
         let interpreted = brim(&["run", &program]);

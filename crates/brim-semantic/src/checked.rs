@@ -593,6 +593,11 @@ pub enum Intrinsic {
     /// `serve_api(module, request)`: the first argument is the module's
     /// index as an `Int`, the second the `http.Request`.
     ServeApi,
+    /// The prelude's `__sortable(xs)`: whether `__sort` handles the
+    /// element type (integers and strings), decided per instance.
+    Sortable,
+    /// The prelude's `__sort(xs)`: a sorted copy, by the runtime.
+    Sort,
     /// std.crypto and std.net: functions on bytes (`List[u8]`).
     Sha256,
     HmacSha256,

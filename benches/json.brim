@@ -1,0 +1,22 @@
+// Encoding and decoding typed JSON.
+import std.json
+
+struct Item {
+    id: i64
+    name: string
+    tags: List[string]
+    price: Option[f64]
+}
+
+fn main() {
+    let mut items: List[Item] = []
+    for i in 0..2000 {
+        items.push(Item { id: i, name: f"item {i}", tags: ["a", "b"], price: Some(1.5) })
+    }
+    let text = json.encode(items)
+    let back: Result[List[Item], string] = json.decode(text)
+    match back {
+        Ok(list) => print(f"{text.len()} {list.len()}")
+        Err(e) => print(e)
+    }
+}
