@@ -1760,7 +1760,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 let enum_ty = self.concrete(expr.ty);
                 self.make_variant(enum_ty, *index, &values, span)
             }
-            CheckedExprKind::Try { operand } => self.try_expr(operand, ty, span),
+            CheckedExprKind::Try { operand, convert } => self.try_expr(operand, *convert, ty, span),
             CheckedExprKind::Intrinsic { op, args } => self.intrinsic(*op, args, ty, expr.ty, span),
             CheckedExprKind::Field { base, index } => {
                 let v = self.value(base);
@@ -1963,7 +1963,13 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
     /// `operand?`: continues with the payload of variant 0 (`Some`/`Ok`), or
     /// returns variant 1 (`None`/`Err`, with the error value) from the
     /// function.
-    fn try_expr(&mut self, operand: &CheckedExpr, ty: IrType, span: Span) -> ValueId {
+    fn try_expr(
+        &mut self,
+        operand: &CheckedExpr,
+        convert: Option<(Type, usize)>,
+        ty: IrType,
+        span: Span,
+    ) -> ValueId {
         let value = self.value(operand);
         let operand_ty = self.concrete(operand.ty);
         let ir_ty = self.m.ir_type(operand_ty);
@@ -2003,6 +2009,13 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 )
             })
             .collect();
+        let payload = match convert {
+            Some((error_ty, index)) => {
+                let error_ty = self.concrete(error_ty);
+                vec![self.make_variant(error_ty, index, &payload, span)]
+            }
+            None => payload,
+        };
         let ret = self.ret;
         let returned = self.make_variant(ret, 1, &payload, span);
         // Through `return_value`: a `mut self` method also returns `self`.

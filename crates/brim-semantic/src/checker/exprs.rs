@@ -180,11 +180,32 @@ impl<'a> Checker<'a> {
             return error_expr(span);
         };
         let is_result = e.0 == 1;
+        let mut convert = None;
+        let mut conversion_help = None;
         let compatible = match self.as_enum(ctx.ret) {
             _ if ctx.ret == Type::Error => true,
-            Some((ret_enum, ret_args)) if ret_enum == e => !is_result || ret_args[1] == args[1],
+            Some((ret_enum, ret_args)) if ret_enum == e => {
+                if !is_result || ret_args[1] == args[1] || ret_args[1] == Type::Error {
+                    true
+                } else {
+                    match self.error_conversion(args[1], ret_args[1], question) {
+                        Ok(found) => {
+                            convert = Some((ret_args[1], found));
+                            true
+                        }
+                        Err(help) => {
+                            conversion_help = help;
+                            false
+                        }
+                    }
+                }
+            }
             _ => false,
         };
+        if !compatible && conversion_help.as_deref() == Some("") {
+            // Already reported.
+            return error_expr(span);
+        }
         if !compatible {
             let (kind, needed) = if is_result {
                 ("an `Err`", format!("`Result[..., {}]`", self.show(args[1])))
@@ -200,9 +221,12 @@ impl<'a> Checker<'a> {
             if let Some(ret_span) = ctx.ret_span {
                 diag = diag.with_secondary(ret_span, "the function's return type");
             }
-            diag = diag.with_help(format!(
-                "the function must return {needed}, or handle the value with `match`"
-            ));
+            diag = diag.with_help(match conversion_help {
+                Some(help) => help,
+                None => {
+                    format!("the function must return {needed}, or handle the value with `match`")
+                }
+            });
             self.diags.push(diag);
             return error_expr(span);
         }
@@ -210,8 +234,62 @@ impl<'a> Checker<'a> {
             ty: args[0],
             kind: CheckedExprKind::Try {
                 operand: Box::new(operand),
+                convert,
             },
             span,
+        }
+    }
+
+    /// How `?` turns an error of type `from` into the function's error type
+    /// `to`: `to` must be an enum with exactly one variant whose only value
+    /// is a `from`. Returns that variant, or else the help to show (`None`
+    /// for the default one, empty when an error was already reported).
+    fn error_conversion(
+        &mut self,
+        from: Type,
+        to: Type,
+        question: Span,
+    ) -> Result<usize, Option<String>> {
+        let from_shown = self.show(from);
+        let to_shown = self.show(to);
+        let Some((e, args)) = self.as_enum(to).filter(|(e, _)| e.0 > 1) else {
+            // Only enums can wrap other errors: the default help applies.
+            return Err(None);
+        };
+        let mut candidates: Vec<(usize, String)> = Vec::new();
+        let variants: Vec<(String, Vec<Type>)> = self.enums[e.0]
+            .variants
+            .iter()
+            .map(|v| (v.name.clone(), v.fields.clone()))
+            .collect();
+        for (i, (name, fields)) in variants.into_iter().enumerate() {
+            if let [field] = fields[..]
+                && self.types.subst(field, &args) == from
+            {
+                candidates.push((i, name));
+            }
+        }
+        match candidates.as_slice() {
+            [] => Err(Some(format!(
+                "add a variant like `Wrapped({from_shown})` to `{to_shown}`, and `?` wraps the error in it"
+            ))),
+            [(index, _)] => Ok(*index),
+            _ => {
+                let names: Vec<String> = candidates.iter().map(|(_, n)| format!("`{n}`")).collect();
+                self.diags.push(
+                    Diagnostic::error(format!(
+                        "`?` cannot choose how to convert `{from_shown}` into `{to_shown}`"
+                    ))
+                    .with_code("E0233")
+                    .with_primary(question, "")
+                    .with_note(format!(
+                        "the variants {} each hold a `{from_shown}`",
+                        names.join(" and ")
+                    ))
+                    .with_help("wrap the error yourself with `match`"),
+                );
+                Err(Some(String::new()))
+            }
         }
     }
 

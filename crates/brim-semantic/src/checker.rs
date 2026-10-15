@@ -833,7 +833,7 @@ impl<'a> Checker<'a> {
                 };
                 // `do_something()?` is a call too: only its error is used.
                 let is_call = is_call(&checked)
-                    || matches!(&checked.kind, CheckedExprKind::Try { operand } if is_call(operand));
+                    || matches!(&checked.kind, CheckedExprKind::Try { operand, .. } if is_call(operand));
                 if !is_call && checked.ty != Type::Error {
                     let ty = self.show(checked.ty);
                     self.diags.push(

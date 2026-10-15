@@ -1,0 +1,66 @@
+// `?` wraps an error in the function's error enum when exactly one of its
+// variants holds that error type.
+
+enum ParseError {
+    Empty
+    NotANumber(string)
+}
+
+enum ConfigError {
+    Parse(ParseError)
+    Missing(string)
+    Io(string)
+}
+
+fn parse_port(text: string) -> Result[i64, ParseError] {
+    if text == "" {
+        return Err(ParseError.Empty)
+    }
+    match text.parse_int() {
+        Some(n) => return Ok(n)
+        None => return Err(ParseError.NotANumber(text))
+    }
+}
+
+fn lookup(settings: Map[string, string], key: string) -> Result[string, string] {
+    match settings.get(key) {
+        Some(v) => return Ok(v)
+        None => return Err(key)
+    }
+}
+
+fn port(settings: Map[string, string]) -> Result[i64, ConfigError] {
+    // `string` errors are ambiguous here (`Missing` and `Io`), so this one
+    // is wrapped by hand.
+    let text: string = match_lookup(settings)?
+    let n: i64 = parse_port(text)?
+    return Ok(n)
+}
+
+fn match_lookup(settings: Map[string, string]) -> Result[string, ConfigError] {
+    match lookup(settings, "port") {
+        Ok(v) => return Ok(v)
+        Err(key) => return Err(ConfigError.Missing(key))
+    }
+}
+
+fn show(r: Result[i64, ConfigError]) {
+    match r {
+        Ok(n) => print("port " + to_string(n))
+        Err(Parse(Empty)) => print("empty port")
+        Err(Parse(NotANumber(t))) => print("not a number: " + t)
+        Err(Missing(key)) => print("missing " + key)
+        Err(Io(e)) => print("io: " + e)
+    }
+}
+
+fn main() {
+    let mut settings: Map[string, string] = [:]
+    show(port(settings))
+    settings["port"] = ""
+    show(port(settings))
+    settings["port"] = "eighty"
+    show(port(settings))
+    settings["port"] = "8080"
+    show(port(settings))
+}

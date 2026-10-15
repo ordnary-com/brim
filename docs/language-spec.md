@@ -299,7 +299,7 @@ enum Result[T, E] { Ok(T), Err(E) }
 
 `Option[T]` is Brim's replacement for null: a value that may be absent. `Result[T, E]` is the result of an operation that can fail. Their variants can be used without the enum's name: `Some(1)`, `None`, `Ok(x)`, `Err(message)`. The names `Option`, `Result`, `Some`, `None`, `Ok` and `Err` cannot be redefined.
 
-**The `?` operator.** `value?` on a `Result[T, E]` evaluates to the `T` inside an `Ok`. On an `Err`, the enclosing function returns that `Err` immediately, so the function must return a `Result[U, E]` with the same error type `E` (`E0233`). On an `Option[T]`, `value?` evaluates to the value inside `Some`, and `None` makes the function return `None`; the function must return an `Option[U]`. `?` on any other type is `E0232`. A call followed by `?` may be used as a statement, to only propagate its error.
+**The `?` operator.** `value?` on a `Result[T, E]` evaluates to the `T` inside an `Ok`. On an `Err`, the enclosing function returns that `Err` immediately, so the function must return a `Result[U, F]` (`E0233`). When `F` is `E`, the error is returned unchanged. Otherwise `F` must be an enum with exactly one variant whose only value is an `E`, and `?` wraps the error in that variant: with `enum ConfigError { Parse(ParseError), Missing(string) }`, a `ParseError` returned through `?` becomes `Err(ConfigError.Parse(error))`. Two such variants make the conversion ambiguous, which is also `E0233`. On an `Option[T]`, `value?` evaluates to the value inside `Some`, and `None` makes the function return `None`; the function must return an `Option[U]`. `?` on any other type is `E0232`. A call followed by `?` may be used as a statement, to only propagate its error.
 
 ```brim
 fn total(a: string, b: string) -> Result[i64, string] {
@@ -688,7 +688,7 @@ These questions are not settled. The current behavior is a reversible default.
 3. **Integer types.** Only `i64` exists. Sized (`i32`, `u8`, ...) and pointer-sized types are needed for systems work. Literal typing rules depend on this.
 4. **Overflow semantics.** Checked arithmetic that traps is the current rule. Whether release builds keep the checks, and whether explicit wrapping operations are added, is open.
 5. **String model.** Strings are immutable, reference-counted UTF-8. Methods work on byte positions. Unicode-aware case conversion, grapheme handling and a byte type are undecided.
-6. **Error handling in the language.** Recoverable errors are `Result` values with `?` propagation. Open: converting between error types in `?`, a standard error type, and whether `main` may return a `Result`. Run-time errors (`R` codes) still abort. See `docs/error-handling.md`.
+6. **Error handling in the language.** Recoverable errors are `Result` values with `?` propagation. `?` wraps errors in a variant of the function's error enum. Open: a standard error type with context, and whether `main` may return a `Result`. Run-time errors (`R` codes) still abort. See `docs/error-handling.md`.
 7. **Statement termination.** Newline termination with continuation after operators is the current rule. Behavior around method chains (`.` at line start) must be decided when methods exist.
 8. **`main` signature.** `main` takes no parameters and returns nothing; arguments come from `args()` and the exit code from `exit`. Returning a `Result` from `main` is undecided.
 9. **Unicode identifiers.** Identifiers are ASCII-only. Allowing Unicode (UAX #31) is possible later.

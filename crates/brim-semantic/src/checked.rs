@@ -362,6 +362,9 @@ pub enum CheckedExprKind {
     /// `Option`/`Result` type).
     Try {
         operand: Box<CheckedExpr>,
+        /// When the error type differs from the function's: the function's
+        /// error enum and the variant that wraps the operand's error.
+        convert: Option<(Type, usize)>,
     },
     /// `[a, b, c]`; the list type is the expression's type.
     ListLit(Vec<CheckedExpr>),

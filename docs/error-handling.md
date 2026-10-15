@@ -99,7 +99,7 @@ Guidelines for writing diagnostics:
 | E0230 | Pattern does not fit the type of the matched value |
 | E0231 | Unknown method |
 | E0232 | `?` applied to a value that is not an `Option` or `Result` |
-| E0233 | `?` in a function whose return type cannot carry the `Err` or `None` (a different error type, or not a `Result`/`Option`) |
+| E0233 | `?` in a function whose return type cannot carry the `Err` or `None` (an error type that no variant of the function's error enum holds, two variants that both could, or not a `Result`/`Option`) |
 | E0234 | Indexing a value that is not a list or map |
 | E0235 | `for` loop over a value that is not a list or range |
 | E0236 | Map key type other than `i64`, `bool` or `string` |
@@ -202,6 +202,20 @@ Brim has two kinds of failures:
   Absent values use `Option[T]` the same way; there is no null.
 - **Run-time errors abort.** The `R` errors above (overflow, division by zero, stack overflow) are bugs, not conditions to handle: output written so far is flushed, the error is reported on stderr, and the process exits with 101.
 
-Not designed yet: converting one error type into another in `?` (today the types must be equal), a standard error type with context, and returning a `Result` from `main`.
+- **Errors convert into larger error enums.** When the function's error type is an enum with exactly one variant holding the operand's error type, `?` wraps the error in that variant:
+
+  ```brim
+  enum ConfigError {
+      Parse(ParseError)
+      Missing(string)
+  }
+
+  fn port(text: string) -> Result[i64, ConfigError] {
+      let n: i64 = parse_port(text)?   // a ParseError becomes ConfigError.Parse(...)
+      return Ok(n)
+  }
+  ```
+
+Not designed yet: a standard error type with context, and returning a `Result` from `main`.
 
 Brim has no exceptions with stack unwinding: they complicate the native runtime and make control flow invisible.

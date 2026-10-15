@@ -1,0 +1,30 @@
+error[E0233]: `?` cannot choose how to convert `string` into `AppError`
+  --> tests/diagnostics/error_conversion_errors.brim:16:24
+   |
+16 |     let n: i64 = text()?
+   |                        ^
+   |
+   = note: the variants `Message` and `Other` each hold a `string`
+   = help: wrap the error yourself with `match`
+
+error[E0233]: `?` cannot return an `Err` from a function that returns `Result[i64, AppError]`
+  --> tests/diagnostics/error_conversion_errors.brim:21:24
+   |
+20 | fn no_variant() -> Result[i64, AppError] {
+   |                    --------------------- the function's return type
+21 |     let n: i64 = flag()?
+   |                        ^ this returns an `Err` early
+   |
+   = help: add a variant like `Wrapped(bool)` to `AppError`, and `?` wraps the error in it
+
+error[E0233]: `?` cannot return an `Err` from a function that returns `Result[i64, i64]`
+  --> tests/diagnostics/error_conversion_errors.brim:26:24
+   |
+25 | fn not_an_enum() -> Result[i64, i64] {
+   |                     ---------------- the function's return type
+26 |     let n: i64 = text()?
+   |                        ^ this returns an `Err` early
+   |
+   = help: the function must return `Result[..., string]`, or handle the value with `match`
+
+error: could not compile tests/diagnostics/error_conversion_errors.brim due to 3 errors
