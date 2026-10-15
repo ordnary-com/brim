@@ -2,7 +2,7 @@
   "name": "brim",
   "displayName": "Brim",
   "description": "Brim language support: syntax highlighting, diagnostics, formatting, outline, go to definition and hover",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "ordnary",
   "license": "Apache-2.0",
   "repository": { "type": "git", "url": "https://github.com/ordnary-com/brim" },

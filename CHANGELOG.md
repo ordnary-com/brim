@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-15
+
 ### Added
 
 - Floating-point numbers: the `f64` type, literals (`1.5`, `6.02e23`), arithmetic and comparisons following IEEE 754, `to_float`, `to_int` (run-time error `R0010` for NaN and out-of-range numbers), `to_string`, `print` and `parse_float`. Numbers are written with the fewest digits that read back exactly, the same in the interpreter and native code (checked on 200,000 values). `std.json` gets `as_float` and `from_float`; `brim gen ts` maps `f64` to `number`; every editor grammar knows `f64`. `i64` and `f64` never mix implicitly, and the diagnostics say how to convert. `E0007` now means a floating-point literal too large for `f64`.
