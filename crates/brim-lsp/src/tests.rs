@@ -308,6 +308,8 @@ fn brim_stdlib_names() -> impl Iterator<Item = &'static str> {
         "print",
         "eprint",
         "to_string",
+        "to_float",
+        "to_int",
         "read_line",
         "read_file",
         "write_file",

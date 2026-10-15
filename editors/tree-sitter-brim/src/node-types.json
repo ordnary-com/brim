@@ -24,6 +24,10 @@
           "named": true
         },
         {
+          "type": "float",
+          "named": true
+        },
+        {
           "type": "identifier",
           "named": true
         },
@@ -151,6 +155,10 @@
             "named": true
           },
           {
+            "type": "float",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -224,6 +232,10 @@
           },
           {
             "type": "field_expression",
+            "named": true
+          },
+          {
+            "type": "float",
             "named": true
           },
           {
@@ -352,6 +364,10 @@
           },
           {
             "type": "field_expression",
+            "named": true
+          },
+          {
+            "type": "float",
             "named": true
           },
           {
@@ -561,6 +577,10 @@
           "named": true
         },
         {
+          "type": "float",
+          "named": true
+        },
+        {
           "type": "identifier",
           "named": true
         },
@@ -680,6 +700,10 @@
             "named": true
           },
           {
+            "type": "float",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -766,6 +790,10 @@
             "named": true
           },
           {
+            "type": "float",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -849,6 +877,10 @@
           },
           {
             "type": "field_expression",
+            "named": true
+          },
+          {
+            "type": "float",
             "named": true
           },
           {
@@ -1052,6 +1084,10 @@
             "named": true
           },
           {
+            "type": "float",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -1204,6 +1240,10 @@
             "named": true
           },
           {
+            "type": "float",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -1271,6 +1311,10 @@
           },
           {
             "type": "field_expression",
+            "named": true
+          },
+          {
+            "type": "float",
             "named": true
           },
           {
@@ -1378,6 +1422,10 @@
             "named": true
           },
           {
+            "type": "float",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -1451,6 +1499,10 @@
         },
         {
           "type": "field_expression",
+          "named": true
+        },
+        {
+          "type": "float",
           "named": true
         },
         {
@@ -1552,6 +1604,10 @@
             "named": true
           },
           {
+            "type": "float",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -1619,6 +1675,10 @@
           },
           {
             "type": "field_expression",
+            "named": true
+          },
+          {
+            "type": "float",
             "named": true
           },
           {
@@ -1787,6 +1847,10 @@
             "named": true
           },
           {
+            "type": "float",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -1890,6 +1954,10 @@
           },
           {
             "type": "field_expression",
+            "named": true
+          },
+          {
+            "type": "float",
             "named": true
           },
           {
@@ -2022,6 +2090,10 @@
           "named": true
         },
         {
+          "type": "float",
+          "named": true
+        },
+        {
           "type": "identifier",
           "named": true
         },
@@ -2117,6 +2189,10 @@
           "named": true
         },
         {
+          "type": "float",
+          "named": true
+        },
+        {
           "type": "identifier",
           "named": true
         },
@@ -2189,6 +2265,10 @@
         },
         {
           "type": "field_expression",
+          "named": true
+        },
+        {
+          "type": "float",
           "named": true
         },
         {
@@ -2412,6 +2492,10 @@
           "named": true
         },
         {
+          "type": "float",
+          "named": true
+        },
+        {
           "type": "identifier",
           "named": true
         },
@@ -2522,6 +2606,10 @@
           },
           {
             "type": "field_expression",
+            "named": true
+          },
+          {
+            "type": "float",
             "named": true
           },
           {
@@ -2692,6 +2780,10 @@
           },
           {
             "type": "field_expression",
+            "named": true
+          },
+          {
+            "type": "float",
             "named": true
           },
           {
@@ -2917,11 +3009,19 @@
     "named": true
   },
   {
+    "type": "f64",
+    "named": false
+  },
+  {
     "type": "false",
     "named": false
   },
   {
     "type": "field_identifier",
+    "named": true
+  },
+  {
+    "type": "float",
     "named": true
   },
   {

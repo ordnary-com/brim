@@ -802,6 +802,10 @@
         },
         {
           "type": "STRING",
+          "value": "f64"
+        },
+        {
+          "type": "STRING",
           "value": "bool"
         },
         {
@@ -1569,6 +1573,10 @@
         {
           "type": "SYMBOL",
           "name": "integer"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "float"
         },
         {
           "type": "SYMBOL",
@@ -2485,6 +2493,10 @@
     "integer": {
       "type": "PATTERN",
       "value": "[0-9][0-9_]*"
+    },
+    "float": {
+      "type": "PATTERN",
+      "value": "[0-9][0-9_]*(\\.[0-9][0-9_]*([eE][+-]?[0-9]+)?|[eE][+-]?[0-9]+)"
     },
     "string": {
       "type": "SEQ",

@@ -7,12 +7,12 @@ detect:
 rules:
     - statement: "\\b(fn|let|mut|return|if|else|while|for|in|match|break|continue|struct|enum|impl|pub|import|as)\\b"
     - error: "\\b(async|await|const|loop|trait|type|use)\\b"
-    - type: "\\b(i64|bool|string|void|Option|Result|List|Map)\\b"
+    - type: "\\b(i64|f64|bool|string|void|Option|Result|List|Map)\\b"
     - type: "\\b[A-Z][A-Za-z0-9_]*\\b"
     - constant.bool: "\\b(true|false)\\b"
     - constant: "\\b(self|Some|None|Ok|Err)\\b"
-    - identifier: "\\b(print|eprint|to_string|read_line|read_file|write_file|args|env|exit|assert|assert_eq)\\b"
-    - constant.number: "\\b[0-9][0-9_]*\\b"
+    - identifier: "\\b(print|eprint|to_string|to_float|to_int|read_line|read_file|write_file|args|env|exit|assert|assert_eq)\\b"
+    - constant.number: "\\b[0-9][0-9_]*(\\.[0-9][0-9_]*)?([eE][+-]?[0-9]+)?\\b"
     - constant.string:
         start: "\""
         end: "\""

@@ -103,6 +103,8 @@ id_type!(
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
     I64,
+    /// IEEE 754 double.
+    F64,
     Bool,
     Str,
     Struct(StructId),
@@ -119,6 +121,7 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Type::I64 => "i64",
+            Type::F64 => "f64",
             Type::Bool => "bool",
             Type::Str => "str",
             Type::Struct(id) => return write!(f, "{id}"),
@@ -135,6 +138,7 @@ impl Type {
     pub fn from_abi(t: brim_runtime::AbiType) -> Option<Type> {
         Some(match t {
             brim_runtime::AbiType::I64 => Type::I64,
+            brim_runtime::AbiType::F64 => Type::F64,
             brim_runtime::AbiType::Bool => Type::Bool,
             brim_runtime::AbiType::Str => Type::Str,
             brim_runtime::AbiType::Void => Type::Void,
@@ -358,6 +362,8 @@ impl InstKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Const {
     I64(i64),
+    /// The bits of an `f64` (so constants compare and hash exactly).
+    F64(u64),
     Bool(bool),
     Str(String),
 }
@@ -366,6 +372,7 @@ impl Const {
     pub fn ty(&self) -> Type {
         match self {
             Const::I64(_) => Type::I64,
+            Const::F64(_) => Type::F64,
             Const::Bool(_) => Type::Bool,
             Const::Str(_) => Type::Str,
         }
@@ -376,6 +383,8 @@ impl Const {
 pub enum UnaryOp {
     /// Checked `i64` negation.
     INeg,
+    /// `f64` negation.
+    FNeg,
     /// Boolean not.
     BNot,
 }
@@ -397,6 +406,20 @@ pub enum BinaryOp {
     IGe,
     BEq,
     BNe,
+    /// IEEE 754 arithmetic on `f64`: no run-time errors (`1.0 / 0.0` is
+    /// `inf`). `FRem` is the remainder with the sign of the dividend.
+    FAdd,
+    FSub,
+    FMul,
+    FDiv,
+    FRem,
+    /// Comparisons; any comparison with NaN is false, except `FNe`.
+    FEq,
+    FNe,
+    FLt,
+    FLe,
+    FGt,
+    FGe,
 }
 
 impl UnaryOp {
@@ -404,6 +427,7 @@ impl UnaryOp {
     pub fn signature(self) -> (Type, Type) {
         match self {
             UnaryOp::INeg => (Type::I64, Type::I64),
+            UnaryOp::FNeg => (Type::F64, Type::F64),
             UnaryOp::BNot => (Type::Bool, Type::Bool),
         }
     }
@@ -411,6 +435,7 @@ impl UnaryOp {
     pub fn mnemonic(self) -> &'static str {
         match self {
             UnaryOp::INeg => "ineg",
+            UnaryOp::FNeg => "fneg",
             UnaryOp::BNot => "bnot",
         }
     }
@@ -424,6 +449,8 @@ impl BinaryOp {
             IAdd | ISub | IMul | IDiv | IRem => (Type::I64, Type::I64),
             IEq | INe | ILt | ILe | IGt | IGe => (Type::I64, Type::Bool),
             BEq | BNe => (Type::Bool, Type::Bool),
+            FAdd | FSub | FMul | FDiv | FRem => (Type::F64, Type::F64),
+            FEq | FNe | FLt | FLe | FGt | FGe => (Type::F64, Type::Bool),
         }
     }
 
@@ -443,6 +470,17 @@ impl BinaryOp {
             IGe => "ige",
             BEq => "beq",
             BNe => "bne",
+            FAdd => "fadd",
+            FSub => "fsub",
+            FMul => "fmul",
+            FDiv => "fdiv",
+            FRem => "frem",
+            FEq => "feq",
+            FNe => "fne",
+            FLt => "flt",
+            FLe => "fle",
+            FGt => "fgt",
+            FGe => "fge",
         }
     }
 }

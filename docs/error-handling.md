@@ -47,7 +47,7 @@ Guidelines for writing diagnostics:
 | E0004 | Integer literal does not fit in 64 bits |
 | E0005 | Integer literal with leading zeros |
 | E0006 | Invalid suffix on an integer literal (`10px`, `0xFF`) |
-| E0007 | Floating-point literal (`9.99`); not supported yet |
+| E0007 | Floating-point literal too large for `f64` (`1e999`) |
 
 ### Syntax errors (`brim-parser`)
 
@@ -149,6 +149,7 @@ Guidelines for writing diagnostics:
 | R0007 | Invalid string slice |
 | R0008 | Failed `assert` or `assert_eq` (with the two values as notes) |
 | R0009 | Step limit exceeded; only for embedders that set `brim_interp::Limits::max_steps`, never in `brim run` or native executables |
+| R0010 | `to_int` of NaN or of a number outside the `i64` range |
 
 Run-time errors are reported like compile-time diagnostics, with the source location of the failing operation and the call stack:
 

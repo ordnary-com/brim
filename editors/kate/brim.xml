@@ -14,7 +14,7 @@
       <item>type</item><item>use</item>
     </list>
     <list name="types">
-      <item>i64</item><item>bool</item><item>string</item><item>void</item><item>Option</item>
+      <item>i64</item><item>f64</item><item>bool</item><item>string</item><item>void</item><item>Option</item>
       <item>Result</item><item>List</item><item>Map</item>
     </list>
     <list name="constants">
@@ -22,7 +22,7 @@
       <item>Ok</item><item>Err</item>
     </list>
     <list name="builtins">
-      <item>print</item><item>eprint</item><item>to_string</item><item>read_line</item>
+      <item>print</item><item>eprint</item><item>to_string</item><item>to_float</item><item>to_int</item><item>read_line</item>
       <item>read_file</item><item>write_file</item><item>args</item><item>env</item><item>exit</item>
       <item>assert</item><item>assert_eq</item>
     </list>
@@ -35,6 +35,7 @@
         <keyword attribute="Builtin" context="#stay" String="builtins"/>
         <Detect2Chars attribute="Comment" context="Comment" char="/" char1="/"/>
         <DetectChar attribute="String" context="String" char="&quot;"/>
+        <RegExpr attribute="Float" context="#stay" String="\b[0-9][0-9_]*(\.[0-9][0-9_]*([eE][+-]?[0-9]+)?|[eE][+-]?[0-9]+)\b"/>
         <RegExpr attribute="Decimal" context="#stay" String="\b[0-9][0-9_]*\b"/>
         <RegExpr attribute="Type" context="#stay" String="\b[A-Z][A-Za-z0-9_]*\b"/>
         <DetectChar attribute="Symbol" context="#stay" char="{" beginRegion="Brace"/>
@@ -58,6 +59,7 @@
       <itemData name="String" defStyleNum="dsString"/>
       <itemData name="Escape" defStyleNum="dsSpecialChar"/>
       <itemData name="Decimal" defStyleNum="dsDecVal"/>
+      <itemData name="Float" defStyleNum="dsFloat"/>
       <itemData name="Symbol" defStyleNum="dsOperator"/>
     </itemDatas>
   </highlighting>

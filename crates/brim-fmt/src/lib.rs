@@ -194,6 +194,7 @@ fn ends_value(kind: &TokenKind) -> bool {
         kind,
         TokenKind::Ident(_)
             | TokenKind::Int(_)
+            | TokenKind::Float(_)
             | TokenKind::Str(_)
             | TokenKind::True
             | TokenKind::False

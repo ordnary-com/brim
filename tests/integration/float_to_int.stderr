@@ -1,0 +1,5 @@
+error[R0010]: cannot convert to `i64`: the number is NaN or out of range
+ --> tests/integration/float_to_int.brim:4:11
+  |
+4 |     print(to_int(1.0e19))
+  |           ^^^^^^^^^^^^^^

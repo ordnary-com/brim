@@ -46,9 +46,9 @@ use inkwell::targets::{
 };
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType};
 use inkwell::values::{
-    BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue,
+    BasicMetadataValueEnum, BasicValueEnum, FloatValue, FunctionValue, IntValue, PointerValue,
 };
-use inkwell::{AddressSpace, IntPredicate, OptimizationLevel};
+use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel};
 
 use crate::trap::{self, TrapText};
 use crate::{BuildOptions, BuildOutput, CodegenError, OptLevel};
@@ -394,6 +394,10 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                         self.builder.build_store(ptr, value)?;
                         None
                     }
+                    InstKind::Unary(UnaryOp::FNeg, v) => {
+                        let v = get(*v).into_float_value();
+                        Some(self.builder.build_float_neg(v, "")?.into())
+                    }
                     InstKind::Unary(op, v) => {
                         let v = get(*v).into_int_value();
                         Some(match op {
@@ -402,7 +406,12 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                                 self.checked("llvm.ssub.with.overflow", zero, v, "-", inst.span)?
                             }
                             UnaryOp::BNot => self.builder.build_not(v, "")?.into(),
+                            UnaryOp::FNeg => unreachable!("handled above"),
                         })
+                    }
+                    InstKind::Binary(op, a, b) if op.signature().0 == Type::F64 => {
+                        let (a, b) = (get(*a).into_float_value(), get(*b).into_float_value());
+                        Some(self.float_binary(*op, a, b)?)
                     }
                     InstKind::Binary(op, a, b) => {
                         let (a, b) = (get(*a).into_int_value(), get(*b).into_int_value());
@@ -602,6 +611,11 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
     fn constant(&mut self, c: &Const) -> BasicValueEnum<'ctx> {
         match c {
             Const::I64(v) => self.context.i64_type().const_int(*v as u64, true).into(),
+            Const::F64(bits) => self
+                .context
+                .f64_type()
+                .const_float(f64::from_bits(*bits))
+                .into(),
             Const::Bool(v) => self
                 .context
                 .bool_type()
@@ -638,6 +652,35 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             ILe => compare(IntPredicate::SLE)?.into(),
             IGt => compare(IntPredicate::SGT)?.into(),
             IGe => compare(IntPredicate::SGE)?.into(),
+            FAdd | FSub | FMul | FDiv | FRem | FEq | FNe | FLt | FLe | FGt | FGe => {
+                unreachable!("float operations are lowered by `float_binary`")
+            }
+        })
+    }
+
+    /// IEEE 754 arithmetic and comparisons. Comparisons are ordered (false
+    /// with NaN), except `!=`, which is unordered (true with NaN).
+    fn float_binary(
+        &mut self,
+        op: BinaryOp,
+        a: FloatValue<'ctx>,
+        b: FloatValue<'ctx>,
+    ) -> Result<BasicValueEnum<'ctx>, BuilderError> {
+        use BinaryOp::*;
+        let compare = |pred| self.builder.build_float_compare(pred, a, b, "");
+        Ok(match op {
+            FAdd => self.builder.build_float_add(a, b, "")?.into(),
+            FSub => self.builder.build_float_sub(a, b, "")?.into(),
+            FMul => self.builder.build_float_mul(a, b, "")?.into(),
+            FDiv => self.builder.build_float_div(a, b, "")?.into(),
+            FRem => self.builder.build_float_rem(a, b, "")?.into(),
+            FEq => compare(FloatPredicate::OEQ)?.into(),
+            FNe => compare(FloatPredicate::UNE)?.into(),
+            FLt => compare(FloatPredicate::OLT)?.into(),
+            FLe => compare(FloatPredicate::OLE)?.into(),
+            FGt => compare(FloatPredicate::OGT)?.into(),
+            FGe => compare(FloatPredicate::OGE)?.into(),
+            _ => unreachable!("integer operations are lowered by `binary`"),
         })
     }
 
@@ -815,7 +858,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
         match ty {
             Type::Str | Type::List(_) | Type::Map(_) => true,
             Type::Struct(id) => self.managed_structs[id.index()],
-            Type::I64 | Type::Bool | Type::Void => false,
+            Type::I64 | Type::F64 | Type::Bool | Type::Void => false,
         }
     }
 
@@ -871,6 +914,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
     fn basic_type(&self, ty: Type) -> BasicTypeEnum<'ctx> {
         match ty {
             Type::I64 => self.context.i64_type().into(),
+            Type::F64 => self.context.f64_type().into(),
             Type::Bool => self.context.bool_type().into(),
             Type::Str => self.context.ptr_type(AddressSpace::default()).into(),
             Type::Struct(id) => self.struct_types[id.index()].into(),
@@ -896,6 +940,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
         let abi = |ty: AbiType| -> BasicTypeEnum<'ctx> {
             match ty {
                 AbiType::I64 => self.context.i64_type().into(),
+                AbiType::F64 => self.context.f64_type().into(),
                 AbiType::Bool => self.context.i8_type().into(),
                 AbiType::Str | AbiType::StrList => {
                     self.context.ptr_type(AddressSpace::default()).into()

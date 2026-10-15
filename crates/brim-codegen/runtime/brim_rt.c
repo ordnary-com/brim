@@ -32,6 +32,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1884,6 +1885,142 @@ void brim_rt_time_sleep_millis(int64_t millis) {
     t.tv_nsec = (long)((millis % 1000) * 1000000);
     while (nanosleep(&t, &t) != 0 && errno == EINTR) {
     }
+}
+
+/* ---- f64 (format, parse) --------------------------------------------------- */
+/* The same text as brim-runtime's float.rs: the fewest digits that read back
+ * exactly, decimals from 1e-5 up to 1e16, scientific notation otherwise. */
+
+static void format_f64(double x, Buffer *b) {
+    if (x != x) {
+        buffer_add(b, "NaN", 3);
+        return;
+    }
+    if (signbit(x)) {
+        buffer_add(b, "-", 1);
+        x = -x;
+    }
+    if (isinf(x)) {
+        buffer_add(b, "inf", 3);
+        return;
+    }
+    if (x == 0.0) {
+        buffer_add(b, "0.0", 3);
+        return;
+    }
+    /* The shortest precision whose digits read back as x. */
+    char sci[40];
+    for (int p = 0; p <= 17; p++) {
+        snprintf(sci, sizeof sci, "%.*e", p, x);
+        if (strtod(sci, NULL) == x) {
+            break;
+        }
+    }
+    char digits[24];
+    int n = 0;
+    const char *c = sci;
+    for (; *c != 'e'; c++) {
+        if (*c >= '0' && *c <= '9') {
+            digits[n++] = *c;
+        }
+    }
+    int exp = atoi(c + 1);
+    if (exp >= -5 && exp < 16) {
+        if (exp >= 0) {
+            int int_len = exp + 1;
+            if (n <= int_len) {
+                buffer_add(b, digits, n);
+                for (int i = n; i < int_len; i++) {
+                    buffer_add(b, "0", 1);
+                }
+                buffer_add(b, ".0", 2);
+            } else {
+                buffer_add(b, digits, int_len);
+                buffer_add(b, ".", 1);
+                buffer_add(b, digits + int_len, n - int_len);
+            }
+        } else {
+            buffer_add(b, "0.", 2);
+            for (int i = 0; i < -exp - 1; i++) {
+                buffer_add(b, "0", 1);
+            }
+            buffer_add(b, digits, n);
+        }
+    } else {
+        buffer_add(b, digits, 1);
+        if (n > 1) {
+            buffer_add(b, ".", 1);
+            buffer_add(b, digits + 1, n - 1);
+        }
+        char e[16];
+        int len = snprintf(e, sizeof e, "e%d", exp);
+        buffer_add(b, e, len);
+    }
+}
+
+BrimStr *brim_rt_f64_to_str(double x) {
+    Buffer b = {0};
+    format_f64(x, &b);
+    return buffer_finish(&b);
+}
+
+void brim_rt_print_f64(double x) {
+    Buffer b = {0};
+    format_f64(x, &b);
+    buffer_add(&b, "\n", 1);
+    fwrite(b.data, 1, (size_t)b.len, stdout);
+    free(b.data);
+}
+
+static int is_float_text(const BrimStr *s) {
+    int64_t i = 0, n = s->len;
+    const char *d = s->data;
+    int64_t start;
+    if (i < n && (d[i] == '+' || d[i] == '-')) i++;
+    start = i;
+    while (i < n && d[i] >= '0' && d[i] <= '9') i++;
+    if (i == start) return 0;
+    if (i < n && d[i] == '.') {
+        i++;
+        start = i;
+        while (i < n && d[i] >= '0' && d[i] <= '9') i++;
+        if (i == start) return 0;
+    }
+    if (i < n && (d[i] == 'e' || d[i] == 'E')) {
+        i++;
+        if (i < n && (d[i] == '+' || d[i] == '-')) i++;
+        start = i;
+        while (i < n && d[i] >= '0' && d[i] <= '9') i++;
+        if (i == start) return 0;
+    }
+    return i == n;
+}
+
+uint8_t brim_rt_str_parse_float_ok(const BrimStr *s) {
+    return (uint8_t)is_float_text(s);
+}
+
+double brim_rt_str_parse_float(const BrimStr *s) {
+    if (!is_float_text(s)) {
+        return 0.0;
+    }
+    char *text = c_string(s);
+    double x = strtod(text, NULL);
+    free(text);
+    return x;
+}
+
+double brim_rt_i64_to_f64(int64_t value) {
+    return (double)value;
+}
+
+/* `to_int(x)`: rounds toward zero; NaN and numbers outside i64 stop the
+ * program (run-time error R0010). */
+int64_t brim_rt_f64_to_i64(double x, const char *head, const char *sep, const char *note) {
+    if (!(x > -9223372036854775809.0 && x < 9223372036854775808.0)) {
+        brim_rt_trap(head, sep, note);
+    }
+    return (int64_t)x;
 }
 
 /* ---- process entry ------------------------------------------------------- */

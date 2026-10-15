@@ -1,0 +1,7 @@
+fn main() {
+    let x: f64 = 1.5
+    match x {
+        1.5 => print("one and a half")
+        _ => print("other")
+    }
+}

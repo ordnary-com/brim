@@ -79,11 +79,17 @@ cannot read file "does-not-exist.txt": file not found
 
 | Function | Result | |
 |----------|--------|---|
-| `to_string(x)` | `string` | an `i64` in decimal, or a `bool` as `"true"` or `"false"` |
+| `to_string(x)` | `string` | a number in decimal, or a `bool` as `"true"` or `"false"` |
+| `to_float(n)` | `f64` | an `i64` as the nearest `f64` |
+| `to_int(x)` | `i64` | an `f64` rounded toward zero; NaN or a number outside `i64` stops the program |
 | `s.parse_int()` | `Option[i64]` | a decimal integer with an optional sign, and nothing else |
+| `s.parse_float()` | `Option[f64]` | a decimal number such as `-1.5e3` |
 
 Arithmetic on `i64` is checked: overflow, and division or remainder by
-zero, stop the program with a run-time error.
+zero, stop the program with a run-time error. Arithmetic on `f64` follows
+IEEE 754 and never stops the program: `1.0 / 0.0` is `inf`. An `f64` is
+written with the fewest digits that read back exactly (`0.1`, `2.0`,
+`1e21`).
 
 ```brim
 fn main() {
@@ -428,9 +434,9 @@ fn age_next_year(text: string) -> Result[i64, string] {
 |---|---|
 | `json.parse(text)` | `Result[Json, string]`; errors say where: `expected ':' at character 6` |
 | `json.stringify(value)`, `json.pretty(value)` | compact, or indented by two spaces |
-| `json.null()`, `from_bool(b)`, `from_int(n)`, `from_string(s)`, `array(items)`, `object(members)` | build values |
+| `json.null()`, `from_bool(b)`, `from_int(n)`, `from_float(x)`, `from_string(s)`, `array(items)`, `object(members)` | build values |
 | `value.get(key)`, `value.at(index)` | `Option[Json]`: a member, an element |
-| `value.as_string()`, `as_int()`, `as_bool()`, `as_array()`, `as_object()` | `Option` of the contents |
+| `value.as_string()`, `as_int()`, `as_float()`, `as_bool()`, `as_array()`, `as_object()` | `Option` of the contents |
 | `value.is_null()`, `value.kind()` | `"null"`, `"bool"`, `"number"`, `"string"`, `"array"` or `"object"` |
 
 `examples/http/notes.brim` combines `std.http` and `std.json` into a small

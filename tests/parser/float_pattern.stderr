@@ -1,0 +1,10 @@
+error[E0100]: floating-point numbers cannot be matched
+ --> tests/parser/float_pattern.brim:4:9
+  |
+4 |         1.5 => print("one and a half")
+  |         ^^^ not a pattern
+  |
+  = note: two `f64` values that look equal are often not exactly equal
+  = help: compare with `==`, `<` or `>` in an `if` instead
+
+error: could not compile tests/parser/float_pattern.brim due to 1 error

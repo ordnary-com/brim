@@ -208,6 +208,7 @@ impl ModuleLowerer<'_> {
     fn ir_type(&mut self, ty: Type) -> IrType {
         match ty {
             Type::I64 => IrType::I64,
+            Type::F64 => IrType::F64,
             Type::Bool => IrType::Bool,
             Type::String => IrType::Str,
             Type::Void => IrType::Void,
@@ -307,6 +308,7 @@ fn branches(expr: &CheckedExpr) -> bool {
     match &expr.kind {
         CheckedExprKind::And(..) | CheckedExprKind::Or(..) | CheckedExprKind::Try { .. } => true,
         CheckedExprKind::Int(_)
+        | CheckedExprKind::Float(_)
         | CheckedExprKind::Bool(_)
         | CheckedExprKind::Str(_)
         | CheckedExprKind::Local(_) => false,
@@ -494,6 +496,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
     fn zero(&mut self, ty: IrType, span: Span) -> ValueId {
         let kind = match ty {
             IrType::I64 => InstKind::Const(Const::I64(0)),
+            IrType::F64 => InstKind::Const(Const::F64(0)),
             IrType::Bool => InstKind::Const(Const::Bool(false)),
             IrType::Str => InstKind::Const(Const::Str(String::new())),
             IrType::Struct(id) => {
@@ -1615,6 +1618,9 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         let ty = self.ir_type(expr.ty);
         let value = match &expr.kind {
             CheckedExprKind::Int(v) => self.emit_value(InstKind::Const(Const::I64(*v)), ty, span),
+            CheckedExprKind::Float(bits) => {
+                self.emit_value(InstKind::Const(Const::F64(*bits)), ty, span)
+            }
             CheckedExprKind::Bool(v) => self.emit_value(InstKind::Const(Const::Bool(*v)), ty, span),
             CheckedExprKind::Str(v) => {
                 self.emit_value(InstKind::Const(Const::Str(v.clone())), ty, span)
@@ -1626,6 +1632,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 let v = self.value(operand);
                 let op = match op {
                     UnaryOp::IntNeg => brim_ir::UnaryOp::INeg,
+                    UnaryOp::FloatNeg => brim_ir::UnaryOp::FNeg,
                     UnaryOp::BoolNot => brim_ir::UnaryOp::BNot,
                 };
                 self.emit_value(InstKind::Unary(op, v), ty, span)
@@ -1802,6 +1809,12 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 let value = self.runtime(RuntimeFn::StrParseInt, vec![args[0]], i64_ty, span);
                 self.choose_variant(ok, enum_ty, value, None, span)
             }
+            Intrinsic::ParseFloat => {
+                let ok = self.runtime(RuntimeFn::StrParseFloatOk, vec![args[0]], bool_ty, span);
+                let value =
+                    self.runtime(RuntimeFn::StrParseFloat, vec![args[0]], IrType::F64, span);
+                self.choose_variant(ok, enum_ty, value, None, span)
+            }
             Intrinsic::Env => {
                 let set = self.runtime(RuntimeFn::EnvHas, vec![args[0]], bool_ty, span);
                 let value = self.runtime(RuntimeFn::EnvGet, vec![args[0]], str_ty, span);
@@ -1972,6 +1985,17 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             BinaryOp::IntGe => Ir::IGe,
             BinaryOp::BoolEq => Ir::BEq,
             BinaryOp::BoolNe => Ir::BNe,
+            BinaryOp::FloatAdd => Ir::FAdd,
+            BinaryOp::FloatSub => Ir::FSub,
+            BinaryOp::FloatMul => Ir::FMul,
+            BinaryOp::FloatDiv => Ir::FDiv,
+            BinaryOp::FloatRem => Ir::FRem,
+            BinaryOp::FloatEq => Ir::FEq,
+            BinaryOp::FloatNe => Ir::FNe,
+            BinaryOp::FloatLt => Ir::FLt,
+            BinaryOp::FloatLe => Ir::FLe,
+            BinaryOp::FloatGt => Ir::FGt,
+            BinaryOp::FloatGe => Ir::FGe,
             BinaryOp::StrConcat => {
                 let kind = InstKind::CallRuntime(RuntimeFn::StrConcat, vec![a, b]);
                 return self.emit_value(kind, IrType::Str, span);

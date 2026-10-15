@@ -4,6 +4,7 @@
 (comment) @comment
 
 (integer) @number
+(float) @number
 (string) @string
 (escape_sequence) @string.escape
 (boolean) @boolean
@@ -21,7 +22,7 @@
 (call_expression function: (identifier) @function)
 ((call_expression function: (identifier) @function)
   (#any-of? @function
-    "print" "eprint" "to_string" "read_line" "read_file" "write_file" "args" "env" "exit"
+    "print" "eprint" "to_string" "to_float" "to_int" "read_line" "read_file" "write_file" "args" "env" "exit"
     "assert" "assert_eq"))
 ((call_expression function: (identifier) @constructor)
   (#any-of? @constructor "Some" "Ok" "Err"))

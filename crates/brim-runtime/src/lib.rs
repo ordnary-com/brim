@@ -20,6 +20,7 @@
 //! that they do.
 
 pub mod abi;
+pub mod float;
 pub mod net;
 pub mod ops;
 
@@ -63,6 +64,8 @@ pub enum RuntimeError {
     /// `brim_interp::Limits::max_steps`). Not used by `brim run` or native
     /// executables.
     StepLimit { limit: u64 },
+    /// `to_int` of NaN or of a number outside the `i64` range.
+    FloatToInt,
 }
 
 impl RuntimeError {
@@ -78,6 +81,7 @@ impl RuntimeError {
             RuntimeError::InvalidSlice => "R0007",
             RuntimeError::AssertionFailed { .. } => "R0008",
             RuntimeError::StepLimit { .. } => "R0009",
+            RuntimeError::FloatToInt => "R0010",
         }
     }
 }
@@ -109,6 +113,12 @@ impl fmt::Display for RuntimeError {
                 f,
                 "invalid string slice: outside the string or not on a character boundary"
             ),
+            RuntimeError::FloatToInt => {
+                write!(
+                    f,
+                    "cannot convert to `i64`: the number is NaN or out of range"
+                )
+            }
             RuntimeError::StepLimit { limit } => {
                 write!(f, "step limit exceeded: more than {limit} instructions")
             }

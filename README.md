@@ -122,7 +122,7 @@ Brim is at **version 0.1**. It is a working foundation, **not ready for producti
 - Enums with payloads and exhaustive `match`; generic functions, structs and enums; `Option[T]` and `Result[T, E]` with the `?` operator
 - `let` and `let mut`, assignment and compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`)
 - `if` / `else` / `else if`, `while` with `break` and `continue`
-- `i64`, `bool`, `string`; arithmetic, comparison and logical operators; string concatenation and equality
+- `i64`, `f64`, `bool`, `string`; arithmetic, comparison and logical operators; string concatenation and equality
 - `List[T]` and `Map[K, V]` with indexing and methods, and `for` loops over lists and ranges
 - Methods in `impl` blocks, including `mut self` methods that change the caller's value
 - A standard library for command-line tools: string methods, `read_line`, `read_file`, `write_file`, `args`, `env`, `exit`

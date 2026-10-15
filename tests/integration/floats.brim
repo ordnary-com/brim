@@ -1,0 +1,53 @@
+// f64: literals, arithmetic, comparisons, text and conversions.
+
+fn show(label: string, x: f64) {
+    print(label + ": " + to_string(x))
+}
+
+fn mean(xs: List[f64]) -> f64 {
+    let mut total: f64 = 0.0
+    for x in xs {
+        total = total + x
+    }
+    return total / to_float(xs.len())
+}
+
+fn main() {
+    show("sum", 1.5 + 2.25)
+    show("tenths", 0.1 + 0.2)
+    show("third", 1.0 / 3.0)
+    show("negative", -2.5 * 4.0)
+    show("remainder", -7.5 % 2.0)
+    show("exponent", 6.02e23)
+    show("small", 1.5e-7)
+    show("decimal edge", 0.00001)
+    show("scientific edge", 0.000001)
+    show("whole", 1e15)
+    show("large", 1e16)
+    show("max", 1.7976931348623157e308)
+    show("tiny", 5e-324)
+    show("division by zero", 1.0 / 0.0)
+    show("negative infinity", -1.0 / 0.0)
+    show("not a number", 0.0 / 0.0)
+    show("negative zero", -0.0)
+    show("separators", 1_000.5)
+    print(0.0 / 0.0 == 0.0 / 0.0)
+    print(0.0 / 0.0 != 0.0 / 0.0)
+    print(0.1 + 0.2 > 0.3)
+    print(-0.0 == 0.0)
+    show("from int", to_float(7) / 2.0)
+    print(to_int(7.9))
+    print(to_int(-7.9))
+    print(to_int(-9.2e18))
+    show("mean", mean([1.0, 2.0, 4.0]))
+    for text in ["3.25e2", "-0.5", "1e999", "1.", ".5", "inf", "12"] {
+        match text.parse_float() {
+            Some(x) => print(text + " -> " + to_string(x))
+            None => print(text + " -> not a number")
+        }
+    }
+    let celsius: List[f64] = [-40.0, 0.0, 36.6, 100.0]
+    for c in celsius {
+        print(to_string(c) + " C = " + to_string(c * 9.0 / 5.0 + 32.0) + " F")
+    }
+}

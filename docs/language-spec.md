@@ -80,8 +80,18 @@ integer_literal = digit { digit | "_" } ;
 - Decimal only. `_` may be used as a separator (`1_000_000`) and is ignored.
 - A literal with more than one digit may not start with `0` (`007` is error `E0005`), to avoid confusion with octal notation in other languages.
 - Letters directly after a literal (`10px`, `0xFF`) are error `E0006`. Hexadecimal, octal and binary literals are not supported yet.
-- A fraction directly after a literal (`9.99`) is error `E0007`: there are no floating-point numbers yet.
 - The value must fit in `i64`, i.e. be at most 9223372036854775807. The single exception is `9223372036854775808` written directly after unary `-`, which denotes `i64::MIN`. Out-of-range literals are error `E0215`. Literals that do not even fit in 64 bits are error `E0004`.
+
+### 3.4.1 Floating-point literals
+
+```ebnf
+float_literal = digit { digit | "_" } ( "." digit { digit | "_" } [ exponent ] | exponent ) ;
+exponent      = ( "e" | "E" ) [ "+" | "-" ] digit { digit | "_" } ;
+```
+
+- `1.5`, `0.25`, `6.02e23`, `1.5E-7` and `2e10` are `f64` literals; `_` separators are allowed as in integers.
+- There must be digits on both sides of the point: `1.` and `.5` are not literals. `1..5` is a range, and `point.0` a field.
+- A literal too large for `f64` (`1e999`) is error `E0007`. The value is the `f64` nearest to the decimal number.
 
 ### 3.5 String literals
 
@@ -204,6 +214,7 @@ Comparison operators at the same level cannot be chained: `a < b < c` and `a == 
 | Type     | Values                                    |
 |----------|-------------------------------------------|
 | `i64`    | 64-bit signed integers, two's complement  |
+| `f64`    | 64-bit floating-point numbers (IEEE 754 double precision) |
 | `bool`   | `true`, `false`                           |
 | `string` | immutable sequences of Unicode text (UTF-8) |
 | `void`   | no values                                 |
@@ -214,7 +225,7 @@ Comparison operators at the same level cannot be chained: `a < b < c` and `a == 
 
 - `void` may only appear as a function return type. Variables and parameters of type `void` are error `E0213`.
 - Unknown type names are error `E0212`.
-- There are **no implicit conversions** between types, ever.
+- There are **no implicit conversions** between types, ever: `to_float(n)` turns an `i64` into an `f64` and `to_int(x)` the other way (section 10).
 - Two types are compatible only if they are identical.
 
 ### 5.1 Structs
@@ -498,14 +509,16 @@ Operands are evaluated left to right. Function arguments are evaluated left to r
 | `+` `-` `*`         | `i64`, `i64`               | `i64`    | overflow is a run-time error |
 | `/`                 | `i64`, `i64`               | `i64`    | truncates toward zero; division by zero and `i64::MIN / -1` are run-time errors |
 | `%`                 | `i64`, `i64`               | `i64`    | result has the sign of the left operand; `% 0` is a run-time error |
+| `+` `-` `*` `/`     | `f64`, `f64`               | `f64`    | IEEE 754: never a run-time error; `1.0 / 0.0` is `inf`, `0.0 / 0.0` is `NaN` |
+| `%`                 | `f64`, `f64`               | `f64`    | remainder with the sign of the left operand (like C's `fmod`) |
 | `+`                 | `string`, `string`         | `string` | concatenation |
-| `<` `<=` `>` `>=`   | `i64`, `i64` or `string`, `string` | `bool`   | strings compare byte by byte |
-| `==` `!=`           | both `i64`, both `bool`, or both `string` | `bool` | strings compare by content |
+| `<` `<=` `>` `>=`   | two `i64`, two `f64` or two `string` | `bool`   | strings compare byte by byte; comparisons with `NaN` are false |
+| `==` `!=`           | both `i64`, both `f64`, both `bool`, or both `string` | `bool` | strings compare by content; `NaN == NaN` is false and `NaN != NaN` true |
 | `&&` `\|\|`         | `bool`, `bool`             | `bool`   | short-circuit: the right side is evaluated only if needed |
-| unary `-`           | `i64`                      | `i64`    | `-i64::MIN` is a run-time error |
+| unary `-`           | `i64` or `f64`             | same     | `-i64::MIN` is a run-time error |
 | unary `!`           | `bool`                     | `bool`   | |
 
-Any other combination is error `E0209`.
+Any other combination is error `E0209`; in particular `i64` and `f64` never mix (`1.5 * 2` is an error, `1.5 * 2.0` is not).
 
 ### 8.2 Calls
 
@@ -598,9 +611,11 @@ Builtins are always in scope and cannot be redefined.
 
 | Builtin | Forms                                             | Effect |
 |---------|---------------------------------------------------|--------|
-| `print` | `print(string)`, `print(i64)`, `print(bool)`      | writes the value and a newline to standard output |
+| `print` | `print(string)`, `print(i64)`, `print(f64)`, `print(bool)` | writes the value and a newline to standard output |
 | `eprint` | `eprint(string)` | writes the text and a newline to standard error |
-| `to_string` | `to_string(i64) -> string`, `to_string(bool) -> string` | the decimal representation of an integer, or `"true"`/`"false"` |
+| `to_string` | `to_string(i64) -> string`, `to_string(f64) -> string`, `to_string(bool) -> string` | the decimal representation of a number, or `"true"`/`"false"` |
+| `to_float` | `to_float(i64) -> f64` | the nearest `f64` |
+| `to_int` | `to_int(f64) -> i64` | rounds toward zero; NaN and numbers outside the `i64` range are run-time error `R0010` |
 | `read_line` | `read_line() -> Option[string]` | the next line of standard input without its line ending (`\n` or `\r\n`); `None` at the end of input |
 | `read_file` | `read_file(path: string) -> Result[string, string]` | a file's contents; `Err` with a message if it cannot be read or is not UTF-8 |
 | `write_file` | `write_file(path: string, text: string) -> Result[i64, string]` | creates or replaces a file; `Ok` with the number of bytes written |
@@ -609,6 +624,8 @@ Builtins are always in scope and cannot be redefined.
 | `exit` | `exit(code: i64)` | ends the program with an exit code (its low 8 bits); a statement calling `exit` diverges |
 | `assert` | `assert(bool)` | stops the program with run-time error `R0008` if the condition is false |
 | `assert_eq` | `assert_eq(i64, i64)`, `assert_eq(bool, bool)`, `assert_eq(string, string)` | stops the program with `R0008` if the values differ; the message shows both |
+
+An `f64` is written with the fewest digits that read back as exactly the same number: `0.1`, `0.30000000000000004`. Numbers from `0.00001` up to (not including) `1e16` are written as decimals, with `.0` when whole (`2.0`); others in scientific notation (`1e16`, `1.5e-7`). The special values are `NaN`, `inf` and `-inf`, and negative zero is `-0.0`.
 
 A builtin selects its form by the argument's type. User functions cannot be overloaded, and builtins cannot be redefined (`E0216`).
 
@@ -633,6 +650,7 @@ Positions and lengths count **bytes** of the UTF-8 text.
 | `lines()` | `List[string]` | without line endings; a final line ending does not start another line |
 | `chars()` | `List[string]` | each character as a string |
 | `parse_int()` | `Option[i64]` | a decimal integer with an optional `+` or `-`, and nothing else |
+| `parse_float()` | `Option[f64]` | a decimal number with an optional sign, fraction and exponent (`-1.5e3`, `12`); the nearest `f64`, or `inf` for numbers too large. `NaN`, `inf`, `1.` and `.5` are not accepted |
 
 Strings can be compared with `<`, `<=`, `>` and `>=`, byte by byte.
 
@@ -645,14 +663,14 @@ Some of the standard library is written in Brim and built into the compiler. Its
 | `std.net` | TCP: `listen(host, port) -> Result[Listener, string]`, `connect(host, port) -> Result[Conn, string]`; `Listener.accept()`, `port()`, `close()`; `Conn.read_line()`, `read_until(delimiter)`, `read_exact(count)`, `read_all()`, `write(text)`, `set_timeout(millis)`, `port()`, `close()` |
 | `std.time` | `now() -> Time` (the system clock), `from_unix_millis`, `from_unix_seconds`; `Time.iso()` (`2026-10-15T08:30:01.123Z`), `date()`, `http_date()`, `parts() -> DateTime` (year, month, day, hour, minute, second, millisecond, weekday), `unix_seconds()`, `add_millis`, `add_seconds`; `millis()` (a monotonic clock for durations), `sleep(millis)`. All in UTC |
 | `std.log` | `info(message)`, `warn(message)`, `error(message)`: a line on standard error with the time and level |
-| `std.json` | `enum Json { Null, Bool(bool), Number(string), Str(string), Array(List[Json]), Object(Map[string, Json]) }`; `parse(text) -> Result[Json, string]`, `stringify(value)`, `pretty(value)`, `quote(text)`; building: `null()`, `from_bool`, `from_int`, `from_string`, `array`, `object`; reading: `Json.get(key)`, `at(index)`, `as_string()`, `as_int()`, `as_bool()`, `as_array()`, `as_object()`, `is_null()`, `kind()` |
+| `std.json` | `enum Json { Null, Bool(bool), Number(string), Str(string), Array(List[Json]), Object(Map[string, Json]) }`; `parse(text) -> Result[Json, string]`, `stringify(value)`, `pretty(value)`, `quote(text)`; building: `null()`, `from_bool`, `from_int`, `from_float`, `from_string`, `array`, `object`; reading: `Json.get(key)`, `at(index)`, `as_string()`, `as_int()`, `as_float()`, `as_bool()`, `as_array()`, `as_object()`, `is_null()`, `kind()` |
 | `std.http` | HTTP/1.1. Server: `serve(host, port) -> Result[Server, string]`, `Server.next() -> Result[Request, string]`, `Request.respond(Response)`, `Request.header(name)`, `Request.param(name)`. Client: `get(url)`, `post(url, content_type, body)`, `request(method, url, headers, body)`, each `-> Result[Response, string]`. Responses: `text`, `json`, `html`, `response`, `redirect`, `not_found`, `Response.with_header`, `header`, `ok`. URLs: `encode`, `decode` |
 
 Network data is text: what a connection reads must be valid UTF-8. Network errors are messages such as `cannot connect to example.com:80: connection refused`; the reasons are `connection refused`, `connection reset`, `connection closed`, `timed out`, `host not found`, `address in use`, `address not available`, `permission denied`, `invalid port` and `network error`, and for `https://` also `certificate not trusted`, `TLS handshake failed` and `invalid URL`.
 
 The HTTP server handles one request at a time and closes every connection after its response. It protects itself against clients that send too much: request heads over 64 KiB get 431, bodies over the limit (10 MiB, or `Server.with_max_body(bytes)`) get 413, and a client gets ten seconds to send its request. `Conn.read_until_max(delimiter, max)` gives the same protection to programs that use `std.net` directly. Header names are kept in lower case; query parameters and paths are percent-decoded. The client reads bodies with a `content-length`, `chunked` bodies and bodies that last until the connection closes; `https://` URLs go through libcurl, which checks certificates; a native program that uses the HTTP client links with libcurl (`-lcurl`, so building it needs libcurl's development files on Linux), and other programs, servers included, do not. Only the functions a program can reach from `main` (or its tests) are compiled. Redirects are not followed: the 3xx response is returned.
 
-`std.json` follows RFC 8259. Numbers keep the text they were written with (`Number("-2.5e3")`), so no precision is lost; `as_int` reads whole numbers. Object members keep their order, and a repeated key keeps its last value. Parsing rejects lone surrogates (`"\ud83d"`), which are not characters, and values nested more than 128 deep. Parse errors name the problem and the character position: `expected ':' at character 6`.
+`std.json` follows RFC 8259. Numbers keep the text they were written with (`Number("-2.5e3")`), so no precision is lost; `as_int` reads whole numbers and `as_float` any number. `from_float` writes NaN and infinities, which JSON cannot hold, as `null`. Object members keep their order, and a repeated key keeps its last value. Parsing rejects lone surrogates (`"\ud83d"`), which are not characters, and values nested more than 128 deep. Parse errors name the problem and the character position: `expected ':' at character 6`.
 
 The standard library modules use builtins whose names start with `__` (`__net_listen`, ...). Programs cannot call them (`E0201`).
 

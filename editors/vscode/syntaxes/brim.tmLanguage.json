@@ -31,7 +31,8 @@
       ]
     },
     "numbers": {
-      "patterns": [{ "name": "constant.numeric.integer.decimal.brim", "match": "\\b[0-9]+\\b" }]
+      "patterns": [{ "name": "constant.numeric.float.brim", "match": "\\b[0-9][0-9_]*(\\.[0-9][0-9_]*([eE][+-]?[0-9]+)?|[eE][+-]?[0-9]+)\\b" },
+        { "name": "constant.numeric.integer.decimal.brim", "match": "\\b[0-9][0-9_]*\\b" }]
     },
     "declarations": {
       "patterns": [
@@ -70,7 +71,7 @@
     },
     "types": {
       "patterns": [
-        { "name": "support.type.primitive.brim", "match": "\\b(i64|bool|string|void)\\b" },
+        { "name": "support.type.primitive.brim", "match": "\\b(i64|f64|bool|string|void)\\b" },
         { "name": "support.type.builtin.brim", "match": "\\b(Option|Result|List|Map)\\b" },
         { "name": "support.constant.builtin.brim", "match": "\\b(Some|None|Ok|Err)\\b" },
         { "name": "entity.name.type.brim", "match": "\\b[A-Z][A-Za-z0-9_]*\\b" }
@@ -80,7 +81,7 @@
       "patterns": [
         {
           "name": "support.function.builtin.brim",
-          "match": "\\b(print|eprint|to_string|read_line|read_file|write_file|args|env|exit|assert|assert_eq)\\b(?=\\s*\\()"
+          "match": "\\b(print|eprint|to_string|to_float|to_int|read_line|read_file|write_file|args|env|exit|assert|assert_eq)\\b(?=\\s*\\()"
         },
         {
           "name": "entity.name.function.call.brim",

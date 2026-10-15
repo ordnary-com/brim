@@ -1,0 +1,5 @@
+// exit: 101
+fn main() {
+    print(to_int(9.0e18))
+    print(to_int(1.0e19))
+}

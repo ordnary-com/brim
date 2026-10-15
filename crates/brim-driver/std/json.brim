@@ -10,8 +10,8 @@
 //   let reply: json.Json = json.object(["ok": json.from_bool(true)])
 //   print(json.stringify(reply))     // {"ok":true}
 //
-// Numbers are kept as they are written (`42`, `-1.5e3`); `as_int` reads
-// whole numbers.
+// Numbers are kept as they are written (`42`, `-1.5e3`), so none loses
+// precision; `as_int` reads whole numbers and `as_float` any number.
 
 // A JSON value.
 pub enum Json {
@@ -37,6 +37,14 @@ pub fn from_bool(value: bool) -> Json {
 }
 
 pub fn from_int(value: i64) -> Json {
+    return Json.Number(to_string(value))
+}
+
+// A number; NaN and infinities, which JSON cannot hold, become `null`.
+pub fn from_float(value: f64) -> Json {
+    if value != value || value == 1.0 / 0.0 || value == -1.0 / 0.0 {
+        return Json.Null
+    }
     return Json.Number(to_string(value))
 }
 
@@ -83,6 +91,14 @@ impl Json {
     pub fn as_int(self) -> Option[i64] {
         match self {
             Json.Number(text) => return text.parse_int()
+            _ => return None
+        }
+    }
+
+    // Any number, as the nearest `f64`.
+    pub fn as_float(self) -> Option[f64] {
+        match self {
+            Json.Number(text) => return text.parse_float()
             _ => return None
         }
     }

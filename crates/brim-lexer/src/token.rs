@@ -17,6 +17,8 @@ pub enum TokenKind {
     /// A decimal integer literal. Range checking against `i64` happens in
     /// semantic analysis so that `-9223372036854775808` can be written.
     Int(u64),
+    /// A floating-point literal (`1.5`, `2e10`), as the bits of its `f64`.
+    Float(u64),
     /// A string literal, with escape sequences already processed.
     Str(String),
 
@@ -131,6 +133,7 @@ impl TokenKind {
         match self {
             TokenKind::Ident(name) => format!("identifier `{name}`"),
             TokenKind::Int(_) => "integer literal".to_string(),
+            TokenKind::Float(_) => "floating-point literal".to_string(),
             TokenKind::Str(_) => "string literal".to_string(),
             TokenKind::Reserved(word) => format!("reserved keyword `{word}`"),
             TokenKind::Unknown => "invalid character".to_string(),
@@ -146,6 +149,7 @@ impl fmt::Display for TokenKind {
         let s = match self {
             TokenKind::Ident(name) => name,
             TokenKind::Int(value) => return write!(f, "{value}"),
+            TokenKind::Float(bits) => return write!(f, "{}", f64::from_bits(*bits)),
             TokenKind::Str(value) => return write!(f, "{value:?}"),
             TokenKind::Fn => "fn",
             TokenKind::Let => "let",

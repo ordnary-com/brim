@@ -13,6 +13,8 @@ contexts:
   main:
     - include: comments
     - include: strings
+    - match: '\b[0-9][0-9_]*(\.[0-9][0-9_]*([eE][+-]?[0-9]+)?|[eE][+-]?[0-9]+)\b'
+      scope: constant.numeric.float.brim
     - match: '\b[0-9][0-9_]*\b'
       scope: constant.numeric.integer.decimal.brim
     - match: '\b(fn)\s+({{ident}})'
@@ -37,13 +39,13 @@ contexts:
       scope: variable.language.self.brim
     - match: '\b(async|await|const|loop|trait|type|use)\b'
       scope: invalid.illegal.reserved.brim
-    - match: '\b(i64|bool|string|void)\b'
+    - match: '\b(i64|f64|bool|string|void)\b'
       scope: storage.type.primitive.brim
     - match: '\b(Option|Result|List|Map)\b'
       scope: support.type.brim
     - match: '\b(Some|None|Ok|Err)\b'
       scope: support.constant.brim
-    - match: '\b(print|eprint|to_string|read_line|read_file|write_file|args|env|exit|assert|assert_eq)\b(?=\s*\()'
+    - match: '\b(print|eprint|to_string|to_float|to_int|read_line|read_file|write_file|args|env|exit|assert|assert_eq)\b(?=\s*\()'
       scope: support.function.builtin.brim
     - match: '\b[A-Z][A-Za-z0-9_]*\b'
       scope: entity.name.type.brim

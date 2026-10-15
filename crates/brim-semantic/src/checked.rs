@@ -294,6 +294,8 @@ pub struct CheckedExpr {
 #[derive(Clone, Debug)]
 pub enum CheckedExprKind {
     Int(i64),
+    /// The bits of an `f64` literal.
+    Float(u64),
     Bool(bool),
     Str(String),
     Local(LocalId),
@@ -387,6 +389,8 @@ pub enum CheckedExprKind {
 pub enum UnaryOp {
     /// `-x` on `i64` (checked).
     IntNeg,
+    /// `-x` on `f64`.
+    FloatNeg,
     /// `!x` on `bool`.
     BoolNot,
 }
@@ -415,6 +419,17 @@ pub enum BinaryOp {
     StrLe,
     StrGt,
     StrGe,
+    FloatAdd,
+    FloatSub,
+    FloatMul,
+    FloatDiv,
+    FloatRem,
+    FloatEq,
+    FloatNe,
+    FloatLt,
+    FloatLe,
+    FloatGt,
+    FloatGe,
 }
 
 /// Built-in operations that lower to more than one runtime call.
@@ -426,6 +441,7 @@ pub enum Intrinsic {
     StrFind,
     /// `s.parse_int()`: `Option[i64]`.
     ParseInt,
+    ParseFloat,
     /// `read_line()`: `Option[string]`.
     ReadLine,
     /// `read_file(path)`: `Result[string, string]`.

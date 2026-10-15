@@ -6,6 +6,7 @@
 //! | `AbiType` | Brim type      | Native representation                    |
 //! |-----------|----------------|------------------------------------------|
 //! | `I64`     | `i64`          | 64-bit two's complement integer          |
+//! | `F64`     | `f64`          | IEEE 754 double                          |
 //! | `Bool`    | `bool`         | 8-bit integer, `0` or `1`                |
 //! | `Str`     | `string`       | pointer to a runtime string object       |
 //! | `StrList` | `List[string]` | pointer to a runtime list of strings     |
@@ -29,6 +30,7 @@ use crate::RuntimeError;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AbiType {
     I64,
+    F64,
     Bool,
     Str,
     /// `List[string]`.
@@ -40,6 +42,7 @@ impl fmt::Display for AbiType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             AbiType::I64 => "i64",
+            AbiType::F64 => "f64",
             AbiType::Bool => "bool",
             AbiType::Str => "str",
             AbiType::StrList => "[str]",
@@ -89,6 +92,19 @@ runtime_fns! {
     PrintBool = "brim_rt_print_bool" (Bool) -> Void;
     /// `print(string)`
     PrintStr = "brim_rt_print_str" (Str) -> Void;
+    /// `print(f64)`
+    PrintF64 = "brim_rt_print_f64" (F64) -> Void;
+    /// `to_string(f64)`: the fewest digits that read back exactly.
+    F64ToStr = "brim_rt_f64_to_str" (F64) -> Str;
+    /// `to_float(i64)`: the nearest `f64`.
+    I64ToF64 = "brim_rt_i64_to_f64" (I64) -> F64;
+    /// `to_int(f64)`: rounds toward zero; NaN and numbers outside `i64`
+    /// are run-time errors.
+    F64ToI64 = "brim_rt_f64_to_i64" (F64) -> I64;
+    /// Whether `s` is a decimal number for `parse_float`.
+    StrParseFloatOk = "brim_rt_str_parse_float_ok" (Str) -> Bool;
+    /// The value of a string for which `StrParseFloatOk` is true.
+    StrParseFloat = "brim_rt_str_parse_float" (Str) -> F64;
     /// `eprint(string)`: a line on standard error.
     EPrintStr = "brim_rt_eprint_str" (Str) -> Void;
     /// String `+`.
@@ -217,6 +233,7 @@ impl RuntimeFn {
     pub fn failure(self) -> Option<RuntimeError> {
         match self {
             RuntimeFn::StrSlice => Some(RuntimeError::InvalidSlice),
+            RuntimeFn::F64ToI64 => Some(RuntimeError::FloatToInt),
             RuntimeFn::Assert => Some(RuntimeError::AssertionFailed { values: None }),
             // The values are printed by the runtime.
             RuntimeFn::AssertEqI64 | RuntimeFn::AssertEqBool | RuntimeFn::AssertEqStr => {

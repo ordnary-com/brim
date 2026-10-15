@@ -52,6 +52,7 @@ pub struct TypeId(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
     I64,
+    F64,
     Bool,
     String,
     /// The type of functions that return nothing. It has no values: it cannot
@@ -71,6 +72,7 @@ impl Type {
     pub fn from_name(name: &str) -> Option<Type> {
         Some(match name {
             "i64" => Type::I64,
+            "f64" => Type::F64,
             "bool" => Type::Bool,
             "string" => Type::String,
             "void" => Type::Void,
@@ -81,6 +83,7 @@ impl Type {
     pub fn to_prim(self) -> Option<Prim> {
         Some(match self {
             Type::I64 => Prim::I64,
+            Type::F64 => Prim::F64,
             Type::Bool => Prim::Bool,
             Type::String => Prim::String,
             Type::Void => Prim::Void,
@@ -91,6 +94,7 @@ impl Type {
     pub fn from_prim(prim: Prim) -> Type {
         match prim {
             Prim::I64 => Type::I64,
+            Prim::F64 => Type::F64,
             Prim::Bool => Type::Bool,
             Prim::String => Type::String,
             Prim::Void => Type::Void,
@@ -102,6 +106,7 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Type::I64 => "i64",
+            Type::F64 => "f64",
             Type::Bool => "bool",
             Type::String => "string",
             Type::Void => "void",

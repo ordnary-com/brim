@@ -26,6 +26,7 @@ pub(super) enum Ret {
     Str,
     StrList,
     OptionI64,
+    OptionF64,
     OptionStr,
     ResultStr,
     ResultI64,
@@ -55,6 +56,7 @@ fn str_method(name: &str) -> Option<(StrMethod, &'static [Type], Ret)> {
         "lines" => (F(R::StrLines), NONE, Ret::StrList),
         "chars" => (F(R::StrChars), NONE, Ret::StrList),
         "parse_int" => (I(Intrinsic::ParseInt), NONE, Ret::OptionI64),
+        "parse_float" => (I(Intrinsic::ParseFloat), NONE, Ret::OptionF64),
         _ => return None,
     })
 }
@@ -78,6 +80,7 @@ const STR_METHODS: &[&str] = &[
     "lines",
     "chars",
     "parse_int",
+    "parse_float",
 ];
 
 /// Built-in functions with non-primitive types.
@@ -110,6 +113,7 @@ impl<'a> Checker<'a> {
             Ret::Str => Type::String,
             Ret::StrList => self.list_of(Type::String),
             Ret::OptionI64 => option(self, Type::I64),
+            Ret::OptionF64 => option(self, Type::F64),
             Ret::OptionStr => option(self, Type::String),
             Ret::ResultStr => result(self, Type::String),
             Ret::ResultI64 => result(self, Type::I64),

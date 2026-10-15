@@ -21,6 +21,7 @@ use brim_runtime::RuntimeFn;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Prim {
     I64,
+    F64,
     Bool,
     String,
     Void,
@@ -30,6 +31,7 @@ impl fmt::Display for Prim {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Prim::I64 => "i64",
+            Prim::F64 => "f64",
             Prim::Bool => "bool",
             Prim::String => "string",
             Prim::Void => "void",
@@ -90,6 +92,11 @@ pub const BUILTINS: &[Builtin] = &[
                 params: &[Prim::Bool],
                 ret: Prim::Void,
                 runtime: RuntimeFn::PrintBool,
+            },
+            Overload {
+                params: &[Prim::F64],
+                ret: Prim::Void,
+                runtime: RuntimeFn::PrintF64,
             },
         ],
     },
@@ -155,7 +162,30 @@ pub const BUILTINS: &[Builtin] = &[
                 ret: Prim::String,
                 runtime: RuntimeFn::BoolToStr,
             },
+            Overload {
+                params: &[Prim::F64],
+                ret: Prim::String,
+                runtime: RuntimeFn::F64ToStr,
+            },
         ],
+    },
+    Builtin {
+        name: "to_float",
+        summary: "Converts an integer to the nearest floating-point number.",
+        overloads: &[Overload {
+            params: &[Prim::I64],
+            ret: Prim::F64,
+            runtime: RuntimeFn::I64ToF64,
+        }],
+    },
+    Builtin {
+        name: "to_int",
+        summary: "Converts a floating-point number to an integer, rounding toward zero.",
+        overloads: &[Overload {
+            params: &[Prim::F64],
+            ret: Prim::I64,
+            runtime: RuntimeFn::F64ToI64,
+        }],
     },
     // Primitives for the standard library modules (`std.net`, ...). Names
     // starting with `__` can only be used inside `std` modules.
@@ -356,6 +386,7 @@ mod tests {
     fn abi(p: Prim) -> AbiType {
         match p {
             Prim::I64 => AbiType::I64,
+            Prim::F64 => AbiType::F64,
             Prim::Bool => AbiType::Bool,
             Prim::String => AbiType::Str,
             Prim::Void => AbiType::Void,

@@ -28,9 +28,38 @@ true
 ```
 
 Variables are immutable unless declared with `let mut`, and always have a
-type. The basic types are `i64`, `bool` and `string`. Integer arithmetic is
-checked: an overflow stops the program with a run-time error instead of
-wrapping around.
+type. The basic types are `i64`, `f64`, `bool` and `string`. Integer
+arithmetic is checked: an overflow stops the program with a run-time error
+instead of wrapping around.
+
+## Numbers
+
+```brim
+fn main() {
+    let price: f64 = 19.95
+    let count: i64 = 3
+    let total: f64 = price * to_float(count)
+    print(total)
+    print(0.1 + 0.2)
+    print(to_int(total))
+    match "2.5e3".parse_float() {
+        Some(x) => print(x / 1000.0)
+        None => print("not a number")
+    }
+}
+```
+
+```text
+59.849999999999994
+0.30000000000000004
+59
+2.5
+```
+
+`i64` is for counting and `f64` for measuring. They never mix by
+accident: `price * count` is an error until you convert one with
+`to_float` or `to_int`. `f64` follows IEEE 754, so `0.1 + 0.2` is not
+exactly `0.3`, and `1.0 / 0.0` is `inf` rather than an error.
 
 ## Functions
 

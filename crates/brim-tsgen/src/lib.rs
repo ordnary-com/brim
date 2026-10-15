@@ -6,7 +6,7 @@
 //!
 //! | Brim                         | TypeScript                                        |
 //! |------------------------------|---------------------------------------------------|
-//! | `i64`                        | `number`                                          |
+//! | `i64`, `f64`                 | `number`                                          |
 //! | `bool`                       | `boolean`                                         |
 //! | `string`                     | `string`                                          |
 //! | `List[T]`                    | `T[]`                                             |
@@ -207,7 +207,7 @@ impl Generator<'_> {
     /// A Brim type in TypeScript. `params` names the type parameters.
     fn ts(&self, ty: Type, params: &[String]) -> String {
         match ty {
-            Type::I64 => "number".into(),
+            Type::I64 | Type::F64 => "number".into(),
             Type::Bool => "boolean".into(),
             Type::String => "string".into(),
             Type::Void | Type::Error => "null".into(),

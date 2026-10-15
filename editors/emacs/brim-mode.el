@@ -35,10 +35,10 @@
 
 (defconst brim-reserved '("async" "await" "const" "loop" "trait" "type" "use"))
 
-(defconst brim-types '("i64" "bool" "string" "void" "Option" "Result" "List" "Map"))
+(defconst brim-types '("i64" "f64" "bool" "string" "void" "Option" "Result" "List" "Map"))
 
 (defconst brim-builtins
-  '("print" "eprint" "to_string" "read_line" "read_file" "write_file" "args" "env"
+  '("print" "eprint" "to_string" "to_float" "to_int" "read_line" "read_file" "write_file" "args" "env"
     "exit" "assert" "assert_eq"))
 
 (defconst brim-constants '("true" "false" "self" "Some" "None" "Ok" "Err"))
@@ -51,7 +51,7 @@
     (,(concat (regexp-opt brim-builtins 'symbols) "\\s-*(") 1 font-lock-builtin-face)
     ("\\_<fn\\s-+\\([A-Za-z_][A-Za-z0-9_]*\\)" 1 font-lock-function-name-face)
     ("\\_<[A-Z][A-Za-z0-9_]*\\_>" . font-lock-type-face)
-    ("\\_<[0-9][0-9_]*\\_>" . font-lock-constant-face)))
+    ("\\_<[0-9][0-9_]*\\(?:\\.[0-9][0-9_]*\\)?\\(?:[eE][+-]?[0-9]+\\)?\\_>" . font-lock-constant-face)))
 
 (defvar brim-mode-syntax-table
   (let ((table (make-syntax-table)))

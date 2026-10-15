@@ -281,6 +281,8 @@ pub enum ExprKind {
     /// A decimal integer literal. Stored unsigned; range checking happens in
     /// semantic analysis.
     Int(u64),
+    /// A floating-point literal, as the bits of its `f64`.
+    Float(u64),
     Bool(bool),
     /// A string literal with escapes already decoded.
     Str(String),
@@ -409,6 +411,7 @@ impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.kind {
             ExprKind::Int(v) => write!(f, "{v}"),
+            ExprKind::Float(bits) => write!(f, "{:?}", f64::from_bits(*bits)),
             ExprKind::Bool(v) => write!(f, "{v}"),
             ExprKind::Str(v) => write!(f, "{v:?}"),
             ExprKind::Name(ident) => f.write_str(&ident.name),

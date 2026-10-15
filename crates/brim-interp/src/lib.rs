@@ -56,6 +56,8 @@ pub struct Trap {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Value {
     I64(i64),
+    /// The bits of an `f64` (so `Value` stays `Eq`).
+    F64(u64),
     Bool(bool),
     Str(BrimStr),
     /// Field values in field order. Structs are immutable values: `insert`
@@ -119,6 +121,13 @@ impl MapData {
 }
 
 impl Value {
+    fn f64(&self) -> f64 {
+        match self {
+            Value::F64(bits) => f64::from_bits(*bits),
+            other => unreachable!("validated IR: expected f64, found {other:?}"),
+        }
+    }
+
     fn i64(&self) -> i64 {
         match self {
             Value::I64(v) => *v,
@@ -418,6 +427,7 @@ fn execute(
 
         let value = match &inst.kind {
             InstKind::Const(Const::I64(v)) => Value::I64(*v),
+            InstKind::Const(Const::F64(bits)) => Value::F64(*bits),
             InstKind::Const(Const::Bool(v)) => Value::Bool(*v),
             InstKind::Const(Const::Str(v)) => Value::Str(BrimStr::from(v.as_str())),
             InstKind::Load(slot) => frame.slots[slot.index()]
@@ -431,6 +441,7 @@ fn execute(
                 let v = frame.get(*v);
                 match op {
                     UnaryOp::INeg => Value::I64(ops::neg(v.i64()).map_err(fail)?),
+                    UnaryOp::FNeg => float(-v.f64()),
                     UnaryOp::BNot => Value::Bool(!v.bool()),
                 }
             }
@@ -609,7 +620,22 @@ fn binary(op: BinaryOp, a: &Value, b: &Value) -> Result<Value, RuntimeError> {
         IGe => Value::Bool(a.i64() >= b.i64()),
         BEq => Value::Bool(a.bool() == b.bool()),
         BNe => Value::Bool(a.bool() != b.bool()),
+        FAdd => float(a.f64() + b.f64()),
+        FSub => float(a.f64() - b.f64()),
+        FMul => float(a.f64() * b.f64()),
+        FDiv => float(a.f64() / b.f64()),
+        FRem => float(a.f64() % b.f64()),
+        FEq => Value::Bool(a.f64() == b.f64()),
+        FNe => Value::Bool(a.f64() != b.f64()),
+        FLt => Value::Bool(a.f64() < b.f64()),
+        FLe => Value::Bool(a.f64() <= b.f64()),
+        FGt => Value::Bool(a.f64() > b.f64()),
+        FGe => Value::Bool(a.f64() >= b.f64()),
     })
+}
+
+fn float(x: f64) -> Value {
+    Value::F64(x.to_bits())
 }
 
 fn str_list(items: Vec<BrimStr>) -> Value {
@@ -655,6 +681,22 @@ fn call_runtime(
             r::print_bool(state.host.out, args[0].bool()).map_err(io)?;
             None
         }
+        RuntimeFn::PrintF64 => {
+            r::print_str(state.host.out, &r::float::format_f64(args[0].f64())).map_err(io)?;
+            None
+        }
+        RuntimeFn::F64ToStr => str_value(BrimStr::from(r::float::format_f64(args[0].f64()))),
+        RuntimeFn::I64ToF64 => Some(float(args[0].i64() as f64)),
+        RuntimeFn::F64ToI64 => {
+            let x = args[0].f64();
+            // Inside `i64` after rounding toward zero; NaN fails both tests.
+            if !(x > -9_223_372_036_854_775_809.0 && x < 9_223_372_036_854_775_808.0) {
+                return Err(RuntimeError::FloatToInt);
+            }
+            Some(Value::I64(x as i64))
+        }
+        RuntimeFn::StrParseFloatOk => Some(Value::Bool(r::float::parse_f64(s(0)).is_some())),
+        RuntimeFn::StrParseFloat => Some(float(r::float::parse_f64(s(0)).unwrap_or(0.0))),
         RuntimeFn::PrintStr => {
             r::print_str(state.host.out, s(0)).map_err(io)?;
             None

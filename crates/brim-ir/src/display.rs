@@ -87,6 +87,9 @@ impl Display for InstDisplay<'_> {
         }
         match &self.inst.kind {
             InstKind::Const(Const::I64(v)) => write!(f, "const i64 {v}"),
+            InstKind::Const(Const::F64(bits)) => {
+                write!(f, "const f64 {:?}", f64::from_bits(*bits))
+            }
             InstKind::Const(Const::Bool(v)) => write!(f, "const bool {v}"),
             InstKind::Const(Const::Str(v)) => write!(f, "const str {v:?}"),
             InstKind::Load(slot) => write!(f, "load {slot}"),

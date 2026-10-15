@@ -1,0 +1,7 @@
+fn main() {
+    let x: f64 = 1.5
+    let n: i64 = 2
+    print(x * n)
+    let y: f64 = 3
+    let m: Map[f64, i64] = [:]
+}

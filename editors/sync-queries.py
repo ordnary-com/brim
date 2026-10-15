@@ -23,6 +23,7 @@ HELIX = [
     ("@variable.parameter", "@variable.parameter"),
     ("@string.escape", "@constant.character.escape"),
     ("@property", "@variable.other.member"),
+    ("@number.float", "@constant.numeric.float"),
     ("@number", "@constant.numeric.integer"),
     ("@boolean", "@constant.builtin.boolean"),
     ("@module", "@namespace"),
@@ -36,6 +37,7 @@ ZED = [
     ("@variable.builtin", "@variable.special"),
     ("@variable.parameter", "@variable"),
     ("@module", "@type"),
+    ("@number.float", "@number"),
 ]
 
 COPIES = {

@@ -1,0 +1,9 @@
+error[E0007]: floating-point literal is too large
+ --> tests/lexer/float_too_large.brim:2:11
+  |
+2 |     print(1e999)
+  |           ^^^^^
+  |
+  = note: the largest `f64` is about 1.7976931348623157e308
+
+error: could not compile tests/lexer/float_too_large.brim due to 1 error

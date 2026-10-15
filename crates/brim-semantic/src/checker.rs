@@ -1068,6 +1068,16 @@ impl<'a> Checker<'a> {
         } else {
             diag = diag.with_note("Brim never converts between types implicitly");
         }
+        diag = match (expected, expr.ty, &expr.kind) {
+            (Type::F64, Type::I64, CheckedExprKind::Int(v)) => {
+                diag.with_help(format!("write `{v}.0` for a floating-point number"))
+            }
+            (Type::F64, Type::I64, _) => diag.with_help("convert it with `to_float(...)`"),
+            (Type::I64, Type::F64, _) => {
+                diag.with_help("convert it with `to_int(...)`, which rounds toward zero")
+            }
+            _ => diag,
+        };
         self.diags.push(diag);
     }
 }

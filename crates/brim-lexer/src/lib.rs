@@ -127,6 +127,50 @@ impl Lexer<'_> {
         while matches!(self.peek(), Some('0'..='9' | '_')) {
             self.bump();
         }
+        // A fraction (`1.5`) and an exponent (`2e10`, `1.5e-3`) make a
+        // floating-point literal. `0..n` stays a range, and `1.x` a field.
+        let rest = &self.src[self.pos..];
+        let fraction = rest.starts_with('.') && rest[1..].starts_with(|c: char| c.is_ascii_digit());
+        if fraction {
+            self.bump();
+            while matches!(self.peek(), Some('0'..='9' | '_')) {
+                self.bump();
+            }
+        }
+        let rest = &self.src[self.pos..];
+        let after_e = rest.get(1..).unwrap_or("");
+        let after_e = after_e
+            .strip_prefix('+')
+            .or_else(|| after_e.strip_prefix('-'))
+            .unwrap_or(after_e);
+        let exponent =
+            rest.starts_with(['e', 'E']) && after_e.starts_with(|c: char| c.is_ascii_digit());
+        if exponent {
+            self.bump();
+            if matches!(self.peek(), Some('+' | '-')) {
+                self.bump();
+            }
+            while matches!(self.peek(), Some('0'..='9' | '_')) {
+                self.bump();
+            }
+        }
+        if fraction || exponent {
+            let text: String = self.src[start..self.pos]
+                .chars()
+                .filter(|c| *c != '_')
+                .collect();
+            let value = text.parse::<f64>().unwrap_or(f64::INFINITY);
+            if value.is_infinite() {
+                self.diags.push(
+                    Diagnostic::error("floating-point literal is too large")
+                        .with_code("E0007")
+                        .with_primary(Span::new(start, self.pos), "")
+                        .with_note(format!("the largest `f64` is about {:e}", f64::MAX)),
+                );
+            }
+            self.push(TokenKind::Float(value.to_bits()), start);
+            return;
+        }
         // Letters directly after a number (`10px`, `0x1F`) are not supported.
         if matches!(self.peek(), Some('a'..='z' | 'A'..='Z')) {
             let suffix_start = self.pos;
@@ -141,22 +185,6 @@ impl Lexer<'_> {
                 .with_code("E0006")
                 .with_primary(Span::new(start, self.pos), "invalid integer literal")
                 .with_note("only decimal integer literals are supported"),
-            );
-            self.push(TokenKind::Int(0), start);
-            return;
-        }
-        // A fraction (`1.5`) would otherwise lex as a field access on `1`.
-        let rest = &self.src[self.pos..];
-        if rest.starts_with('.') && rest[1..].starts_with(|c: char| c.is_ascii_digit()) {
-            self.bump();
-            while matches!(self.peek(), Some('0'..='9' | '_')) {
-                self.bump();
-            }
-            self.diags.push(
-                Diagnostic::error("floating-point numbers are not supported yet")
-                    .with_code("E0007")
-                    .with_primary(Span::new(start, self.pos), "")
-                    .with_note("`i64` is the only number type"),
             );
             self.push(TokenKind::Int(0), start);
             return;
@@ -487,11 +515,24 @@ mod tests {
             )]
         );
         assert_eq!(
-            errors("1.5"),
-            vec![(
-                "E0007",
-                "floating-point numbers are not supported yet".to_string()
-            )]
+            errors("1e999"),
+            vec![("E0007", "floating-point literal is too large".to_string())]
+        );
+        use TokenKind::{Dot, DotDot, Eof, Float, Int};
+        assert_eq!(
+            kinds("1.5 2e3 1.5E-2 0..3 x.0"),
+            vec![
+                Float(1.5f64.to_bits()),
+                Float(2000f64.to_bits()),
+                Float(0.015f64.to_bits()),
+                Int(0),
+                DotDot,
+                Int(3),
+                ident("x"),
+                Dot,
+                Int(0),
+                Eof
+            ]
         );
     }
 

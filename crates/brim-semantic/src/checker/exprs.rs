@@ -53,6 +53,7 @@ impl<'a> Checker<'a> {
     ) -> CheckedExpr {
         let span = expr.span;
         let (kind, ty) = match &expr.kind {
+            ast::ExprKind::Float(bits) => (CheckedExprKind::Float(*bits), Type::F64),
             ast::ExprKind::Int(value) => match i64::try_from(*value) {
                 Ok(v) => (CheckedExprKind::Int(v), Type::I64),
                 Err(_) => {
@@ -1149,11 +1150,12 @@ impl<'a> Checker<'a> {
         let (op, ty) = match (op, operand.ty) {
             (_, Type::Error) => return error_expr(span),
             (ast::UnaryOp::Neg, Type::I64) => (UnaryOp::IntNeg, Type::I64),
+            (ast::UnaryOp::Neg, Type::F64) => (UnaryOp::FloatNeg, Type::F64),
             (ast::UnaryOp::Not, Type::Bool) => (UnaryOp::BoolNot, Type::Bool),
             (op, ty) => {
                 let ty = self.show(ty);
                 let expected = if op == ast::UnaryOp::Neg {
-                    "i64"
+                    "i64` or `f64"
                 } else {
                     "bool"
                 };
@@ -1202,7 +1204,7 @@ impl<'a> Checker<'a> {
         rhs: CheckedExpr,
         span: Span,
     ) -> CheckedExpr {
-        use Type::{Bool, I64, String};
+        use Type::{Bool, F64, I64, String};
         use ast::BinaryOp as Op;
 
         if lhs.ty == Type::Error || rhs.ty == Type::Error {
@@ -1229,6 +1231,17 @@ impl<'a> Checker<'a> {
             (Op::Le, String, String) => Some((BinaryOp::StrLe, Bool)),
             (Op::Gt, String, String) => Some((BinaryOp::StrGt, Bool)),
             (Op::Ge, String, String) => Some((BinaryOp::StrGe, Bool)),
+            (Op::Add, F64, F64) => Some((BinaryOp::FloatAdd, F64)),
+            (Op::Sub, F64, F64) => Some((BinaryOp::FloatSub, F64)),
+            (Op::Mul, F64, F64) => Some((BinaryOp::FloatMul, F64)),
+            (Op::Div, F64, F64) => Some((BinaryOp::FloatDiv, F64)),
+            (Op::Rem, F64, F64) => Some((BinaryOp::FloatRem, F64)),
+            (Op::Eq, F64, F64) => Some((BinaryOp::FloatEq, Bool)),
+            (Op::Ne, F64, F64) => Some((BinaryOp::FloatNe, Bool)),
+            (Op::Lt, F64, F64) => Some((BinaryOp::FloatLt, Bool)),
+            (Op::Le, F64, F64) => Some((BinaryOp::FloatLe, Bool)),
+            (Op::Gt, F64, F64) => Some((BinaryOp::FloatGt, Bool)),
+            (Op::Ge, F64, F64) => Some((BinaryOp::FloatGe, Bool)),
             (Op::And | Op::Or, Bool, Bool) => None,
             _ => {
                 self.invalid_binary(op, op_span, &lhs, &rhs);
@@ -1278,16 +1291,26 @@ impl<'a> Checker<'a> {
                 "`{l}` can be any type, and not every type can be compared with `{sym}`"
             )),
             Op::Add if lhs.ty == Type::String || rhs.ty == Type::String => diag
-                .with_note("`+` joins two strings or adds two integers")
+                .with_note("`+` joins two strings or adds two numbers of the same type")
                 .with_note("Brim never converts values to strings implicitly"),
+            _ if matches!(
+                (lhs.ty, rhs.ty),
+                (Type::I64, Type::F64) | (Type::F64, Type::I64)
+            ) =>
+            {
+                diag.with_note("Brim never converts between `i64` and `f64` implicitly")
+                    .with_help(
+                        "convert the `i64` with `to_float(...)`, or the `f64` with `to_int(...)`",
+                    )
+            }
             Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Rem => {
-                diag.with_note(format!("`{sym}` requires two `i64` operands"))
+                diag.with_note(format!("`{sym}` requires two `i64` or two `f64` operands"))
             }
-            Op::Lt | Op::Le | Op::Gt | Op::Ge => {
-                diag.with_note(format!("`{sym}` compares two `i64` or two `string` values"))
-            }
+            Op::Lt | Op::Le | Op::Gt | Op::Ge => diag.with_note(format!(
+                "`{sym}` compares two numbers of the same type or two `string` values"
+            )),
             Op::Eq | Op::Ne => diag.with_note(format!(
-                "`{sym}` compares two values of the same type (`i64`, `bool` or `string`)"
+                "`{sym}` compares two values of the same type (`i64`, `f64`, `bool` or `string`)"
             )),
             Op::And | Op::Or => diag.with_note(format!("`{sym}` requires two `bool` operands")),
         };

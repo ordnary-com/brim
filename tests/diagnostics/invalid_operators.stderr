@@ -6,7 +6,7 @@ error[E0209]: cannot apply `+` to `string` and `i64`
   |                     ^ `string + i64` is not defined
   |                       - `i64`
   |
-  = note: `+` joins two strings or adds two integers
+  = note: `+` joins two strings or adds two numbers of the same type
   = note: Brim never converts values to strings implicitly
 
 error[E0209]: cannot apply `&&` to `i64` and `bool`
@@ -25,6 +25,6 @@ error[E0209]: cannot apply unary `-` to a value of type `string`
 4 |     print(-"text")
   |            ^^^^^^ this is `string`
   |
-  = note: unary `-` requires `i64`
+  = note: unary `-` requires `i64` or `f64`
 
 error: could not compile tests/diagnostics/invalid_operators.brim due to 3 errors

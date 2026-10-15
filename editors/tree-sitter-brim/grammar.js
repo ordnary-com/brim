@@ -115,7 +115,7 @@ module.exports = grammar({
 
     _type: ($) => choice($.primitive_type, $.generic_type, $.path_type),
 
-    primitive_type: (_) => choice('i64', 'bool', 'string', 'void'),
+    primitive_type: (_) => choice('i64', 'f64', 'bool', 'string', 'void'),
 
     path_type: ($) => prec.right(seq($.identifier, repeat(seq('.', $.identifier)))),
 
@@ -212,6 +212,7 @@ module.exports = grammar({
     _expression: ($) =>
       choice(
         $.integer,
+        $.float,
         $.string,
         $.boolean,
         $.identifier,
@@ -311,6 +312,8 @@ module.exports = grammar({
     try_expression: ($) => prec(PREC.postfix, seq($._expression, '?')),
 
     integer: (_) => /[0-9][0-9_]*/,
+
+    float: (_) => /[0-9][0-9_]*(\.[0-9][0-9_]*([eE][+-]?[0-9]+)?|[eE][+-]?[0-9]+)/,
 
     string: ($) => seq('"', repeat(choice($.escape_sequence, token.immediate(/[^"\\\n]+/))), '"'),
 

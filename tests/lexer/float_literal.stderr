@@ -1,9 +1,0 @@
-error[E0007]: floating-point numbers are not supported yet
- --> tests/lexer/float_literal.brim:2:22
-  |
-2 |     let price: i64 = 9.99
-  |                      ^^^^
-  |
-  = note: `i64` is the only number type
-
-error: could not compile tests/lexer/float_literal.brim due to 1 error

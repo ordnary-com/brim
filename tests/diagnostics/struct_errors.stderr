@@ -77,7 +77,7 @@ error[E0206]: `print` cannot be called with `User`
 16 |     print(w)
    |           ^ unsupported argument type
    |
-   = note: available forms: `print(string)`, `print(i64)`, `print(bool)`
+   = note: available forms: `print(string)`, `print(i64)`, `print(bool)`, `print(f64)`
 
 error[E0212]: unknown type `Usr`
   --> tests/diagnostics/struct_errors.brim:17:12

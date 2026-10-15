@@ -1225,6 +1225,16 @@ impl Parser {
                     },
                 });
             }
+            TokenKind::Float(_) => {
+                self.diags.push(
+                    Diagnostic::error("floating-point numbers cannot be matched")
+                        .with_code("E0100")
+                        .with_primary(token.span, "not a pattern")
+                        .with_note("two `f64` values that look equal are often not exactly equal")
+                        .with_help("compare with `==`, `<` or `>` in an `if` instead"),
+                );
+                return Err(Reported);
+            }
             _ => return Err(self.error_unexpected("a pattern")),
         };
         Ok(Pattern {
@@ -1651,6 +1661,7 @@ impl Parser {
         let token = self.peek().clone();
         let kind = match token.kind {
             TokenKind::Int(value) => ExprKind::Int(value),
+            TokenKind::Float(bits) => ExprKind::Float(bits),
             TokenKind::Str(value) => ExprKind::Str(value),
             TokenKind::True => ExprKind::Bool(true),
             TokenKind::False => ExprKind::Bool(false),

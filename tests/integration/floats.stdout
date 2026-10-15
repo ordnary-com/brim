@@ -1,0 +1,38 @@
+sum: 3.75
+tenths: 0.30000000000000004
+third: 0.3333333333333333
+negative: -10.0
+remainder: -1.5
+exponent: 6.02e23
+small: 1.5e-7
+decimal edge: 0.00001
+scientific edge: 1e-6
+whole: 1000000000000000.0
+large: 1e16
+max: 1.7976931348623157e308
+tiny: 5e-324
+division by zero: inf
+negative infinity: -inf
+not a number: NaN
+negative zero: -0.0
+separators: 1000.5
+false
+true
+true
+true
+from int: 3.5
+7
+-7
+-9200000000000000000
+mean: 2.3333333333333335
+3.25e2 -> 325.0
+-0.5 -> -0.5
+1e999 -> inf
+1. -> not a number
+.5 -> not a number
+inf -> not a number
+12 -> 12.0
+-40.0 C = -40.0 F
+0.0 C = 32.0 F
+36.6 C = 97.88000000000001 F
+100.0 C = 212.0 F
