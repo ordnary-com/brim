@@ -8,7 +8,7 @@ repository = "https://github.com/ordnary-com/brim"
 
 [grammars.brim]
 repository = "https://github.com/ordnary-com/brim"
-rev = "368d99a6bb60b0dbf2e198548942309bb648f374"
+rev = "20d586fad463a2c2017715c88ba5a89ad9404fa5"
 path = "editors/tree-sitter-brim"
 
 [language_servers.brim]
