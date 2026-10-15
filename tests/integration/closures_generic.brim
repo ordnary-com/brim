@@ -1,0 +1,48 @@
+// `fn` expressions inside generic functions capture values of the type
+// parameters.
+
+fn always[T](value: T) -> fn() -> T {
+    return fn() -> T {
+        return value
+    }
+}
+
+fn twice[T](f: fn(T) -> T) -> fn(T) -> T {
+    return fn(x: T) -> T {
+        return f(f(x))
+    }
+}
+
+struct Counter {
+    count: i64
+    step: fn(i64) -> i64
+}
+
+fn main() {
+    let hello: fn() -> string = always("hello")
+    print(hello())
+    print(always([1, 2])())
+    let shout: fn(string) -> string = twice(fn(s: string) -> string {
+        return s + "!"
+    })
+    print(shout("hey"))
+    print(twice(twice(fn(x: i64) -> i64 {
+        return x * 2
+    }))(1))
+
+    let mut c: Counter = Counter { count: 0, step: fn(n: i64) -> i64 {
+        return n + 5
+    } }
+    for i in 0..3 {
+        c.count = c.step(c.count)
+    }
+    print(c.count)
+    let fns: List[fn(i64) -> i64] = [fn(x: i64) -> i64 {
+        return x + 1
+    }, fn(x: i64) -> i64 {
+        return x * x
+    }]
+    for f in fns {
+        print(f(7))
+    }
+}

@@ -372,6 +372,31 @@ impl FnValidator<'_> {
                 self.check_args(&format!("`{}`", callee.name), args, &params, local);
                 (callee.ret != Type::Void).then_some(callee.ret)
             }
+            InstKind::MakeClosure(func, env) => {
+                let Some(callee) = self.module.functions.get(func.index()) else {
+                    self.error(format!("closure of nonexistent {func}"));
+                    return;
+                };
+                let env_ty = callee.param_types().next();
+                match (env_ty, env) {
+                    (Some(Type::List(_)), None) => {}
+                    (Some(ty @ Type::List(_)), Some(env)) => self.expect_operand(*env, ty, local),
+                    _ => self.error(format!(
+                        "`{}` does not take an environment list first",
+                        callee.name
+                    )),
+                }
+                Some(Type::Closure)
+            }
+            InstKind::CallClosure(closure, args) => {
+                self.expect_operand(*closure, Type::Closure, local);
+                for arg in args {
+                    self.operand(*arg, local);
+                }
+                // The callee is only known at run time: the result has the
+                // type the instruction declares.
+                result.and_then(|v| f.values.get(v.index()).copied())
+            }
             InstKind::CallRuntime(rt, args) => {
                 // A list parameter or result is any list type with the
                 // right element type.

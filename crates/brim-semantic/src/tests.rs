@@ -274,11 +274,12 @@ fn error_types() {
 }
 
 #[test]
-fn error_functions_and_variables_are_not_interchangeable() {
+fn functions_are_values_of_function_types() {
     assert_eq!(
         diags("fn f() {}\nfn main() { let g: i64 = f }"),
-        vec![("E0214", "`f` is a function, not a value".to_string())]
+        vec![("E0206", "mismatched types".to_string())]
     );
+    ok("fn f() {}\nfn main() {\n    let g: fn() = f\n    g()\n}");
     assert_eq!(
         diags(&main_with("let x: i64 = 1\nx(2)")),
         vec![("E0214", "`x` is a variable, not a function".to_string())]

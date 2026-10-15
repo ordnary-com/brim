@@ -20,6 +20,9 @@ pub enum Def {
     /// The built-in `Box[T]`: one immutable value on the heap, so that a
     /// type can contain itself.
     Box,
+    /// A function type `fn(A, B) -> R`: the arguments are the parameter
+    /// types followed by the return type (possibly `void`).
+    Fn,
 }
 
 /// A struct or enum applied to type arguments (none for non-generic ones).
@@ -127,7 +130,7 @@ impl TypeTable {
     pub fn defs_in(&self, ty: Type, out: &mut Vec<Def>) {
         if let Type::Named(id) = ty {
             let named = self.get(id);
-            if matches!(named.def, Def::List | Def::Map | Def::Box) {
+            if matches!(named.def, Def::List | Def::Map | Def::Box | Def::Fn) {
                 return;
             }
             out.push(named.def);

@@ -20,6 +20,7 @@
 
 (function_declaration name: (identifier) @function)
 (call_expression function: (identifier) @function)
+(value_call_expression function: (identifier) @function)
 ((call_expression function: (identifier) @function)
   (#any-of? @function
     "print" "eprint" "to_string" "to_float" "to_int" "to_i32" "to_u8" "to_u64" "string_from_bytes" "read_line" "read_file" "write_file" "args" "env" "exit"

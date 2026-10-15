@@ -377,9 +377,10 @@ fn error_chained_comparison() {
 }
 
 #[test]
-fn error_invalid_call_target() {
-    assert_eq!(codes("fn main() { f()(1) }"), vec!["E0107"]);
-    assert_eq!(codes("fn main() { 1(2) }"), vec!["E0107"]);
+fn calls_of_function_values() {
+    // Any expression can be called; the checker requires a function.
+    assert_eq!(expr("f()(1)"), "f()(1)");
+    assert_eq!(expr("1(2)"), "1(2)");
     // A parenthesised name is still a name.
     assert_eq!(expr("(f)(1)"), "f(1)");
 }

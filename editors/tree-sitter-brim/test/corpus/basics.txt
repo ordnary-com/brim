@@ -171,3 +171,58 @@ fn f(s: Option[Shape]) {
           (variant_pattern
             (identifier))
           (block))))))
+
+==================
+Function values
+==================
+
+fn adder(n: i64) -> fn(i64) -> i64 {
+    return fn(x: i64) -> i64 {
+        return x + n
+    }
+}
+
+fn main() {
+    print(adder(1)(2))
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (primitive_type)))
+    (function_type
+      (primitive_type)
+      (primitive_type))
+    (block
+      (return_statement
+        (function_expression
+          (parameters
+            (parameter
+              (identifier)
+              (primitive_type)))
+          (primitive_type)
+          (block
+            (return_statement
+              (binary_expression
+                (identifier)
+                (identifier))))))))
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (expression_statement
+        (call_expression
+          (identifier)
+          (arguments
+            (value_call_expression
+              (value_call_expression
+                (identifier)
+                (arguments
+                  (integer)))
+              (arguments
+                (integer)))))))))

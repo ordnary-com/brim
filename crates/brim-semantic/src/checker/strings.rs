@@ -179,7 +179,7 @@ impl<'a> Checker<'a> {
     }
 
     /// Checks arguments against fixed parameter types.
-    fn fixed_args(
+    pub(super) fn fixed_args(
         &mut self,
         what: &str,
         params: &[Type],

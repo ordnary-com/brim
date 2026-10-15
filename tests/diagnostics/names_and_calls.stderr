@@ -1,10 +1,12 @@
-error[E0214]: `compute` is a function, not a value
+error[E0206]: mismatched types
  --> tests/diagnostics/names_and_calls.brim:6:22
   |
 6 |     let value: i64 = compute
-  |                      ^^^^^^^ functions cannot be used as values
+  |                --- expected due to this type
+  |                      ^^^^^^^ expected `i64`, found `fn() -> i64`
   |
-  = help: to call it, write `compute(...)`
+  = note: Brim never converts between types implicitly
+  = help: this is a function: call it with `(...)` for its result
 
 error[E0214]: `n` is a variable, not a function
  --> tests/diagnostics/names_and_calls.brim:8:11
@@ -13,6 +15,8 @@ error[E0214]: `n` is a variable, not a function
   |         - `n` is declared here
 8 |     print(n(1))
   |           ^ cannot be called
+  |
+  = note: `n` is a `i64`; only function values (`fn(...)`) can be called
 
 error[E0201]: undefined function `prnt`
  --> tests/diagnostics/names_and_calls.brim:9:5

@@ -498,6 +498,24 @@ impl<'a> Checker<'a> {
         ctx: &mut FnCtx,
     ) -> Option<CheckedPlace> {
         let Some(local) = ctx.lookup(&root.name) else {
+            if ctx.is_variable(&root.name) {
+                self.diags.push(
+                    Diagnostic::error(format!(
+                        "cannot change `{}` inside a `fn` expression",
+                        root.name
+                    ))
+                    .with_code("E0218")
+                    .with_primary(root.span, "declared outside this `fn` expression")
+                    .with_note("a `fn` expression works on copies of the variables it uses")
+                    .with_help("return the new value from the `fn` instead, and assign it outside"),
+                );
+                for step in steps {
+                    if let StepRef::Index(index) = step {
+                        self.check_expr(index, ctx);
+                    }
+                }
+                return None;
+            }
             // Reports the undefined name (or a function used as a value).
             self.check_name(root, None, ctx);
             for step in steps {
@@ -569,8 +587,12 @@ impl<'a> Checker<'a> {
             .with_code("E0218")
             .with_primary(name.span, "declared without `mut`")
             .with_secondary(decl_span, "declared here");
+        let captured = ctx.captures.iter().any(|(_, own)| *own == local);
         diag = if name.name == "self" {
             diag.with_help("declare the method with `mut self` to change `self`")
+        } else if captured {
+            diag.with_note("a `fn` expression works on copies of the variables it uses")
+                .with_help("return the new value from the `fn` instead, and assign it outside")
         } else if is_param {
             diag.with_note("function parameters cannot be changed")
                 .with_help(format!(

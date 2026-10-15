@@ -264,6 +264,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         let differ = self.new_block();
         let (def, args) = self.type_args_of(ty);
         match def {
+            Def::Fn => unreachable!("functions cannot be compared"),
             Def::Box => {
                 let x = self.boxed(a, args[0]);
                 let y = self.boxed(b, args[0]);
@@ -378,6 +379,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         let value = SlotId(0);
         let (def, args) = self.type_args_of(ty);
         match def {
+            Def::Fn => unreachable!("functions have no text form"),
             // A box shows as the value inside it.
             Def::Box => {
                 let x = self.boxed(value, args[0]);
@@ -498,5 +500,54 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 self.terminate(Terminator::Return(Some(result)));
             }
         }
+    }
+}
+
+impl<'m, 'p> FnLowerer<'m, 'p> {
+    /// The body of a thunk: calls the source function `function` with the
+    /// parameters after the environment.
+    pub(super) fn thunk(m: &'m mut ModuleLowerer<'p>, function: usize) -> Function {
+        let f = &m.program.functions[function];
+        let param_types: Vec<Type> = f.locals[..f.param_count].iter().map(|l| l.ty).collect();
+        let ret = f.ret;
+        let target = m.instance(function, Vec::new());
+        let (_, env) = m.environment(Vec::new());
+        let mut slots = vec![Slot {
+            name: "<environment>".into(),
+            ty: IrType::List(env),
+        }];
+        for (i, ty) in param_types.iter().enumerate() {
+            let ty = m.ir_type(*ty);
+            slots.push(Slot {
+                name: format!("p{i}"),
+                ty,
+            });
+        }
+        let ret_ir = m.ir_type(ret);
+        let mut lowerer = FnLowerer {
+            m,
+            type_args: Vec::new(),
+            ret,
+            self_return: None,
+            func: Function {
+                consumes_self: false,
+                name: String::new(),
+                param_count: slots.len(),
+                ret: ret_ir,
+                slots,
+                values: Vec::new(),
+                blocks: Vec::new(),
+            },
+            current: BlockId(0),
+            terminated: false,
+            loops: Vec::new(),
+        };
+        lowerer.current = lowerer.new_block();
+        let args: Vec<ValueId> = (1..lowerer.func.param_count)
+            .map(|i| lowerer.load(SlotId(i as u32)))
+            .collect();
+        let result = lowerer.emit(InstKind::Call(target, args), Some(ret_ir), NO_SPAN);
+        lowerer.terminate(Terminator::Return(result));
+        lowerer.func
     }
 }

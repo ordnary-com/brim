@@ -6,12 +6,16 @@
 //! arguments known so far are filled in, so `wrap(None)` works when `wrap`
 //! takes an `Option[i64]`.
 
+use std::collections::HashMap;
+
 use brim_ast as ast;
 use brim_diagnostics::{Diagnostic, Span};
 use brim_stdlib::Prim;
 
 use super::{Checker, FnCtx, error_expr, plural, supplied};
-use crate::checked::{BinaryOp, CheckedExpr, CheckedExprKind, CheckedPlace, FnId, UnaryOp};
+use crate::checked::{
+    BinaryOp, CheckedExpr, CheckedExprKind, CheckedFn, CheckedPlace, FnId, Local, LocalId, UnaryOp,
+};
 use crate::suggest;
 use crate::{Def, EnumId, Type};
 
@@ -69,6 +73,26 @@ impl<'a> Checker<'a> {
             ast::ExprKind::Bool(value) => (CheckedExprKind::Bool(*value), Type::Bool),
             ast::ExprKind::Str(value) => (CheckedExprKind::Str(value.clone()), Type::String),
             ast::ExprKind::Name(ident) => return self.check_name(ident, expected, ctx),
+            ast::ExprKind::Lambda { params, ret, body } => {
+                return self.check_lambda(params, ret.as_ref(), body, span, ctx);
+            }
+            ast::ExprKind::CallValue { callee, args } => {
+                let callee = self.check_expr(callee, ctx);
+                if callee.ty != Type::Error && self.fn_type_parts(callee.ty).is_none() {
+                    for arg in args {
+                        self.check_expr(arg, ctx);
+                    }
+                    let shown = self.show(callee.ty);
+                    self.diags.push(
+                        Diagnostic::error("only functions can be called")
+                            .with_code("E0107")
+                            .with_primary(callee.span, format!("this is a `{shown}`")),
+                    );
+                    return error_expr(span);
+                }
+                let shown = self.show(callee.ty);
+                return self.call_value(callee, &shown, args, span, ctx);
+            }
             ast::ExprKind::Unary { op, operand, .. } => {
                 return self.check_unary(*op, operand, span, expected, ctx);
             }
@@ -330,7 +354,7 @@ impl<'a> Checker<'a> {
     fn type_name_of(&mut self, expr: &ast::Expr, ctx: &FnCtx) -> Option<Def> {
         match &expr.kind {
             ast::ExprKind::Name(ident) => {
-                if ctx.lookup(&ident.name).is_some() {
+                if ctx.is_variable(&ident.name) {
                     return None;
                 }
                 match self.type_by_name.get(&ident.name) {
@@ -358,7 +382,7 @@ impl<'a> Checker<'a> {
         let ast::ExprKind::Name(ident) = &expr.kind else {
             return None;
         };
-        if ctx.lookup(&ident.name).is_some() {
+        if ctx.is_variable(&ident.name) {
             return None;
         }
         self.aliases.get(&ident.name).copied()
@@ -601,6 +625,33 @@ impl<'a> Checker<'a> {
         }
         let Some(&id) = self.methods.get(&(def, name.name.clone())) else {
             let receiver = self.check_expr(base, ctx);
+            // `button.on_click(3)`: a field holding a function.
+            if let Some((_, args_of)) = self.as_struct(receiver.ty)
+                && let Some(field) = self.structs[match def {
+                    Def::Struct(s) => s.0,
+                    _ => unreachable!("a struct"),
+                }]
+                .fields
+                .iter()
+                .position(|f| f.name == name.name)
+            {
+                let Def::Struct(s) = def else {
+                    unreachable!("a struct")
+                };
+                let field_ty = self.structs[s.0].fields[field].ty;
+                let field_ty = self.types.subst(field_ty, &args_of);
+                if self.fn_type_parts(field_ty).is_some() {
+                    let callee = CheckedExpr {
+                        span: receiver.span.to(name.span),
+                        ty: field_ty,
+                        kind: CheckedExprKind::Field {
+                            base: Box::new(receiver),
+                            index: field,
+                        },
+                    };
+                    return Some(self.call_value(callee, &name.name, args, span, ctx));
+                }
+            }
             for arg in args {
                 self.check_expr(arg, ctx);
             }
@@ -749,7 +800,7 @@ impl<'a> Checker<'a> {
         expected: Option<Type>,
         ctx: &mut FnCtx,
     ) -> CheckedExpr {
-        if let Some(id) = ctx.lookup(&ident.name) {
+        if let Some(id) = ctx.lookup_capturing(&ident.name) {
             return CheckedExpr {
                 kind: CheckedExprKind::Local(id),
                 ty: ctx.locals[id.0].ty,
@@ -771,7 +822,7 @@ impl<'a> Checker<'a> {
         }
         if let Some(def) = self.type_by_name.get(name).copied() {
             let diag = match def {
-                Def::List | Def::Map | Def::Box => {
+                Def::List | Def::Map | Def::Box | Def::Fn => {
                     Diagnostic::error(format!("`{name}` is a type, not a value"))
                         .with_code("E0214")
                         .with_primary(ident.span, "types cannot be used as values")
@@ -801,15 +852,18 @@ impl<'a> Checker<'a> {
                 }
             };
             self.diags.push(diag);
-        } else if self.by_name.contains_key(name)
-            || brim_stdlib::lookup(name).is_some()
+        } else if let Some(&id) = self.by_name.get(name) {
+            return self.fn_value(id, ident);
+        } else if brim_stdlib::lookup(name).is_some()
             || super::strings::intrinsic_function(name).is_some()
         {
             self.diags.push(
                 Diagnostic::error(format!("`{name}` is a function, not a value"))
                     .with_code("E0214")
-                    .with_primary(ident.span, "functions cannot be used as values")
-                    .with_help(format!("to call it, write `{name}(...)`")),
+                    .with_primary(ident.span, "built-in functions cannot be used as values")
+                    .with_help(format!(
+                        "to call it, write `{name}(...)`, or wrap it: `fn(x: i64) {{ {name}(x) }}`"
+                    )),
             );
         } else {
             let mut diag = Diagnostic::error(format!("undefined variable `{name}`"))
@@ -885,7 +939,7 @@ impl<'a> Checker<'a> {
     /// Whether checking `expr` may use the type the context expects.
     fn uses_expected(&self, expr: &ast::Expr, ctx: &FnCtx) -> bool {
         match &expr.kind {
-            ast::ExprKind::Name(name) => ctx.lookup(&name.name).is_none(),
+            ast::ExprKind::Name(name) => !ctx.is_variable(&name.name),
             ast::ExprKind::Call { .. }
             | ast::ExprKind::MethodCall { .. }
             | ast::ExprKind::Field { .. }
@@ -1161,7 +1215,7 @@ impl<'a> Checker<'a> {
         let found = qualified.or_else(|| self.type_by_name.get(name.name.as_str()).copied());
         let id = match found.as_ref() {
             Some(Def::Struct(id)) => Some(*id),
-            Some(def @ (Def::List | Def::Map | Def::Box)) => {
+            Some(def @ (Def::List | Def::Map | Def::Box | Def::Fn)) => {
                 self.diags.push(
                     Diagnostic::error(format!("`{}` is not a struct", name.name))
                         .with_code("E0212")
@@ -1562,6 +1616,9 @@ impl<'a> Checker<'a> {
                     "`{l}` holds a `{inner}`, which can be any type, and not every type can be compared with `{sym}`"
                 ))
             }
+            (Op::Eq | Op::Ne, Some(inner)) if inner == lhs.ty => {
+                diag.with_note(format!("functions cannot be compared with `{sym}`"))
+            }
             (Op::Eq | Op::Ne, Some(inner)) => {
                 let inner = self.show(inner);
                 diag.with_note(format!(
@@ -1606,6 +1663,187 @@ impl<'a> Checker<'a> {
             },
         };
         self.diags.push(diag);
+    }
+
+    /// The parameter and return types of a function type.
+    pub(super) fn fn_type_parts(&self, ty: Type) -> Option<(Vec<Type>, Type)> {
+        let Type::Named(id) = ty else { return None };
+        let named = self.types.get(id);
+        if named.def != Def::Fn {
+            return None;
+        }
+        let (ret, params) = named.args.split_last().expect("a return type");
+        Some((params.to_vec(), *ret))
+    }
+
+    /// A named function used as a value.
+    fn fn_value(&mut self, id: FnId, ident: &ast::Ident) -> CheckedExpr {
+        let sig = &self.sigs[id.0];
+        if !sig.type_params.is_empty() {
+            self.diags.push(
+                Diagnostic::error(format!(
+                    "generic function `{}` cannot be used as a value",
+                    ident.name
+                ))
+                .with_code("E0214")
+                .with_primary(ident.span, "its type arguments are not known here")
+                .with_help("wrap it in a `fn` expression that calls it with concrete types"),
+            );
+            return error_expr(ident.span);
+        }
+        let mut args: Vec<Type> = sig.params.iter().map(|p| p.ty).collect();
+        args.push(sig.ret);
+        CheckedExpr {
+            kind: CheckedExprKind::FnRef(id),
+            ty: self.types.intern(Def::Fn, args),
+            span: ident.span,
+        }
+    }
+
+    /// `callee(args)` where `callee` is a function value.
+    pub(super) fn call_value(
+        &mut self,
+        callee: CheckedExpr,
+        name: &str,
+        args: &[ast::Expr],
+        span: Span,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        let Some((params, ret)) = self.fn_type_parts(callee.ty) else {
+            for arg in args {
+                self.check_expr(arg, ctx);
+            }
+            return error_expr(span);
+        };
+        let Some(args) = self.fixed_args(name, &params, args, span, ctx) else {
+            return error_expr(span);
+        };
+        CheckedExpr {
+            kind: CheckedExprKind::CallValue {
+                callee: Box::new(callee),
+                args,
+            },
+            ty: ret,
+            span,
+        }
+    }
+
+    /// `fn(params) -> ret { body }`: checked like a function, inside the
+    /// one around it, whose variables it copies when it uses them.
+    pub(super) fn check_lambda(
+        &mut self,
+        params: &[ast::Param],
+        ret: Option<&ast::TypeExpr>,
+        body: &ast::Block,
+        span: Span,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        let param_types: Vec<Type> = params
+            .iter()
+            .map(|p| self.resolve_type(&p.ty, "a parameter"))
+            .collect();
+        let ret_ty = match ret {
+            Some(ret) => self.resolve_type(ret, "return"),
+            None => Type::Void,
+        };
+        // The function gets its id now; its body is filled in below, so
+        // `fn` expressions inside it get later ids.
+        let id = FnId(self.fn_decls.len() + self.lambdas.len());
+        self.lambdas.push(None);
+
+        // Scope 0 holds captured variables, scope 1 the parameters and the
+        // body's top-level statements.
+        let mut inner = FnCtx {
+            scopes: vec![HashMap::new(), HashMap::new()],
+            ret: ret_ty,
+            ret_span: ret.map(ast::TypeExpr::span),
+            ..FnCtx::default()
+        };
+        // Local 0: the environment the captured values arrive in.
+        inner.locals.push(Local {
+            name: "<environment>".into(),
+            ty: Type::Void,
+            mutable: false,
+            span,
+        });
+        inner.reassigned.push(false);
+        for (param, ty) in params.iter().zip(&param_types) {
+            if inner.scopes[1].contains_key(&param.name.name) {
+                self.diags.push(
+                    Diagnostic::error(format!("duplicate parameter `{}`", param.name.name))
+                        .with_code("E0204")
+                        .with_primary(param.name.span, ""),
+                );
+                continue;
+            }
+            let local = LocalId(inner.locals.len());
+            inner.locals.push(Local {
+                name: param.name.name.clone(),
+                ty: *ty,
+                mutable: false,
+                span: param.name.span,
+            });
+            inner.reassigned.push(false);
+            inner.scopes[1].insert(param.name.name.clone(), local);
+        }
+        let param_count = inner.locals.len();
+
+        inner.parent = Some(Box::new(std::mem::take(ctx)));
+        let (checked_body, diverges) = self.check_stmts(&body.stmts, &mut inner);
+        *ctx = *inner.parent.take().expect("the parent is restored once");
+
+        if !diverges && !matches!(ret_ty, Type::Void | Type::Error) {
+            let close = Span::new(body.span.end.saturating_sub(1), body.span.end);
+            let shown = self.show(ret_ty);
+            self.diags.push(
+                Diagnostic::error("`fn` expression may end without returning a value")
+                    .with_code("E0207")
+                    .with_primary(close, "missing `return` before the end of the function")
+                    .with_note(format!("its return type is `{shown}`")),
+            );
+        }
+        for (local, reassigned) in inner.locals.iter().zip(&inner.reassigned) {
+            if local.mutable && !reassigned {
+                self.diags.push(
+                    Diagnostic::warning(format!(
+                        "variable `{}` is declared `mut` but never reassigned",
+                        local.name
+                    ))
+                    .with_code("W0003")
+                    .with_primary(local.span, "")
+                    .with_help("remove `mut`"),
+                );
+            }
+        }
+
+        let (outer, own): (Vec<LocalId>, Vec<LocalId>) = inner.captures.iter().copied().unzip();
+        let enclosing = self.current_fn_name.clone();
+        self.lambdas[id.0 - self.fn_decls.len()] = Some(CheckedFn {
+            name: format!("{enclosing}.<fn>"),
+            mut_self: false,
+            span,
+            type_params: self.type_params.clone(),
+            param_count,
+            ret: ret_ty,
+            locals: inner.locals,
+            body: checked_body,
+            captures: Some(own),
+        });
+        let mut fn_args = param_types;
+        fn_args.push(ret_ty);
+        let ty = if fn_args.contains(&Type::Error) {
+            Type::Error
+        } else {
+            self.types.intern(Def::Fn, fn_args)
+        };
+        CheckedExpr {
+            kind: CheckedExprKind::Closure {
+                func: id,
+                captures: outer,
+            },
+            ty,
+            span,
+        }
     }
 
     /// `to_i32(x)`, `to_u8(x)` or `to_u64(x)`.
@@ -1721,12 +1959,16 @@ impl<'a> Checker<'a> {
             } else {
                 "which has no text form"
             };
-            let inner = self.show(inner);
+            let note = if inner == value.ty {
+                "functions have no text form".to_string()
+            } else {
+                format!("`{ty}` holds a `{}`, {why}", self.show(inner))
+            };
             self.diags.push(
                 Diagnostic::error(format!("`{name}` cannot show a `{ty}`"))
                     .with_code("E0206")
                     .with_primary(value.span, "unsupported argument type")
-                    .with_note(format!("`{ty}` holds a `{inner}`, {why}")),
+                    .with_note(note),
             );
             return error_expr(span);
         }
@@ -1761,10 +2003,20 @@ impl<'a> Checker<'a> {
         let name = callee.name.as_str();
         let arg_refs: Vec<&ast::Expr> = args.iter().collect();
 
-        if let Some(local) = ctx.lookup(name) {
+        if let Some(local) = ctx.lookup_capturing(name) {
+            let ty = ctx.locals[local.0].ty;
+            if self.fn_type_parts(ty).is_some() || ty == Type::Error {
+                let callee = CheckedExpr {
+                    kind: CheckedExprKind::Local(local),
+                    ty,
+                    span: callee.span,
+                };
+                return self.call_value(callee, name, args, span, ctx);
+            }
             for arg in args {
                 self.check_expr(arg, ctx);
             }
+            let shown = self.show(ty);
             self.diags.push(
                 Diagnostic::error(format!("`{name}` is a variable, not a function"))
                     .with_code("E0214")
@@ -1772,7 +2024,10 @@ impl<'a> Checker<'a> {
                     .with_secondary(
                         ctx.locals[local.0].span,
                         format!("`{name}` is declared here"),
-                    ),
+                    )
+                    .with_note(format!(
+                        "`{name}` is a `{shown}`; only function values (`fn(...)`) can be called"
+                    )),
             );
             return error_expr(span);
         }
@@ -1892,7 +2147,7 @@ impl<'a> Checker<'a> {
             .with_code("E0201")
             .with_primary(callee.span, "not found");
         match self.type_by_name.get(name) {
-            Some(Def::List | Def::Map | Def::Box) => {
+            Some(Def::List | Def::Map | Def::Box | Def::Fn) => {
                 diag = diag.with_help("create a list with `[...]`, or a map with `[key: value]`");
             }
             Some(Def::Struct(_)) => {

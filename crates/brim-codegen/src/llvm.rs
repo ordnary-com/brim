@@ -444,6 +444,43 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                             args.iter().map(|a| get(*a).into()).collect();
                         self.call(*callee, &args, inst.span)?
                     }
+                    InstKind::MakeClosure(func, env) => {
+                        let ptr = self.context.ptr_type(AddressSpace::default());
+                        let function = self.functions[func.index()]
+                            .as_global_value()
+                            .as_pointer_value();
+                        let env = match env {
+                            Some(env) => get(*env),
+                            None => ptr.const_null().into(),
+                        };
+                        let name = self.c_string(&self.ir.function(*func).name.clone());
+                        let mut value = self.closure_type().get_undef().into();
+                        for (index, field) in
+                            [function.into(), env, name.into()].into_iter().enumerate()
+                        {
+                            value = self.insert(value, index, field)?;
+                        }
+                        Some(value)
+                    }
+                    InstKind::CallClosure(closure, args) => {
+                        let ret = inst.result.map_or(Type::Void, |r| f.values[r.index()]);
+                        let mut params = vec![Type::List(brim_ir::ListId(0))];
+                        params.extend(args.iter().map(|a| value_ty(*a)));
+                        let mut all: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
+                        let closure = get(*closure).into_struct_value();
+                        let function = self
+                            .builder
+                            .build_extract_value(closure, 0, "")?
+                            .into_pointer_value();
+                        all.push(self.builder.build_extract_value(closure, 1, "")?.into());
+                        let name = self
+                            .builder
+                            .build_extract_value(closure, 2, "")?
+                            .into_pointer_value();
+                        all.extend(args.iter().map(|a| BasicMetadataValueEnum::from(get(*a))));
+                        let fn_type = self.fn_type(ret, &params);
+                        self.call_indirect(fn_type, function, name, &all, inst.span)?
+                    }
                     InstKind::CallRuntime(rt, args) => {
                         let args: Vec<BasicValueEnum<'ctx>> =
                             args.iter().map(|a| get(*a)).collect();
@@ -558,6 +595,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                             InstKind::Load(_)
                                 | InstKind::Extract(..)
                                 | InstKind::MakeStruct(..)
+                                | InstKind::MakeClosure(..)
                                 | InstKind::ListGet(..)
                                 | InstKind::MapKeyAt(..)
                                 | InstKind::MapValueAt(..)
@@ -809,6 +847,36 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
         Ok(result)
     }
 
+    /// A call through a closure: like `call`, with the function and its
+    /// name known only at run time.
+    fn call_indirect(
+        &mut self,
+        fn_type: FunctionType<'ctx>,
+        function: PointerValue<'ctx>,
+        name: PointerValue<'ctx>,
+        args: &[BasicMetadataValueEnum<'ctx>],
+        span: Option<Span>,
+    ) -> Result<Option<BasicValueEnum<'ctx>>, BuilderError> {
+        let [head, sep, note] = self.trap_text(
+            &RuntimeError::StackOverflow {
+                limit: MAX_CALL_DEPTH,
+            },
+            span,
+        );
+        self.builder.build_call(
+            self.enter,
+            &[name.into(), head.into(), sep.into(), note.into()],
+            "",
+        )?;
+        let result = self
+            .builder
+            .build_indirect_call(fn_type, function, args, "")?
+            .try_as_basic_value()
+            .basic();
+        self.builder.build_call(self.leave, &[], "")?;
+        Ok(result)
+    }
+
     fn call_runtime(
         &mut self,
         rt: RuntimeFn,
@@ -900,7 +968,7 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
     /// Whether values of `ty` contain strings, and so need reference counting.
     fn managed(&self, ty: Type) -> bool {
         match ty {
-            Type::Str | Type::List(_) | Type::Map(_) => true,
+            Type::Str | Type::List(_) | Type::Map(_) | Type::Closure => true,
             Type::Struct(id) => self.managed_structs[id.index()],
             Type::I64 | Type::F64 | Type::Bool | Type::Void => false,
         }
@@ -934,6 +1002,18 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                 };
                 self.builder.build_call(function, &[value.into()], "")?;
             }
+            // The environment list is what a closure holds a reference to.
+            Type::Closure => {
+                let env = self
+                    .builder
+                    .build_extract_value(value.into_struct_value(), 1, "")?;
+                let function = if retain {
+                    self.lists.retain
+                } else {
+                    self.lists.release
+                };
+                self.builder.build_call(function, &[env.into()], "")?;
+            }
             Type::Struct(id) if self.managed(ty) => {
                 let fields: Vec<Type> =
                     self.ir.struct_def(id).fields.iter().map(|f| f.ty).collect();
@@ -963,8 +1043,17 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             Type::Str => self.context.ptr_type(AddressSpace::default()).into(),
             Type::Struct(id) => self.struct_types[id.index()].into(),
             Type::List(_) | Type::Map(_) => self.context.ptr_type(AddressSpace::default()).into(),
+            Type::Closure => self.closure_type().into(),
             Type::Void => unreachable!("validated IR: `void` is only a return type"),
         }
+    }
+
+    /// A closure: the function, its environment list and the function's
+    /// name for the call stack shown in run-time errors.
+    fn closure_type(&self) -> inkwell::types::StructType<'ctx> {
+        let ptr = self.context.ptr_type(AddressSpace::default());
+        self.context
+            .struct_type(&[ptr.into(), ptr.into(), ptr.into()], false)
     }
 
     fn fn_type(&self, ret: Type, params: &[Type]) -> FunctionType<'ctx> {

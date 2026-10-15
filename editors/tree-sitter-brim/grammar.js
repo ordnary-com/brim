@@ -113,7 +113,13 @@ module.exports = grammar({
         '}',
       ),
 
-    _type: ($) => choice($.primitive_type, $.generic_type, $.path_type),
+    _type: ($) => choice($.primitive_type, $.generic_type, $.path_type, $.function_type),
+
+    // `fn(i64, i64) -> i64`
+    function_type: ($) =>
+      prec.right(
+        seq('fn', '(', commaSep($._type), ')', optional(seq('->', field('return_type', $._type)))),
+      ),
 
     primitive_type: (_) => choice('i64', 'i32', 'u8', 'u64', 'f64', 'bool', 'string', 'void'),
 
@@ -239,7 +245,22 @@ module.exports = grammar({
         $.index_expression,
         $.struct_expression,
         $.try_expression,
+        $.function_expression,
+        $.value_call_expression,
       ),
+
+    // `fn(x: i64) -> i64 { return x * 2 }`
+    function_expression: ($) =>
+      seq(
+        'fn',
+        field('parameters', $.parameters),
+        optional(seq('->', field('return_type', $._type))),
+        field('body', $.block),
+      ),
+
+    // A call of a function value: `make_adder(1)(2)`.
+    value_call_expression: ($) =>
+      prec(PREC.postfix, seq(field('function', $._expression), field('arguments', $.arguments))),
 
     parenthesized_expression: ($) => seq('(', $._expression, ')'),
 

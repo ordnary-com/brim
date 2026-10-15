@@ -709,6 +709,9 @@ impl Parser {
     }
 
     fn type_expr(&mut self) -> PResult<TypeExpr> {
+        if self.at(&TokenKind::Fn) {
+            return self.fn_type();
+        }
         let mut name = self.expect_ident("a type")?;
         // `module.Type`
         while self.eat(&TokenKind::Dot).is_some() {
@@ -739,7 +742,100 @@ impl Parser {
             self.nesting -= 1;
             span = span.to(close?.span);
         }
-        Ok(TypeExpr { name, args, span })
+        Ok(TypeExpr {
+            name,
+            args,
+            ret: None,
+            span,
+        })
+    }
+
+    /// `fn(A, B) -> R`, or `fn(A)` for a function that returns nothing.
+    fn fn_type(&mut self) -> PResult<TypeExpr> {
+        let fn_token = self.expect(&TokenKind::Fn)?;
+        self.expect(&TokenKind::LParen)?;
+        self.enter(0, fn_token.span)?;
+        self.nesting += 1;
+        let params = self.in_parens(|p| {
+            let mut params = Vec::new();
+            while !p.at(&TokenKind::RParen) {
+                params.push(p.type_expr()?);
+                if p.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            if !p.at(&TokenKind::RParen) {
+                return Err(p.error_unexpected("`,` or `)`"));
+            }
+            Ok((params, p.bump()))
+        });
+        self.nesting -= 1;
+        let (args, close) = params?;
+        let mut span = fn_token.span.to(close.span);
+        let ret = if self.eat(&TokenKind::Arrow).is_some() {
+            let ret = self.type_expr()?;
+            span = span.to(ret.span);
+            ret
+        } else {
+            TypeExpr {
+                name: Ident {
+                    name: "void".into(),
+                    span: close.span,
+                },
+                args: Vec::new(),
+                ret: None,
+                span: close.span,
+            }
+        };
+        Ok(TypeExpr {
+            name: Ident {
+                name: "fn".into(),
+                span: fn_token.span,
+            },
+            args,
+            ret: Some(Box::new(ret)),
+            span,
+        })
+    }
+
+    /// `fn(x: i64) -> i64 { ... }` in an expression.
+    fn lambda(&mut self) -> PResult<Expr> {
+        let fn_token = self.expect(&TokenKind::Fn)?;
+        if !self.at(&TokenKind::LParen) {
+            return Err(self.error_unexpected("`(` after `fn` in an expression"));
+        }
+        self.bump();
+        let params = self.in_parens(|p| {
+            let mut params = Vec::new();
+            while !p.at(&TokenKind::RParen) {
+                params.push(p.param()?);
+                if p.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            if !p.at(&TokenKind::RParen) {
+                return Err(p.error_unexpected("`,` or `)`"));
+            }
+            p.bump();
+            Ok(params)
+        })?;
+        let ret = if self.eat(&TokenKind::Arrow).is_some() {
+            Some(self.type_expr()?)
+        } else {
+            None
+        };
+        if !self.at(&TokenKind::LBrace) {
+            return Err(self.error_unexpected("`{` to start the function body"));
+        }
+        // The body is a block of statements, even inside parentheses.
+        let saved_parens = std::mem::replace(&mut self.paren_depth, 0);
+        let body = self.block();
+        self.paren_depth = saved_parens;
+        let body = body?;
+        Ok(Expr {
+            span: fn_token.span.to(body.span),
+            kind: ExprKind::Lambda { params, ret, body },
+        })
     }
 
     /// `[T, U]` after the name of a generic declaration, if present.
@@ -1503,20 +1599,21 @@ impl Parser {
                     };
                 }
                 TokenKind::LParen => {
-                    let ExprKind::Name(callee) = &expr.kind else {
-                        let diag = Diagnostic::error("only named functions can be called")
-                            .with_code("E0107")
-                            .with_primary(expr.span, "this is not a function name")
-                            .with_note("functions are not values yet; call them directly by name");
-                        return Err(self.report(diag));
-                    };
-                    let callee = callee.clone();
                     self.bump();
                     let (args, close) = self.call_args()?;
-                    expr = Expr {
-                        span: callee.span.to(close.span),
-                        kind: ExprKind::Call { callee, args },
+                    let span = expr.span.to(close.span);
+                    let kind = match expr.kind {
+                        ExprKind::Name(callee) => ExprKind::Call { callee, args },
+                        // A function value: `make_adder(1)(2)`.
+                        kind => ExprKind::CallValue {
+                            callee: Box::new(Expr {
+                                kind,
+                                span: expr.span,
+                            }),
+                            args,
+                        },
                     };
+                    expr = Expr { span, kind };
                 }
                 TokenKind::Dot => {
                     self.bump();
@@ -1714,6 +1811,7 @@ impl Parser {
                 self.bump();
                 return self.collection_literal(token.span);
             }
+            TokenKind::Fn => return self.lambda(),
             TokenKind::LParen => {
                 self.bump();
                 let (inner, close) = self.in_parens(|p| {

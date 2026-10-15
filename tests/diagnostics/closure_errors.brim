@@ -1,0 +1,31 @@
+fn id[T](x: T) -> T {
+    return x
+}
+
+fn main() {
+    let mut total: i64 = 0
+    let add: fn(i64) = fn(x: i64) {
+        total += x
+    }
+    let f: fn(i64) -> i64 = fn(x: i64) -> i64 {
+        if x > 0 {
+            return 1
+        }
+    }
+    let g: fn(i64) -> i64 = id
+    let h: fn(string) -> i64 = fn(x: i64) -> i64 {
+        return x
+    }
+    print(f(1, 2))
+    print(f("a"))
+    let n: i64 = 3
+    print(n(1))
+    print(add == add)
+    print(add)
+    let p: fn() = print
+    let mut seen: List[i64] = []
+    let remember: fn(i64) = fn(x: i64) {
+        seen.push(x)
+        seen = []
+    }
+}

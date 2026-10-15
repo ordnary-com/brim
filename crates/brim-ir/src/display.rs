@@ -117,6 +117,20 @@ impl Display for InstDisplay<'_> {
                 write!(f, "call.mut {name}({})", list(args))
             }
             InstKind::MakeStruct(id, args) => write!(f, "make {id}({})", list(args)),
+            InstKind::MakeClosure(func, env) => {
+                let name = self
+                    .module
+                    .functions
+                    .get(func.index())
+                    .map_or("<invalid>", |f| f.name.as_str());
+                match env {
+                    Some(env) => write!(f, "closure {name}, {env}"),
+                    None => write!(f, "closure {name}"),
+                }
+            }
+            InstKind::CallClosure(closure, args) => {
+                write!(f, "call.closure {closure}({})", list(args))
+            }
             InstKind::Extract(v, index) => write!(f, "extract {v}.{index}"),
             InstKind::Insert(v, index, x) => write!(f, "insert {v}.{index}, {x}"),
             InstKind::Take(slot) => write!(f, "take {slot}"),

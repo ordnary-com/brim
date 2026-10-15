@@ -96,6 +96,12 @@ pub(crate) struct Checker<'a> {
     /// The declaration of every function, free functions first, then
     /// methods; indexed by `FnId` like `sigs`.
     fn_decls: Vec<&'a ast::FnDecl>,
+    /// The functions of `fn` expressions, with ids after `fn_decls`;
+    /// `None` while the body is being checked.
+    lambdas: Vec<Option<CheckedFn>>,
+    /// The name of the function being checked, for naming the functions
+    /// of its `fn` expressions.
+    current_fn_name: String,
     /// Methods by type and name.
     methods: HashMap<(Def, String), FnId>,
     /// Type parameter names of the declaration being checked, for resolving
@@ -138,6 +144,7 @@ pub struct ModuleAst {
 }
 
 /// Per-function checking state.
+#[derive(Default)]
 struct FnCtx {
     locals: Vec<Local>,
     /// Whether each local is ever assigned after its declaration.
@@ -149,14 +156,46 @@ struct FnCtx {
     param_count: usize,
     ret: Type,
     ret_span: Option<Span>,
+    /// In a `fn` expression: the function around it, whose variables it
+    /// can use (capture).
+    parent: Option<Box<FnCtx>>,
+    /// Captured variables: the parent's local and the copy here.
+    captures: Vec<(LocalId, LocalId)>,
 }
 
 impl FnCtx {
+    /// A variable of this function.
     fn lookup(&self, name: &str) -> Option<LocalId> {
         self.scopes
             .iter()
             .rev()
             .find_map(|scope| scope.get(name).copied())
+    }
+
+    /// Whether `name` is a variable here or in a function around this one.
+    fn is_variable(&self, name: &str) -> bool {
+        self.lookup(name).is_some() || self.parent.as_ref().is_some_and(|p| p.is_variable(name))
+    }
+
+    /// A variable for reading: one of this function's, or a copy of one
+    /// from the functions around it, captured on first use.
+    fn lookup_capturing(&mut self, name: &str) -> Option<LocalId> {
+        if let Some(id) = self.lookup(name) {
+            return Some(id);
+        }
+        let parent = self.parent.as_mut()?;
+        let outer = parent.lookup_capturing(name)?;
+        let captured = Local {
+            mutable: false,
+            ..parent.locals[outer.0].clone()
+        };
+        let id = LocalId(self.locals.len());
+        self.locals.push(captured);
+        self.reassigned.push(false);
+        // Scope 0 holds the captures, outside the parameters' scope.
+        self.scopes[0].insert(name.to_string(), id);
+        self.captures.push((outer, id));
+        Some(id)
     }
 
     fn visible_names(&self) -> impl Iterator<Item = &str> {
@@ -206,6 +245,8 @@ impl<'a> Checker<'a> {
             sigs: Vec::new(),
             by_name: HashMap::new(),
             fn_decls: Vec::new(),
+            lambdas: Vec::new(),
+            current_fn_name: String::new(),
             methods: HashMap::new(),
             type_params: Vec::new(),
             list_type_params: vec!["T".into()],
@@ -288,6 +329,11 @@ impl<'a> Checker<'a> {
             functions.push(checker.check_fn(f, FnId(i)));
             checker.leave();
         }
+        functions.extend(
+            std::mem::take(&mut checker.lambdas)
+                .into_iter()
+                .map(|f| f.expect("every `fn` expression is checked")),
+        );
 
         let mut diags = checker.diags;
         // Source order; diagnostics without a location go last.
@@ -505,7 +551,7 @@ impl<'a> Checker<'a> {
         match def {
             Def::Struct(id) => self.structs[id.0].public,
             Def::Enum(id) => self.enums[id.0].public,
-            Def::List | Def::Map | Def::Box => true,
+            Def::List | Def::Map | Def::Box | Def::Fn => true,
         }
     }
 
@@ -513,7 +559,7 @@ impl<'a> Checker<'a> {
         match def {
             Def::Struct(id) => self.structs[id.0].module,
             Def::Enum(id) => self.enums[id.0].module,
-            Def::List | Def::Map | Def::Box => usize::MAX,
+            Def::List | Def::Map | Def::Box | Def::Fn => usize::MAX,
         }
     }
 
@@ -570,6 +616,14 @@ impl<'a> Checker<'a> {
                 .unwrap_or_else(|| format!("T{i}")),
             Type::Named(id) => {
                 let named = self.types.get(id);
+                if named.def == Def::Fn {
+                    let (ret, params) = named.args.split_last().expect("a return type");
+                    let params: Vec<String> = params.iter().map(|t| self.show(*t)).collect();
+                    return match ret {
+                        Type::Void => format!("fn({})", params.join(", ")),
+                        ret => format!("fn({}) -> {}", params.join(", "), self.show(*ret)),
+                    };
+                }
                 let name = self.def_name(named.def);
                 if named.args.is_empty() {
                     name.to_string()
@@ -589,6 +643,7 @@ impl<'a> Checker<'a> {
             Def::List => "List",
             Def::Map => "Map",
             Def::Box => "Box",
+            Def::Fn => "fn",
         }
     }
 
@@ -598,7 +653,7 @@ impl<'a> Checker<'a> {
         let named = self.types.get(id);
         match named.def {
             Def::Struct(s) => Some((s, named.args.clone())),
-            Def::Enum(_) | Def::List | Def::Map | Def::Box => None,
+            Def::Enum(_) | Def::List | Def::Map | Def::Box | Def::Fn => None,
         }
     }
 
@@ -608,7 +663,7 @@ impl<'a> Checker<'a> {
         let named = self.types.get(id);
         match named.def {
             Def::Enum(e) => Some((e, named.args.clone())),
-            Def::Struct(_) | Def::List | Def::Map | Def::Box => None,
+            Def::Struct(_) | Def::List | Def::Map | Def::Box | Def::Fn => None,
         }
     }
 
@@ -617,14 +672,13 @@ impl<'a> Checker<'a> {
     fn check_fn(&mut self, f: &ast::FnDecl, id: FnId) -> CheckedFn {
         let sig = &self.sigs[id.0];
         self.type_params = sig.type_params.clone();
+        self.current_fn_name = sig.name.clone();
         let mut ctx = FnCtx {
-            locals: Vec::new(),
-            reassigned: Vec::new(),
             scopes: vec![HashMap::new()],
-            loops: Vec::new(),
             param_count: sig.params.len(),
             ret: sig.ret,
             ret_span: sig.ret_span,
+            ..FnCtx::default()
         };
         let mut_self = sig.receiver == Some(true);
         for (index, param) in sig.params.iter().enumerate() {
@@ -686,6 +740,7 @@ impl<'a> Checker<'a> {
             ret: ctx.ret,
             locals: ctx.locals,
             body,
+            captures: None,
         }
     }
 
@@ -827,6 +882,7 @@ impl<'a> Checker<'a> {
                     matches!(
                         e.kind,
                         CheckedExprKind::Call { .. }
+                            | CheckedExprKind::CallValue { .. }
                             | CheckedExprKind::Builtin { .. }
                             | CheckedExprKind::ListOp { .. }
                             | CheckedExprKind::MapOp { .. }
@@ -933,8 +989,12 @@ impl<'a> Checker<'a> {
                     },
                 )
                 .with_secondary(decl_span, "declared here");
+            let captured = ctx.captures.iter().any(|(_, own)| *own == place.local);
             diag = if target.name == "self" {
                 diag.with_help("declare the method with `mut self` to change `self`")
+            } else if captured {
+                diag.with_note("a `fn` expression works on copies of the variables it uses")
+                    .with_help("return the new value from the `fn` instead, and assign it outside")
             } else if is_param {
                 diag.with_note("function parameters cannot be reassigned")
                     .with_help(format!(
@@ -1078,6 +1138,13 @@ impl<'a> Checker<'a> {
             (Type::F64, Type::I64, _) => diag.with_help("convert it with `to_float(...)`"),
             (Type::I64, Type::F64, _) => {
                 diag.with_help("convert it with `to_int(...)`, which rounds toward zero")
+            }
+            (_, found, _)
+                if self
+                    .fn_type_parts(found)
+                    .is_some_and(|(_, ret)| ret == expected) =>
+            {
+                diag.with_help("this is a function: call it with `(...)` for its result")
             }
             _ => diag,
         };

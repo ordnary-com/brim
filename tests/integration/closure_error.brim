@@ -1,0 +1,13 @@
+// exit: 101
+// A run-time error inside a `fn` expression shows it in the call stack.
+
+fn run(f: fn(i64) -> i64, x: i64) -> i64 {
+    return f(x)
+}
+
+fn main() {
+    let divisor: i64 = 0
+    print(run(fn(x: i64) -> i64 {
+        return x / divisor
+    }, 10))
+}

@@ -73,6 +73,13 @@ pub enum Type {
     Error,
 }
 
+/// `void`: the type of a function context before its return type is set.
+impl Default for Type {
+    fn default() -> Type {
+        Type::Void
+    }
+}
+
 impl Type {
     /// Resolves a built-in type name as written in source.
     pub fn from_name(name: &str) -> Option<Type> {

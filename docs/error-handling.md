@@ -60,7 +60,7 @@ Guidelines for writing diagnostics:
 | E0104 | Invalid assignment target, or a list method that changes the list called on something other than a variable (only variables, their fields and list elements can be changed) |
 | E0105 | Blocks or expressions nested too deeply (implementation limit: 128) |
 | E0106 | Chained comparison such as `a < b < c` |
-| E0107 | Call of something that is not a function name (including method-style calls `p.f()`) |
+| E0107 | Call of an expression that is not a function value |
 
 ### Semantic errors (`brim-semantic`)
 

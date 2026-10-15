@@ -198,7 +198,11 @@ pub struct Param {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TypeExpr {
     pub name: Ident,
+    /// Type arguments, or the parameter types of a function type.
     pub args: Vec<TypeExpr>,
+    /// For a function type `fn(A, B) -> R`, named `fn`: the return type
+    /// (`void` when not written).
+    pub ret: Option<Box<TypeExpr>>,
     /// From the name to the closing `]`, if any.
     pub span: Span,
 }
@@ -311,6 +315,13 @@ pub enum ExprKind {
     Str(String),
     /// A reference to a variable or parameter.
     Name(Ident),
+    /// `fn(x: i64) -> i64 { ... }`: a function value, which can use the
+    /// variables around it.
+    Lambda {
+        params: Vec<Param>,
+        ret: Option<TypeExpr>,
+        body: Block,
+    },
     Unary {
         op: UnaryOp,
         op_span: Span,
@@ -325,6 +336,12 @@ pub enum ExprKind {
     /// `callee(args)`. Only named functions can be called.
     Call {
         callee: Ident,
+        args: Vec<Expr>,
+    },
+    /// A call of a function value that is not a plain name:
+    /// `make_adder(1)(2)`.
+    CallValue {
+        callee: Box<Expr>,
         args: Vec<Expr>,
     },
     /// `Name { field: value, ... }`
@@ -438,9 +455,17 @@ impl fmt::Display for Expr {
             ExprKind::Bool(v) => write!(f, "{v}"),
             ExprKind::Str(v) => write!(f, "{v:?}"),
             ExprKind::Name(ident) => f.write_str(&ident.name),
+            ExprKind::Lambda { params, .. } => {
+                let names: Vec<&str> = params.iter().map(|p| p.name.name.as_str()).collect();
+                write!(f, "fn({}) {{...}}", names.join(", "))
+            }
             ExprKind::Unary { op, operand, .. } => write!(f, "({}{operand})", op.as_str()),
             ExprKind::Binary { op, lhs, rhs, .. } => {
                 write!(f, "({lhs} {} {rhs})", op.as_str())
+            }
+            ExprKind::CallValue { callee, args } => {
+                let args: Vec<String> = args.iter().map(ToString::to_string).collect();
+                write!(f, "{callee}({})", args.join(", "))
             }
             ExprKind::Call { callee, args } => {
                 write!(f, "{}(", callee.name)?;

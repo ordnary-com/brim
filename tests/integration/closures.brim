@@ -1,0 +1,97 @@
+// Functions as values: `fn` types, `fn` expressions that capture the
+// variables around them, and named functions used as values.
+
+struct Button {
+    label: string
+    on_click: fn(i64) -> string
+}
+
+fn double(x: i64) -> i64 {
+    return x * 2
+}
+
+fn apply(f: fn(i64) -> i64, x: i64) -> i64 {
+    return f(x)
+}
+
+fn map(xs: List[i64], f: fn(i64) -> i64) -> List[i64] {
+    let mut out: List[i64] = []
+    for x in xs {
+        out.push(f(x))
+    }
+    return out
+}
+
+fn filter[T](xs: List[T], keep: fn(T) -> bool) -> List[T] {
+    let mut out: List[T] = []
+    for x in xs {
+        if keep(x) {
+            out.push(x)
+        }
+    }
+    return out
+}
+
+fn adder(n: i64) -> fn(i64) -> i64 {
+    return fn(x: i64) -> i64 {
+        return x + n
+    }
+}
+
+fn compose(f: fn(i64) -> i64, g: fn(i64) -> i64) -> fn(i64) -> i64 {
+    return fn(x: i64) -> i64 {
+        return g(f(x))
+    }
+}
+
+fn main() {
+    print(apply(double, 21))
+    let triple: fn(i64) -> i64 = fn(x: i64) -> i64 {
+        return x * 3
+    }
+    print(triple(5))
+    print(map([1, 2, 3], triple))
+
+    let add10: fn(i64) -> i64 = adder(10)
+    print(add10(5))
+    print(map([1, 2, 3], adder(100)))
+    print(compose(double, add10)(1))
+
+    let mut limit: i64 = 2
+    let big: fn(i64) -> bool = fn(x: i64) -> bool {
+        return x > limit
+    }
+    // The `fn` copied `limit` when it was made.
+    limit = 100
+    print(filter([1, 2, 3, 4], big))
+    print(filter(["apple", "fig", "banana"], fn(s: string) -> bool {
+        return s.len() > 3
+    }))
+
+    let greeting: string = "Hello, "
+    let buttons: List[Button] = [
+        Button { label: "save", on_click: fn(n: i64) -> string {
+            return greeting + "saved " + to_string(n)
+        } },
+        Button { label: "quit", on_click: fn(n: i64) -> string {
+            return "bye"
+        } },
+    ]
+    for b in buttons {
+        print(b.label + ": " + b.on_click(3))
+    }
+
+    let log: fn(string) = fn(s: string) {
+        print("log: " + s)
+    }
+    log("done")
+
+    // Nested `fn` expressions capture through each other.
+    let base: i64 = 7
+    let outer: fn() -> fn() -> i64 = fn() -> fn() -> i64 {
+        return fn() -> i64 {
+            return base * 6
+        }
+    }
+    print(outer()())
+}

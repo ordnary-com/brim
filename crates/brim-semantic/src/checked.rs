@@ -118,6 +118,10 @@ pub struct CheckedFn {
     pub ret: Type,
     pub locals: Vec<Local>,
     pub body: Vec<CheckedStmt>,
+    /// For a `fn` expression: local 0 is its environment, counted in
+    /// `param_count`, and these locals start with the captured values, in
+    /// the order of [`CheckedExprKind::Closure::captures`].
+    pub captures: Option<Vec<LocalId>>,
 }
 
 #[derive(Clone, Debug)]
@@ -362,6 +366,19 @@ pub enum CheckedExprKind {
     /// `Option`/`Result` type).
     /// A struct, enum, list or map as text, the way `print` shows it.
     Show(Box<CheckedExpr>),
+    /// A `fn` expression: a function value of `func` (which shares the
+    /// enclosing function's type parameters), with copies of these locals.
+    Closure {
+        func: FnId,
+        captures: Vec<LocalId>,
+    },
+    /// A named function used as a value.
+    FnRef(FnId),
+    /// A call of a function value.
+    CallValue {
+        callee: Box<CheckedExpr>,
+        args: Vec<CheckedExpr>,
+    },
     /// `to_i32(x)`, `to_u8(x)`, `to_u64(x)` or `to_int(x)` of an integer:
     /// the same number as the expression's type, which must fit.
     IntCast(Box<CheckedExpr>),

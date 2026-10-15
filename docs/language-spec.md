@@ -207,7 +207,7 @@ Comparison operators at the same level cannot be chained: `a < b < c` and `a == 
 - `let` requires a type annotation (`E0102`) and an initializer.
 - Only a variable or a field path starting at a variable (`p.from.x`) can be assigned to: `f() = 1` is error `E0104`.
 - The body of `if`, `else` and `while` must be a block in braces. `else` must be followed by `{` or `if`.
-- Only names can be called: `f(1)` is valid, `f()(1)` and `1(2)` are not (`E0107`). A parenthesized name, as in `(f)(1)`, counts as a name.
+- A call's callee is a function name, a variable or field holding a function value, or any expression of a function type: `f(1)`, `button.on_click(3)`, `make_adder(1)(2)`. Calling a value that is not a function is `E0107` (or `E0214` for a variable).
 - Blocks and expressions may nest at most 128 levels deep, counting long operator chains and `else if` chains (`E0105`). This is an implementation limit that protects the compiler's stack.
 
 ## 5. Types
@@ -417,9 +417,30 @@ An `impl` block adds **methods** to a struct or enum declared in the same file. 
 - Calling a method the wrong way is `E0240`; an unknown method is `E0231`. Methods of one type need different names, and an enum's methods cannot share a name with its variants (`E0238`). Built-in types cannot get methods (`E0237`), and `self` outside an `impl` is `E0239`.
 - `self` is a keyword; inside a method it is a variable like a parameter.
 
-### 5.10 Function types
+### 5.10 Functions as values
 
-A function's type is its parameter type list and its return type, written informally as `fn(i64, i64) -> i64`. Function types cannot be written in source yet, and functions are not values: they can only be called by name (`E0214`).
+`fn(A, B) -> R` is the type of functions taking an `A` and a `B` and returning an `R`; `fn(A)` returns nothing. Values of such a type are made two ways:
+
+- A **named function** used without calling it: `apply(double, 21)`. Generic functions cannot be used this way (`E0214`); wrap them in a `fn` expression. Builtins cannot either.
+- A **`fn` expression**: `fn(x: i64) -> i64 { return x * 2 }`. Its parameters need types, and its body is checked like a function's (`E0207` when a non-`void` one can end without `return`).
+
+```brim
+fn adder(n: i64) -> fn(i64) -> i64 {
+    return fn(x: i64) -> i64 {
+        return x + n
+    }
+}
+
+fn main() {
+    let add10: fn(i64) -> i64 = adder(10)
+    print(add10(5))          // 15
+}
+```
+
+- A `fn` expression can use the variables around it. It **copies** each one when the expression is evaluated (it *captures* it), like every other value in Brim, so later changes to the variable do not reach the function, and the function cannot change the variable (`E0218`). To change something, return the new value.
+- A function value is called like a function: `f(3)`, `button.on_click(3)` for a field (when the struct has no method of that name), or `make_adder(1)(2)`.
+- Function values can be stored in variables, fields, lists and enums, passed and returned. They cannot be compared with `==` or printed (`E0209`, `E0206`).
+- A run-time error inside a `fn` expression shows it in the call stack as `enclosing.<fn>`.
 
 ## 6. Statements
 
@@ -746,7 +767,7 @@ These questions are not settled. The current behavior is a reversible default.
 
 ## 12. Possible future features
 
-These are explicitly **not** part of 0.1. Their keywords are reserved where applicable, and none of them should be assumed to work: `loop`, traits, recursive enums, traits, generics, modules and imports, closures and first-class functions, collections, error handling, async/await, macros, reflection, an ownership or borrowing system, and FFI.
+These are explicitly **not** part of 0.1. Their keywords are reserved where applicable, and none of them should be assumed to work: `loop`, traits, recursive enums, traits, generics, modules and imports, collections, error handling, async/await, macros, reflection, an ownership or borrowing system, and FFI.
 
 See `docs/roadmap.md` for the order in which these are planned.
 

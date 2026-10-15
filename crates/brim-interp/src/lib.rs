@@ -67,6 +67,8 @@ enum Value {
     List(Rc<Vec<Value>>),
     /// Copy-on-write, like lists.
     Map(Rc<MapData>),
+    /// A function and its environment (a list).
+    Closure(FuncId, Box<Value>),
 }
 
 /// Values nest without limit (a long chain of boxes is a list in a struct in
@@ -108,6 +110,7 @@ fn take_contents(value: &mut Value, out: &mut Vec<Value>) {
                 }
             }
         }
+        Value::Closure(_, env) => out.push(std::mem::replace(env, Value::Bool(false))),
         Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Str(_) => {}
     }
 }
@@ -607,6 +610,29 @@ fn execute(
                     Some(v) => v,
                     None => continue,
                 }
+            }
+            InstKind::MakeClosure(func, env) => {
+                let env = match env {
+                    Some(env) => frame.get(*env).clone(),
+                    None => Value::List(Rc::default()),
+                };
+                Value::Closure(*func, Box::new(env))
+            }
+            InstKind::CallClosure(closure, args) => {
+                let Value::Closure(callee, env) = frame.get(*closure) else {
+                    unreachable!("validated IR: a closure");
+                };
+                let callee = *callee;
+                let mut all = vec![(**env).clone()];
+                all.extend(args.iter().map(|a| frame.get(*a).clone()));
+                if stack.len() >= limits.max_call_depth {
+                    return Err(fail(RuntimeError::StackOverflow {
+                        limit: limits.max_call_depth,
+                    }));
+                }
+                let new_frame = Frame::new(module, callee, all, inst.result, cache);
+                stack.push(new_frame);
+                continue;
             }
             InstKind::Call(callee, args) | InstKind::CallMut(callee, args) => {
                 // `call.mut` moves its first argument, so the callee can

@@ -73,6 +73,9 @@ pub fn lower_tests(program: &CheckedProgram) -> (Module, Vec<FuncId>) {
         enum_layouts: HashMap::new(),
         instances: HashMap::new(),
         helpers: HashMap::new(),
+        thunks: HashMap::new(),
+        environments: HashMap::new(),
+        no_function: None,
         queue: VecDeque::new(),
         pairs: HashMap::new(),
     };
@@ -109,6 +112,7 @@ pub fn lower_tests(program: &CheckedProgram) -> (Module, Vec<FuncId>) {
                 FnLowerer::lower(&mut m, &program.functions[index], type_args),
             ),
             Job::Helper(id, helper, ty) => (id, FnLowerer::helper(&mut m, helper, ty)),
+            Job::Thunk(id, index) => (id, FnLowerer::thunk(&mut m, index)),
         };
         function.name = std::mem::take(&mut m.module.functions[id.index()].name);
         m.module.functions[id.index()] = function;
@@ -158,6 +162,9 @@ enum Job {
     /// An instance of a source function with its type arguments.
     Function(FuncId, usize, Vec<Type>),
     Helper(FuncId, Helper, Type),
+    /// A function that takes an (unused) environment first and calls the
+    /// (non-generic) source function: that function as a value.
+    Thunk(FuncId, usize),
 }
 
 struct ModuleLowerer<'p> {
@@ -172,6 +179,13 @@ struct ModuleLowerer<'p> {
     instances: HashMap<(usize, Vec<Type>), FuncId>,
     /// Generated `==` and text functions, per concrete type.
     helpers: HashMap<(Helper, Type), FuncId>,
+    /// Thunks of source functions used as values.
+    thunks: HashMap<usize, FuncId>,
+    /// The struct and list types of closure environments, by the types of
+    /// the captured values.
+    environments: HashMap<Vec<IrType>, (StructId, ListId)>,
+    /// The function of a zero closure (an unused enum payload).
+    no_function: Option<FuncId>,
     /// Functions whose bodies still have to be lowered.
     queue: VecDeque<Job>,
     /// Result-and-`self` structs of `mut self` methods.
@@ -209,6 +223,77 @@ impl ModuleLowerer<'_> {
         id
     }
 
+    /// The struct of captured values of these types, and the list type the
+    /// environment of a closure is (a list of one such struct).
+    fn environment(&mut self, types: Vec<IrType>) -> (StructId, ListId) {
+        if let Some(found) = self.environments.get(&types) {
+            return *found;
+        }
+        let id = StructId(u32::try_from(self.module.structs.len()).expect("few structs"));
+        self.module.structs.push(StructDef {
+            name: "<environment>".into(),
+            fields: types
+                .iter()
+                .enumerate()
+                .map(|(k, ty)| Field {
+                    name: k.to_string(),
+                    ty: *ty,
+                })
+                .collect(),
+        });
+        let list = ListId(u32::try_from(self.module.lists.len()).expect("few lists"));
+        self.module.lists.push(IrType::Struct(id));
+        self.environments.insert(types, (id, list));
+        (id, list)
+    }
+
+    /// A function that takes an environment and the source function's
+    /// parameters, and calls it: the function as a value.
+    fn thunk(&mut self, function: usize) -> FuncId {
+        if let Some(id) = self.thunks.get(&function) {
+            return *id;
+        }
+        let id = func_id(self.module.functions.len());
+        self.module.functions.push(Function {
+            name: self.program.functions[function].name.clone(),
+            consumes_self: false,
+            param_count: 0,
+            ret: IrType::Void,
+            slots: Vec::new(),
+            values: Vec::new(),
+            blocks: Vec::new(),
+        });
+        self.thunks.insert(function, id);
+        self.queue.push_back(Job::Thunk(id, function));
+        id
+    }
+
+    /// The function of a zero closure, which is never called.
+    fn no_function(&mut self) -> FuncId {
+        if let Some(id) = self.no_function {
+            return id;
+        }
+        let (_, env) = self.environment(Vec::new());
+        let id = func_id(self.module.functions.len());
+        self.module.functions.push(Function {
+            name: "<no function>".into(),
+            consumes_self: false,
+            param_count: 1,
+            ret: IrType::Void,
+            slots: vec![Slot {
+                name: "<environment>".into(),
+                ty: IrType::List(env),
+            }],
+            values: Vec::new(),
+            blocks: vec![Block {
+                insts: Vec::new(),
+                term: Terminator::Unreachable,
+            }],
+        });
+        self.no_function = Some(id);
+        id
+    }
+
     /// A concrete type as written in source, for IR names.
     fn type_name(&self, ty: Type) -> String {
         match ty {
@@ -220,6 +305,7 @@ impl ModuleLowerer<'_> {
                     Def::List => "List",
                     Def::Map => "Map",
                     Def::Box => "Box",
+                    Def::Fn => "fn",
                 };
                 if named.args.is_empty() {
                     name.to_string()
@@ -245,6 +331,10 @@ impl ModuleLowerer<'_> {
                     return *ir;
                 }
                 let named = self.types.get(id).clone();
+                if named.def == Def::Fn {
+                    self.ir_types.insert(ty, IrType::Closure);
+                    return IrType::Closure;
+                }
                 // Types can contain themselves through lists and maps
                 // (`struct Node { children: List[Node] }`), so each type's
                 // id is reserved before its contents are lowered.
@@ -313,7 +403,7 @@ impl ModuleLowerer<'_> {
                         }
                         self.enum_layouts.insert(ty, EnumLayout { offsets });
                     }
-                    Def::List | Def::Map | Def::Box => unreachable!("handled above"),
+                    Def::List | Def::Map | Def::Box | Def::Fn => unreachable!("handled above"),
                 }
                 self.module.structs[id.index()].fields = fields;
                 ir
@@ -341,7 +431,12 @@ fn branches(expr: &CheckedExpr) -> bool {
         | CheckedExprKind::Float(_)
         | CheckedExprKind::Bool(_)
         | CheckedExprKind::Str(_)
-        | CheckedExprKind::Local(_) => false,
+        | CheckedExprKind::Local(_)
+        | CheckedExprKind::Closure { .. }
+        | CheckedExprKind::FnRef(_) => false,
+        CheckedExprKind::CallValue { callee, args } => {
+            branches(callee) || args.iter().any(branches)
+        }
         CheckedExprKind::Unary { operand, .. }
         | CheckedExprKind::Show(operand)
         | CheckedExprKind::BoxNew(operand)
@@ -403,8 +498,20 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             loops: Vec::new(),
         };
         lowerer.func.ret = lowerer.ir_type(f.ret);
-        for local in &f.locals {
-            let ty = lowerer.ir_type(local.ty);
+        // The environment of a `fn` expression is a list of one struct of
+        // the captured values.
+        let environment = f.captures.as_ref().map(|captures| {
+            let types: Vec<IrType> = captures
+                .iter()
+                .map(|local| lowerer.ir_type(f.locals[local.0].ty))
+                .collect();
+            lowerer.m.environment(types)
+        });
+        for (i, local) in f.locals.iter().enumerate() {
+            let ty = match environment {
+                Some((_, list)) if i == 0 => IrType::List(list),
+                _ => lowerer.ir_type(local.ty),
+            };
             lowerer.func.slots.push(Slot {
                 name: local.name.clone(),
                 ty,
@@ -427,6 +534,24 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             });
         }
         lowerer.current = lowerer.new_block();
+        if let (Some(captures), Some((env_struct, _))) = (&f.captures, environment)
+            && !captures.is_empty()
+        {
+            let env_ty = lowerer.func.slots[0].ty;
+            let env = lowerer.emit_value(InstKind::Load(SlotId(0)), env_ty, f.span);
+            let zero = lowerer.emit_value(InstKind::Const(Const::I64(0)), IrType::I64, f.span);
+            let values = lowerer.emit_value(
+                InstKind::ListGet(env, zero),
+                IrType::Struct(env_struct),
+                f.span,
+            );
+            for (k, local) in captures.iter().enumerate() {
+                let slot = SlotId(local.0 as u32);
+                let ty = lowerer.func.slots[slot.index()].ty;
+                let value = lowerer.emit_value(InstKind::Extract(values, k), ty, f.span);
+                lowerer.emit(InstKind::Store(slot, value), None, f.span);
+            }
+        }
         lowerer.stmts(&f.body);
         if !lowerer.terminated {
             // Semantic analysis guarantees non-void functions always return.
@@ -544,6 +669,10 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             }
             IrType::List(id) => InstKind::ListNew(id, Vec::new()),
             IrType::Map(id) => InstKind::MapNew(id),
+            IrType::Closure => {
+                let function = self.m.no_function();
+                InstKind::MakeClosure(function, None)
+            }
             IrType::Void => unreachable!("fields are never void"),
         };
         self.emit_value(kind, ty, span)
@@ -1741,6 +1870,45 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                         self.int_binary(*op, a, b, operand_ty, span)
                     }
                 }
+            }
+            CheckedExprKind::Closure { func, captures } => {
+                let function = self.m.instance(func.0, self.type_args.clone());
+                if captures.is_empty() {
+                    self.emit_value(InstKind::MakeClosure(function, None), ty, span)
+                } else {
+                    let values: Vec<ValueId> = captures
+                        .iter()
+                        .map(|local| {
+                            let slot = SlotId(local.0 as u32);
+                            let slot_ty = self.func.slots[slot.index()].ty;
+                            self.emit_value(InstKind::Load(slot), slot_ty, span)
+                        })
+                        .collect();
+                    let types: Vec<IrType> =
+                        values.iter().map(|v| self.func.values[v.index()]).collect();
+                    let (env_struct, env_list) = self.m.environment(types);
+                    let env = self.emit_value(
+                        InstKind::MakeStruct(env_struct, values),
+                        IrType::Struct(env_struct),
+                        span,
+                    );
+                    let env = self.emit_value(
+                        InstKind::ListNew(env_list, vec![env]),
+                        IrType::List(env_list),
+                        span,
+                    );
+                    self.emit_value(InstKind::MakeClosure(function, Some(env)), ty, span)
+                }
+            }
+            CheckedExprKind::FnRef(func) => {
+                let thunk = self.m.thunk(func.0);
+                self.emit_value(InstKind::MakeClosure(thunk, None), ty, span)
+            }
+            CheckedExprKind::CallValue { callee, args } => {
+                let mut all =
+                    self.values(&std::iter::once(&**callee).chain(args).collect::<Vec<_>>());
+                let closure = all.remove(0);
+                return self.emit(InstKind::CallClosure(closure, all), Some(ty), span);
             }
             CheckedExprKind::IntCast(value) => {
                 let v = self.value(value);

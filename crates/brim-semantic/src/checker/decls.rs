@@ -176,7 +176,7 @@ impl<'a> Checker<'a> {
         match def {
             Def::Struct(id) => Some(self.structs[id.0].name_span),
             Def::Enum(id) => self.enums[id.0].name_span,
-            Def::List | Def::Map | Def::Box => None,
+            Def::List | Def::Map | Def::Box | Def::Fn => None,
         }
     }
 
@@ -215,7 +215,7 @@ impl<'a> Checker<'a> {
         let node = |def: Def| match def {
             Def::Struct(s) => s.0,
             Def::Enum(e) => struct_count + e.0,
-            Def::List | Def::Map | Def::Box => {
+            Def::List | Def::Map | Def::Box | Def::Fn => {
                 unreachable!("collections and boxes keep their contents on the heap")
             }
         };
@@ -307,7 +307,7 @@ impl<'a> Checker<'a> {
                 let kind = match def {
                     Def::Struct(_) => "struct",
                     Def::Enum(_) => "enum",
-                    Def::List | Def::Map | Def::Box => "built-in type",
+                    Def::List | Def::Map | Def::Box | Def::Fn => "built-in type",
                 };
                 let mut diag =
                     Diagnostic::error(format!("`{name}` is already the name of a {kind}"))
@@ -518,6 +518,18 @@ impl<'a> Checker<'a> {
     /// only accepted for return types. Type parameters of the declaration
     /// being checked (`self.type_params`) are in scope.
     pub(super) fn resolve_type(&mut self, ty: &ast::TypeExpr, what: &str) -> Type {
+        if let Some(ret) = &ty.ret {
+            let mut args: Vec<Type> = ty
+                .args
+                .iter()
+                .map(|a| self.resolve_type(a, "a parameter"))
+                .collect();
+            args.push(self.resolve_type(ret, "return"));
+            if args.contains(&Type::Error) {
+                return Type::Error;
+            }
+            return self.types.intern(Def::Fn, args);
+        }
         let name = ty.name.name.as_str();
         let param = self.type_params.iter().position(|p| p == name);
         let builtin = Type::from_name(name);
@@ -604,6 +616,8 @@ impl<'a> Checker<'a> {
             Def::Struct(id) => &self.structs[id.0].type_params,
             Def::Enum(id) => &self.enums[id.0].type_params,
             Def::List | Def::Box => &self.list_type_params,
+            // Function types are written `fn(...) -> R`, never by name.
+            Def::Fn => &[],
             Def::Map => &self.map_type_params,
         }
     }

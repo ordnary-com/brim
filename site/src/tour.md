@@ -112,6 +112,35 @@ Hello, Ada
 Functions without `->` return nothing. A function can be used before its
 declaration. Statements end at the end of the line.
 
+## Functions as values
+
+```brim
+fn apply(f: fn(i64) -> i64, x: i64) -> i64 {
+    return f(x)
+}
+
+fn double(x: i64) -> i64 {
+    return x * 2
+}
+
+fn main() {
+    print(apply(double, 21))
+    let offset: i64 = 100
+    let shift: fn(i64) -> i64 = fn(x: i64) -> i64 {
+        return x + offset
+    }
+    print(apply(shift, 1))
+}
+```
+
+```text
+42
+101
+```
+
+`fn(i64) -> i64` is a function type. A `fn` expression copies the
+variables it uses when it is made, so it never changes them.
+
 ## Control flow
 
 ```brim

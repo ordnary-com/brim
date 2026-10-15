@@ -113,6 +113,10 @@ pub enum Type {
     /// A map; its key and value types are `Module::maps[id]`. Keys are
     /// `i64`, `bool` or `str`.
     Map(MapId),
+    /// A function value: a function and the values it captured (its
+    /// environment, a list). The function takes the environment as its
+    /// first parameter.
+    Closure,
     /// Only valid as a function return type.
     Void,
 }
@@ -127,6 +131,7 @@ impl fmt::Display for Type {
             Type::Struct(id) => return write!(f, "{id}"),
             Type::List(id) => return write!(f, "{id}"),
             Type::Map(id) => return write!(f, "{id}"),
+            Type::Closure => "closure",
             Type::Void => "void",
         })
     }
@@ -302,6 +307,12 @@ pub enum InstKind {
     MapSetValueAt(ValueId, ValueId, ValueId),
     /// The map without the entry at a position. Consumes the map.
     MapRemoveAt(ValueId, ValueId),
+    /// A closure of a function and its environment, a list passed as the
+    /// function's first argument (an empty list when `None`).
+    MakeClosure(FuncId, Option<ValueId>),
+    /// Calls a closure with the arguments after the environment. The
+    /// instruction's result type is the function's return type.
+    CallClosure(ValueId, Vec<ValueId>),
 }
 
 impl InstKind {
@@ -325,8 +336,16 @@ impl InstKind {
     /// Every value this instruction reads, in order.
     pub fn operands(&self) -> Vec<ValueId> {
         match self {
-            InstKind::Const(_) | InstKind::Load(_) | InstKind::Take(_) | InstKind::MapNew(_) => {
-                Vec::new()
+            InstKind::Const(_)
+            | InstKind::Load(_)
+            | InstKind::Take(_)
+            | InstKind::MapNew(_)
+            | InstKind::MakeClosure(_, None) => Vec::new(),
+            InstKind::MakeClosure(_, Some(env)) => vec![*env],
+            InstKind::CallClosure(closure, args) => {
+                let mut all = vec![*closure];
+                all.extend(args);
+                all
             }
             InstKind::Store(_, v)
             | InstKind::Unary(_, v)
