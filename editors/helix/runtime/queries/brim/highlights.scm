@@ -14,7 +14,7 @@
 (type_identifier) @type
 (path_type (identifier) @type)
 ((path_type (identifier) @type.builtin)
-  (#any-of? @type.builtin "Option" "Result" "List" "Map"))
+  (#any-of? @type.builtin "Option" "Result" "List" "Map" "Box"))
 (type_parameters (identifier) @type)
 (scoped_type_identifier (identifier) @namespace)
 

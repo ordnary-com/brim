@@ -1,0 +1,64 @@
+error[E0221]: enum `Tree` contains itself
+ --> tests/diagnostics/box_errors.brim:1:6
+  |
+1 | enum Tree {
+  |      ^^^^ infinitely large
+...
+3 |     Node(Tree, Tree)
+  |     ---------------- `Tree` contains itself through here
+  |
+  = note: the cycle is: Tree.Node -> Tree
+  = note: structs and enums are values: what they contain is stored inside them
+  = help: store it in a `Box[Tree]`, which keeps the value on the heap
+
+error[E0221]: struct `Node` contains itself
+ --> tests/diagnostics/box_errors.brim:6:8
+  |
+6 | struct Node {
+  |        ^^^^ infinitely large
+7 |     next: Option[Node]
+  |     ------------------ `Node` contains itself through here
+  |
+  = note: the cycle is: Node.next -> Node
+  = note: structs and enums are values: what they contain is stored inside them
+  = help: store it in a `Box[Node]`, which keeps the value on the heap
+
+error[E0231]: `Box[i64]` has no method `get`
+  --> tests/diagnostics/box_errors.brim:12:13
+   |
+12 |     print(b.get())
+   |             ^^^ unknown method
+   |
+   = note: a `Box` has one method: `value()`, the value inside it
+
+error[E0205]: `value` takes 0 arguments but 1 was supplied
+  --> tests/diagnostics/box_errors.brim:13:11
+   |
+13 |     print(b.value(1))
+   |           ^^^^^^^^^^ expected 0 arguments
+
+error[E0205]: `Box` takes 1 argument but 2 were supplied
+  --> tests/diagnostics/box_errors.brim:14:23
+   |
+14 |     let c: Box[i64] = Box(1, 2)
+   |                       ^^^^^^^^^ expected 1 argument
+
+error[E0206]: mismatched types
+  --> tests/diagnostics/box_errors.brim:15:26
+   |
+15 |     let d: Box[string] = Box(5)
+   |            ----------- expected due to this type
+   |                          ^^^^^^ expected `Box[string]`, found `Box[i64]`
+   |
+   = note: Brim never converts between types implicitly
+
+error[E0206]: mismatched types
+  --> tests/diagnostics/box_errors.brim:16:18
+   |
+16 |     let e: i64 = b
+   |            --- expected due to this type
+   |                  ^ expected `i64`, found `Box[i64]`
+   |
+   = note: Brim never converts between types implicitly
+
+error: could not compile tests/diagnostics/box_errors.brim due to 7 errors

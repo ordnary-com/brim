@@ -137,6 +137,9 @@ impl<'a> Checker<'a> {
                 if let Some(result) = self.method_on_list(base, name, args, span, ctx) {
                     return result;
                 }
+                if let Some(result) = self.method_on_box(base, name, args, span, ctx) {
+                    return result;
+                }
                 if let Some(result) = self.method_on_value(base, name, args, span, expected, ctx) {
                     return result;
                 }
@@ -473,6 +476,105 @@ impl<'a> Checker<'a> {
     }
 
     /// `value.name(args)` where `value` is a struct or enum with that method.
+    /// `b.value()`, if `base` is a `Box`.
+    fn method_on_box(
+        &mut self,
+        base: &ast::Expr,
+        name: &ast::Ident,
+        args: &[ast::Expr],
+        span: Span,
+        ctx: &mut FnCtx,
+    ) -> Option<CheckedExpr> {
+        let errors = self.diags.len();
+        let probe = self.check_expr(base, ctx);
+        self.diags.truncate(errors);
+        let Type::Named(type_id) = probe.ty else {
+            return None;
+        };
+        let named = self.types.get(type_id).clone();
+        if named.def != Def::Box {
+            return None;
+        }
+        let base = self.check_expr(base, ctx);
+        for arg in args {
+            self.check_expr(arg, ctx);
+        }
+        if name.name != "value" {
+            let ty = self.show(base.ty);
+            self.diags.push(
+                Diagnostic::error(format!("`{ty}` has no method `{}`", name.name))
+                    .with_code("E0231")
+                    .with_primary(name.span, "unknown method")
+                    .with_note("a `Box` has one method: `value()`, the value inside it"),
+            );
+            return Some(error_expr(span));
+        }
+        if !args.is_empty() {
+            self.diags.push(
+                Diagnostic::error(format!(
+                    "`value` takes 0 arguments but {} supplied",
+                    supplied(args.len())
+                ))
+                .with_code("E0205")
+                .with_primary(span, "expected 0 arguments"),
+            );
+            return Some(error_expr(span));
+        }
+        Some(CheckedExpr {
+            ty: named.args[0],
+            kind: CheckedExprKind::BoxValue(Box::new(base)),
+            span,
+        })
+    }
+
+    /// `Box(value)`.
+    fn check_box_new(
+        &mut self,
+        callee: &ast::Ident,
+        args: &[ast::Expr],
+        span: Span,
+        expected: Option<Type>,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        let inner_expected = expected.and_then(|ty| match ty {
+            Type::Named(id) if self.types.get(id).def == Def::Box => {
+                Some(self.types.get(id).args[0])
+            }
+            _ => None,
+        });
+        let [arg] = args else {
+            for arg in args {
+                self.check_expr(arg, ctx);
+            }
+            self.diags.push(
+                Diagnostic::error(format!(
+                    "`Box` takes 1 argument but {} supplied",
+                    supplied(args.len())
+                ))
+                .with_code("E0205")
+                .with_primary(callee.span.to(span), "expected 1 argument"),
+            );
+            return error_expr(span);
+        };
+        let value = self.check_expr_with(arg, inner_expected, ctx);
+        if value.ty == Type::Error {
+            return error_expr(span);
+        }
+        if value.ty == Type::Void {
+            self.diags.push(
+                Diagnostic::error("`Box` needs a value")
+                    .with_code("E0206")
+                    .with_primary(value.span, "this has no value"),
+            );
+            return error_expr(span);
+        }
+        CheckedExpr {
+            ty: self.types.intern(Def::Box, vec![value.ty]),
+            kind: CheckedExprKind::BoxNew(Box::new(value)),
+            span,
+        }
+    }
+
     fn method_on_value(
         &mut self,
         base: &ast::Expr,
@@ -664,14 +766,16 @@ impl<'a> Checker<'a> {
         }
         if let Some(def) = self.type_by_name.get(name).copied() {
             let diag = match def {
-                Def::List | Def::Map => {
+                Def::List | Def::Map | Def::Box => {
                     Diagnostic::error(format!("`{name}` is a type, not a value"))
                         .with_code("E0214")
                         .with_primary(ident.span, "types cannot be used as values")
-                        .with_help(if def == Def::List {
-                            "create a list with `[...]`"
-                        } else {
-                            "create a map with `[key: value, ...]`, or `[:]` for an empty one"
+                        .with_help(match def {
+                            Def::List => "create a list with `[...]`",
+                            Def::Map => {
+                                "create a map with `[key: value, ...]`, or `[:]` for an empty one"
+                            }
+                            _ => "create a box with `Box(value)`",
                         })
                 }
                 Def::Struct(_) => Diagnostic::error(format!("`{name}` is a struct, not a value"))
@@ -1052,12 +1156,16 @@ impl<'a> Checker<'a> {
         let found = qualified.or_else(|| self.type_by_name.get(name.name.as_str()).copied());
         let id = match found.as_ref() {
             Some(Def::Struct(id)) => Some(*id),
-            Some(Def::List | Def::Map) => {
+            Some(def @ (Def::List | Def::Map | Def::Box)) => {
                 self.diags.push(
                     Diagnostic::error(format!("`{}` is not a struct", name.name))
                         .with_code("E0212")
                         .with_primary(name.span, "built-in type")
-                        .with_help("create a list with `[...]`"),
+                        .with_help(match def {
+                            Def::List => "create a list with `[...]`",
+                            Def::Map => "create a map with `[key: value, ...]`",
+                            _ => "create a box with `Box(value)`",
+                        }),
                 );
                 None
             }
@@ -1487,6 +1595,9 @@ impl<'a> Checker<'a> {
         if let Some(&id) = self.by_name.get(name) {
             return self.finish_call(id, None, &arg_refs, span, expected, ctx);
         }
+        if self.type_by_name.get(name) == Some(&Def::Box) {
+            return self.check_box_new(callee, args, span, expected, ctx);
+        }
         if let Some(result) = self.check_intrinsic_call(callee, args, span, ctx) {
             return result;
         }
@@ -1579,7 +1690,7 @@ impl<'a> Checker<'a> {
             .with_code("E0201")
             .with_primary(callee.span, "not found");
         match self.type_by_name.get(name) {
-            Some(Def::List | Def::Map) => {
+            Some(Def::List | Def::Map | Def::Box) => {
                 diag = diag.with_help("create a list with `[...]`, or a map with `[key: value]`");
             }
             Some(Def::Struct(_)) => {

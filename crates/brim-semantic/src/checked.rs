@@ -362,6 +362,10 @@ pub enum CheckedExprKind {
     /// `Option`/`Result` type).
     /// A struct, enum, list or map as text, the way `print` shows it.
     Show(Box<CheckedExpr>),
+    /// `Box(value)`: the value moved to the heap.
+    BoxNew(Box<CheckedExpr>),
+    /// `b.value()`: the value in a box.
+    BoxValue(Box<CheckedExpr>),
     Try {
         operand: Box<CheckedExpr>,
         /// When the error type differs from the function's: the function's

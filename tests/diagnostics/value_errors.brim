@@ -1,12 +1,12 @@
-struct Box[T] {
+struct Wrapper[T] {
     value: T
 }
 
-fn same[T](a: Box[T], b: Box[T]) -> bool {
+fn same[T](a: Wrapper[T], b: Wrapper[T]) -> bool {
     return a == b
 }
 
-fn show[T](b: Box[T]) {
+fn show[T](b: Wrapper[T]) {
     print(b)
 }
 

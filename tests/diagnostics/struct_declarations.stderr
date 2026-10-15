@@ -9,6 +9,7 @@ error[E0221]: struct `Node` contains itself
   |
   = note: the cycle is: Node.next -> Node
   = note: structs and enums are values: what they contain is stored inside them
+  = help: store it in a `Box[Node]`, which keeps the value on the heap
 
 error[E0221]: struct `Tree` contains itself
  --> tests/diagnostics/struct_declarations.brim:6:8
@@ -20,6 +21,7 @@ error[E0221]: struct `Tree` contains itself
   |
   = note: the cycle is: Tree.left -> Branch.tree -> Tree
   = note: structs and enums are values: what they contain is stored inside them
+  = help: store it in a `Box[Tree]`, which keeps the value on the heap
 
 error[E0220]: field `a` is declared more than once
   --> tests/diagnostics/struct_declarations.brim:16:5

@@ -35,7 +35,7 @@
 
 (defconst brim-reserved '("async" "await" "const" "loop" "trait" "type" "use"))
 
-(defconst brim-types '("i64" "f64" "bool" "string" "void" "Option" "Result" "List" "Map"))
+(defconst brim-types '("i64" "f64" "bool" "string" "void" "Option" "Result" "List" "Map" "Box"))
 
 (defconst brim-builtins
   '("print" "eprint" "to_string" "to_float" "to_int" "read_line" "read_file" "write_file" "args" "env"

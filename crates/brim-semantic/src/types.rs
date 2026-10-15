@@ -17,6 +17,9 @@ pub enum Def {
     List,
     /// The built-in `Map[K, V]`.
     Map,
+    /// The built-in `Box[T]`: one immutable value on the heap, so that a
+    /// type can contain itself.
+    Box,
 }
 
 /// A struct or enum applied to type arguments (none for non-generic ones).
@@ -124,7 +127,7 @@ impl TypeTable {
     pub fn defs_in(&self, ty: Type, out: &mut Vec<Def>) {
         if let Type::Named(id) = ty {
             let named = self.get(id);
-            if matches!(named.def, Def::List | Def::Map) {
+            if matches!(named.def, Def::List | Def::Map | Def::Box) {
                 return;
             }
             out.push(named.def);

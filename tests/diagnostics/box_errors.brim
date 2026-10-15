@@ -1,0 +1,17 @@
+enum Tree {
+    Leaf(i64)
+    Node(Tree, Tree)
+}
+
+struct Node {
+    next: Option[Node]
+}
+
+fn main() {
+    let b: Box[i64] = Box(1)
+    print(b.get())
+    print(b.value(1))
+    let c: Box[i64] = Box(1, 2)
+    let d: Box[string] = Box(5)
+    let e: i64 = b
+}

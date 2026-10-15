@@ -1,0 +1,10 @@
+-20
+Mul(Add(Num(2), Num(3)), Neg(Num(4)))
+true
+false
+Link(1, Link(2, Link(3, End)))
+50005000
+Person { name: "alan", manager: Some(Person { name: "ada", manager: None }) }
+ada
+[1, 2]
+[1, 2, 3]

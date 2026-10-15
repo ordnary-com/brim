@@ -216,6 +216,8 @@ impl Generator<'_> {
                 let named = self.program.types.get(id);
                 let args: Vec<String> = named.args.iter().map(|t| self.ts(*t, params)).collect();
                 match named.def {
+                    // A box is only a way to store a value; JSON holds the value.
+                    Def::Box => args[0].clone(),
                     Def::List => {
                         if args[0].contains(['|', ' ']) {
                             format!("Array<{}>", args[0])

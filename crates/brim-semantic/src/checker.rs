@@ -224,6 +224,7 @@ impl<'a> Checker<'a> {
                 ("Result", Def::Enum(EnumId(1))),
                 ("List", Def::List),
                 ("Map", Def::Map),
+                ("Box", Def::Box),
             ] {
                 scope.types.insert(name.into(), def);
             }
@@ -504,7 +505,7 @@ impl<'a> Checker<'a> {
         match def {
             Def::Struct(id) => self.structs[id.0].public,
             Def::Enum(id) => self.enums[id.0].public,
-            Def::List | Def::Map => true,
+            Def::List | Def::Map | Def::Box => true,
         }
     }
 
@@ -512,7 +513,7 @@ impl<'a> Checker<'a> {
         match def {
             Def::Struct(id) => self.structs[id.0].module,
             Def::Enum(id) => self.enums[id.0].module,
-            Def::List | Def::Map => usize::MAX,
+            Def::List | Def::Map | Def::Box => usize::MAX,
         }
     }
 
@@ -587,6 +588,7 @@ impl<'a> Checker<'a> {
             Def::Enum(id) => &self.enums[id.0].name,
             Def::List => "List",
             Def::Map => "Map",
+            Def::Box => "Box",
         }
     }
 
@@ -596,7 +598,7 @@ impl<'a> Checker<'a> {
         let named = self.types.get(id);
         match named.def {
             Def::Struct(s) => Some((s, named.args.clone())),
-            Def::Enum(_) | Def::List | Def::Map => None,
+            Def::Enum(_) | Def::List | Def::Map | Def::Box => None,
         }
     }
 
@@ -606,7 +608,7 @@ impl<'a> Checker<'a> {
         let named = self.types.get(id);
         match named.def {
             Def::Enum(e) => Some((e, named.args.clone())),
-            Def::Struct(_) | Def::List | Def::Map => None,
+            Def::Struct(_) | Def::List | Def::Map | Def::Box => None,
         }
     }
 

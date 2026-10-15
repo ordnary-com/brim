@@ -16,13 +16,13 @@ error[E0225]: `Option` takes 1 type argument but 0 were supplied
    |
    = help: write `Option[T]` with actual types
 
-error[E0225]: `Box` takes 1 type argument but 2 were supplied
+error[E0225]: `Wrapper` takes 1 type argument but 2 were supplied
   --> tests/diagnostics/generic_errors.brim:16:12
    |
-16 |     let z: Box[i64, bool] = Box { value: 1 }
-   |            ^^^^^^^^^^^^^^ expected 1 type argument
+16 |     let z: Wrapper[i64, bool] = Wrapper { value: 1 }
+   |            ^^^^^^^^^^^^^^^^^^ expected 1 type argument
    |
-   = help: write `Box[T]` with actual types
+   = help: write `Wrapper[T]` with actual types
 
 error[E0225]: `i64` does not take type arguments
   --> tests/diagnostics/generic_errors.brim:17:12

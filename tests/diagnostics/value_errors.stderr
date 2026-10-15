@@ -1,20 +1,20 @@
-error[E0209]: cannot apply `==` to `Box[T]` and `Box[T]`
+error[E0209]: cannot apply `==` to `Wrapper[T]` and `Wrapper[T]`
  --> tests/diagnostics/value_errors.brim:6:14
   |
 6 |     return a == b
-  |            - `Box[T]`
-  |              ^^ `Box[T] == Box[T]` is not defined
-  |                 - `Box[T]`
+  |            - `Wrapper[T]`
+  |              ^^ `Wrapper[T] == Wrapper[T]` is not defined
+  |                 - `Wrapper[T]`
   |
-  = note: `Box[T]` holds a `T`, which can be any type, and not every type can be compared with `==`
+  = note: `Wrapper[T]` holds a `T`, which can be any type, and not every type can be compared with `==`
 
-error[E0206]: `print` cannot show a `Box[T]`
+error[E0206]: `print` cannot show a `Wrapper[T]`
   --> tests/diagnostics/value_errors.brim:10:11
    |
 10 |     print(b)
    |           ^ unsupported argument type
    |
-   = note: `Box[T]` holds a `T`, which can be any type, and not every type has a text form
+   = note: `Wrapper[T]` holds a `T`, which can be any type, and not every type has a text form
 
 error[E0209]: cannot apply `==` to `Point` and `i64`
   --> tests/diagnostics/value_errors.brim:19:13

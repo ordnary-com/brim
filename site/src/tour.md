@@ -234,6 +234,33 @@ nothing
 A lowercase name in a pattern binds the value; a guard that is false moves
 on to the next arm.
 
+An enum can contain itself through a `Box`, which keeps the value on the heap:
+
+```brim
+enum Expr {
+    Num(i64),
+    Add(Box[Expr], Box[Expr]),
+}
+
+fn eval(e: Expr) -> i64 {
+    match e {
+        Num(n) => return n
+        Add(a, b) => return eval(a.value()) + eval(b.value())
+    }
+}
+
+fn main() {
+    let e: Expr = Expr.Add(Box(Expr.Num(2)), Box(Expr.Num(3)))
+    print(e)
+    print(eval(e))
+}
+```
+
+```text
+Add(Num(2), Num(3))
+5
+```
+
 ## Lists and maps
 
 ```brim

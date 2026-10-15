@@ -223,6 +223,7 @@ Comparison operators at the same level cannot be chained: `a < b < c` and `a == 
 | enums    | declared with `enum` (section 5.2); `Option[T]` and `Result[T, E]` are built in (section 5.4) |
 | `List[T]` | ordered sequences of `T` (section 5.5)  |
 | `Map[K, V]` | values of type `V` looked up by keys of type `K` (section 5.6) |
+| `Box[T]` | one value of type `T` on the heap, so a type can contain itself (section 5.7) |
 
 - `void` may only appear as a function return type. Variables and parameters of type `void` are error `E0213`.
 - Unknown type names are error `E0212`.
@@ -241,7 +242,7 @@ struct Point {
 A struct declaration introduces a new type with named, typed **fields**. Fields are separated by newlines or commas. Struct names share the type namespace with the built-in types (`struct string {}` is `E0219`) and may not be used by a function as well (`E0219`). A struct can be used before its declaration.
 
 - Field names within a struct must be unique (`E0220`). A field cannot have type `void` (`E0213`).
-- A struct cannot contain itself, directly or through other structs or enums (`E0221`): structs are values, so that would make it infinitely large. It can contain itself through a `List` or `Map`, whose elements live on the heap: `struct Node { name: string, children: List[Node] }` is a tree.
+- A struct cannot contain itself, directly or through other structs or enums (`E0221`): structs are values, so that would make it infinitely large. It can contain itself through a `List`, `Map` or `Box`, whose contents live on the heap: `struct Node { name: string, children: List[Node] }` is a tree.
 
 **Values.** `Point { x: 1, y: 2 }` creates a struct value. Every field must be given exactly once (`E0222` for a missing field, `E0223` for a repeated one, `E0224` for an unknown one), in any order. The field values are evaluated in the order they are written. `p.x` reads a field; reading a field of a non-struct is `E0224`.
 
@@ -249,7 +250,7 @@ A struct declaration introduces a new type with named, typed **fields**. Fields 
 
 **Field assignment.** `p.x = 3`, `p.from.y += 1` change one field of a variable. The variable must be declared with `let mut` (`E0218`); its fields are as mutable as the variable itself.
 
-**Operations.** Two struct types are compatible only if they are the same declaration. Structs can be compared with `==` and `!=` and shown with `print` and `to_string` (section 5.7). Methods are declared in `impl` blocks.
+**Operations.** Two struct types are compatible only if they are the same declaration. Structs can be compared with `==` and `!=` and shown with `print` and `to_string` (section 5.8). Methods are declared in `impl` blocks.
 
 ### 5.2 Enums
 
@@ -264,8 +265,8 @@ enum Shape {
 An enum declaration introduces a type whose values are exactly one of its **variants**. A variant may carry values of the listed types (its *payload*). Variants are separated by newlines or commas, and their names must be unique (`E0220`).
 
 - `Shape.Circle(3)` and `Shape.Empty` create values. The number of values must match the variant (`E0228`), and an unknown variant is `E0227`.
-- An enum is a value like a struct, and cannot contain itself directly (`E0221`), but it can through a `List` or `Map`: `enum Json { Null, Number(i64), Array(List[Json]), Object(Map[string, Json]) }`. A linked list (`Cons(i64, List)`) needs indirection that Brim does not have yet; use a `List` instead.
-- Enums can be compared with `==` and `!=` and shown with `print` and `to_string` (section 5.7).
+- An enum is a value like a struct, and cannot contain itself directly (`E0221`), but it can through a `List`, `Map` or `Box`: `enum Json { Null, Number(i64), Array(List[Json]), Object(Map[string, Json]) }`, or `enum Expr { Num(i64), Add(Box[Expr], Box[Expr]) }` (section 5.7).
+- Enums can be compared with `==` and `!=` and shown with `print` and `to_string` (section 5.8).
 
 ### 5.3 Generics
 
@@ -330,7 +331,7 @@ fn total(a: string, b: string) -> Result[i64, string] {
   | `clear()` | | |
 
   The methods from `push` on change the list, so they need a variable declared with `let mut` (or a field or element of one); calling them on a temporary is `E0104`. An unknown method is `E0231`.
-- Lists can be compared with `==` and shown with `print` and `to_string` (section 5.7).
+- Lists can be compared with `==` and shown with `print` and `to_string` (section 5.8).
 
 ### 5.6 Maps
 
@@ -356,7 +357,29 @@ fn total(a: string, b: string) -> Result[i64, string] {
   `insert`, `remove` and `clear` change the map and need a `let mut` variable. To loop over a map, loop over `keys()` or `values()`.
 
 
-### 5.7 Comparing and printing values
+### 5.7 Boxes
+
+`Box[T]` holds one value of type `T` on the heap. It is how a struct or enum contains itself directly:
+
+```brim
+enum Expr {
+    Num(i64)
+    Add(Box[Expr], Box[Expr])
+}
+
+fn eval(e: Expr) -> i64 {
+    match e {
+        Num(n) => return n
+        Add(a, b) => return eval(a.value()) + eval(b.value())
+    }
+}
+```
+
+- `Box(value)` creates one; `b.value()` is the value inside. A box is a value like any other: it is immutable, and copying it shares the contents, which is safe because they cannot change.
+- `==` compares the values inside, and `print` shows the value inside without the box: `Add(Num(1), Num(2))`.
+- Freeing a long chain of boxes does not use the call stack, so a list built from a million links is fine.
+
+### 5.8 Comparing and printing values
 
 Structs, enums, lists and maps support `==` and `!=`, and `print` and `to_string` show them as text, when every value they hold does: integers, floats, booleans, strings, or other such types. A value of a type parameter does not, so inside generic code a `Box[T]` cannot be compared or printed (`E0209`, `E0206`).
 
@@ -371,7 +394,7 @@ print([a])                         // [Point { x: 1, y: 2 }]
 
 The right side of `==` and `!=` is checked with the left side's type in mind, so `o == None` needs no annotation.
 
-### 5.8 Methods
+### 5.9 Methods
 
 ```brim
 impl Stack[T] {
@@ -389,7 +412,7 @@ An `impl` block adds **methods** to a struct or enum declared in the same file. 
 - Calling a method the wrong way is `E0240`; an unknown method is `E0231`. Methods of one type need different names, and an enum's methods cannot share a name with its variants (`E0238`). Built-in types cannot get methods (`E0237`), and `self` outside an `impl` is `E0239`.
 - `self` is a keyword; inside a method it is a variable like a parameter.
 
-### 5.9 Function types
+### 5.10 Function types
 
 A function's type is its parameter type list and its return type, written informally as `fn(i64, i64) -> i64`. Function types cannot be written in source yet, and functions are not values: they can only be called by name (`E0214`).
 
@@ -511,7 +534,7 @@ A function with a return type other than `void` must not be able to reach the en
 
 ## 7. Names and scopes
 
-- **Types**: the built-in types, `Option`, `Result`, `List`, `Map`, and all structs and enums in the file, which are visible everywhere in the file. Type parameters are visible in their declaration.
+- **Types**: the built-in types, `Option`, `Result`, `List`, `Map`, `Box`, and all structs and enums in the file, which are visible everywhere in the file. Type parameters are visible in their declaration.
 - **Functions** form one global namespace. All functions in the file are visible everywhere, including before their declaration, so mutual recursion works. Defining two functions with the same name is `E0202`. Defining a function with a builtin's name is `E0216`.
 - **Variables** live in lexical scopes. A function's parameters and its body's top-level statements share one scope. Each nested block opens a new scope.
 - Declaring a variable twice in the same scope is `E0203`, and duplicate parameter names are `E0204`. A nested block may **shadow** an outer variable.
@@ -534,7 +557,7 @@ Operands are evaluated left to right. Function arguments are evaluated left to r
 | `%`                 | `f64`, `f64`               | `f64`    | remainder with the sign of the left operand (like C's `fmod`) |
 | `+`                 | `string`, `string`         | `string` | concatenation |
 | `<` `<=` `>` `>=`   | two `i64`, two `f64` or two `string` | `bool`   | strings compare byte by byte; comparisons with `NaN` are false |
-| `==` `!=`           | two values of the same type: `i64`, `f64`, `bool`, `string`, or a struct, enum, list or map of such values | `bool` | strings compare by content; `NaN == NaN` is false and `NaN != NaN` true; other values compare structurally (section 5.7) |
+| `==` `!=`           | two values of the same type: `i64`, `f64`, `bool`, `string`, or a struct, enum, list or map of such values | `bool` | strings compare by content; `NaN == NaN` is false and `NaN != NaN` true; other values compare structurally (section 5.8) |
 | `&&` `\|\|`         | `bool`, `bool`             | `bool`   | short-circuit: the right side is evaluated only if needed |
 | unary `-`           | `i64` or `f64`             | same     | `-i64::MIN` is a run-time error |
 | unary `!`           | `bool`                     | `bool`   | |
@@ -632,9 +655,9 @@ Builtins are always in scope and cannot be redefined.
 
 | Builtin | Forms                                             | Effect |
 |---------|---------------------------------------------------|--------|
-| `print` | `print(string)`, `print(i64)`, `print(f64)`, `print(bool)`, and structs, enums, lists and maps (section 5.7) | writes the value and a newline to standard output |
+| `print` | `print(string)`, `print(i64)`, `print(f64)`, `print(bool)`, and structs, enums, lists and maps (section 5.8) | writes the value and a newline to standard output |
 | `eprint` | `eprint(string)` | writes the text and a newline to standard error |
-| `to_string` | `to_string(i64) -> string`, `to_string(f64) -> string`, `to_string(bool) -> string`, and structs, enums, lists and maps | the decimal representation of a number, `"true"`/`"false"`, or the text form of section 5.7 |
+| `to_string` | `to_string(i64) -> string`, `to_string(f64) -> string`, `to_string(bool) -> string`, and structs, enums, lists and maps | the decimal representation of a number, `"true"`/`"false"`, or the text form of section 5.8 |
 | `to_float` | `to_float(i64) -> f64` | the nearest `f64` |
 | `to_int` | `to_int(f64) -> i64` | rounds toward zero; NaN and numbers outside the `i64` range are run-time error `R0010` |
 | `read_line` | `read_line() -> Option[string]` | the next line of standard input without its line ending (`\n` or `\r\n`); `None` at the end of input |

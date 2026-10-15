@@ -10,7 +10,7 @@ use crate::{Def, EnumId, StructId, Type};
 
 /// Names that cannot be used for a struct, enum or type parameter.
 fn reserved_type_name(name: &str) -> bool {
-    Type::from_name(name).is_some() || matches!(name, "Option" | "Result" | "List" | "Map")
+    Type::from_name(name).is_some() || matches!(name, "Option" | "Result" | "List" | "Map" | "Box")
 }
 
 impl<'a> Checker<'a> {
@@ -176,7 +176,7 @@ impl<'a> Checker<'a> {
         match def {
             Def::Struct(id) => Some(self.structs[id.0].name_span),
             Def::Enum(id) => self.enums[id.0].name_span,
-            Def::List | Def::Map => None,
+            Def::List | Def::Map | Def::Box => None,
         }
     }
 
@@ -215,7 +215,9 @@ impl<'a> Checker<'a> {
         let node = |def: Def| match def {
             Def::Struct(s) => s.0,
             Def::Enum(e) => struct_count + e.0,
-            Def::List | Def::Map => unreachable!("collections keep their contents on the heap"),
+            Def::List | Def::Map | Def::Box => {
+                unreachable!("collections and boxes keep their contents on the heap")
+            }
         };
         let total = struct_count + self.enums.len();
         let mut edges: Vec<Vec<(String, Option<Span>, usize)>> = vec![Vec::new(); total];
@@ -278,11 +280,10 @@ impl<'a> Checker<'a> {
             }
             diag = diag
                 .with_note(format!("the cycle is: {} -> {name}", chain.join(" -> ")))
-                .with_note("structs and enums are values: what they contain is stored inside them");
-            if !is_struct {
-                diag = diag
-                    .with_note("recursive enums need indirection, which Brim does not have yet");
-            }
+                .with_note("structs and enums are values: what they contain is stored inside them")
+                .with_help(format!(
+                    "store it in a `Box[{name}]`, which keeps the value on the heap"
+                ));
             self.diags.push(diag);
         }
     }
@@ -306,7 +307,7 @@ impl<'a> Checker<'a> {
                 let kind = match def {
                     Def::Struct(_) => "struct",
                     Def::Enum(_) => "enum",
-                    Def::List | Def::Map => "built-in type",
+                    Def::List | Def::Map | Def::Box => "built-in type",
                 };
                 let mut diag =
                     Diagnostic::error(format!("`{name}` is already the name of a {kind}"))
@@ -602,7 +603,7 @@ impl<'a> Checker<'a> {
         match def {
             Def::Struct(id) => &self.structs[id.0].type_params,
             Def::Enum(id) => &self.enums[id.0].type_params,
-            Def::List => &self.list_type_params,
+            Def::List | Def::Box => &self.list_type_params,
             Def::Map => &self.map_type_params,
         }
     }

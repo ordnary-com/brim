@@ -69,6 +69,49 @@ enum Value {
     Map(Rc<MapData>),
 }
 
+/// Values nest without limit (a long chain of boxes is a list in a struct in
+/// a list ...), so dropping one recursively could overflow the stack. The
+/// values inside a value that is about to be freed are moved out and
+/// dropped one at a time instead.
+impl Drop for Value {
+    fn drop(&mut self) {
+        let mut pending = Vec::new();
+        take_contents(self, &mut pending);
+        while let Some(mut value) = pending.pop() {
+            take_contents(&mut value, &mut pending);
+        }
+    }
+}
+
+/// Moves the values inside `value` to `out`, if nothing else shares them.
+fn take_contents(value: &mut Value, out: &mut Vec<Value>) {
+    match value {
+        Value::List(items) => {
+            if let Some(items) = Rc::get_mut(items) {
+                out.append(items);
+            }
+        }
+        Value::Struct(fields) => {
+            if let Some(fields) = Rc::get_mut(fields) {
+                out.extend(
+                    fields
+                        .iter_mut()
+                        .map(|f| std::mem::replace(f, Value::Bool(false))),
+                );
+            }
+        }
+        Value::Map(map) => {
+            if let Some(map) = Rc::get_mut(map) {
+                for (key, value) in map.entries.drain(..) {
+                    out.push(key);
+                    out.push(value);
+                }
+            }
+        }
+        Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Str(_) => {}
+    }
+}
+
 /// A map: entries in insertion order, and where each key is.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 struct MapData {
@@ -156,23 +199,25 @@ impl Value {
         }
     }
 
-    fn into_map(self) -> Rc<MapData> {
-        match self {
-            Value::Map(v) => v,
+    // `Value` implements `Drop`, so these take the contents out instead of
+    // moving them.
+    fn into_map(mut self) -> Rc<MapData> {
+        match &mut self {
+            Value::Map(v) => std::mem::take(v),
             other => unreachable!("validated IR: expected a map, found {other:?}"),
         }
     }
 
-    fn into_list(self) -> Rc<Vec<Value>> {
-        match self {
-            Value::List(v) => v,
+    fn into_list(mut self) -> Rc<Vec<Value>> {
+        match &mut self {
+            Value::List(v) => std::mem::take(v),
             other => unreachable!("validated IR: expected a list, found {other:?}"),
         }
     }
 
-    fn into_fields(self) -> Rc<[Value]> {
-        match self {
-            Value::Struct(v) => v,
+    fn into_fields(mut self) -> Rc<[Value]> {
+        match &mut self {
+            Value::Struct(v) => std::mem::take(v),
             other => unreachable!("validated IR: expected a struct, found {other:?}"),
         }
     }

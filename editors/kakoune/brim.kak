@@ -20,7 +20,7 @@ provide-module brim %§
 
     add-highlighter shared/brim/code/ regex \b(fn|let|mut|return|if|else|while|for|in|match|break|continue|struct|enum|impl|pub|import|as)\b 0:keyword
     add-highlighter shared/brim/code/ regex \b(async|await|const|loop|trait|type|use)\b 0:Error
-    add-highlighter shared/brim/code/ regex \b(i64|f64|bool|string|void|Option|Result|List|Map)\b 0:type
+    add-highlighter shared/brim/code/ regex \b(i64|f64|bool|string|void|Option|Result|List|Map|Box)\b 0:type
     add-highlighter shared/brim/code/ regex \b[A-Z][A-Za-z0-9_]*\b 0:type
     add-highlighter shared/brim/code/ regex \b(true|false|self|Some|None|Ok|Err)\b 0:value
     add-highlighter shared/brim/code/ regex \b(print|eprint|to_string|to_float|to_int|read_line|read_file|write_file|args|env|exit|assert|assert_eq)\b 0:builtin

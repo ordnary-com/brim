@@ -4,7 +4,7 @@ comment "//"
 
 color brightblue "\<(fn|let|mut|return|if|else|while|for|in|match|break|continue|struct|enum|impl|pub|import|as)\>"
 color red "\<(async|await|const|loop|trait|type|use)\>"
-color green "\<(i64|f64|bool|string|void|Option|Result|List|Map)\>"
+color green "\<(i64|f64|bool|string|void|Option|Result|List|Map|Box)\>"
 color green "\<[A-Z][A-Za-z0-9_]*\>"
 color magenta "\<(true|false|self|Some|None|Ok|Err)\>"
 color cyan "\<(print|eprint|to_string|to_float|to_int|read_line|read_file|write_file|args|env|exit|assert|assert_eq)\>"

@@ -305,10 +305,55 @@ void brim_rt_list_retain(BrimList *l) {
     }
 }
 
-void brim_rt_list_release(BrimList *l) {
-    if (l == NULL || --l->rc > 0) {
+/*
+ * Lists and maps whose count reached zero. Freeing one releases its
+ * elements, which can free more lists and maps: instead of recursing
+ * (a long chain of boxes would overflow the stack), they wait here and the
+ * outermost release frees them one at a time.
+ */
+typedef struct Dead {
+    void *ptr;
+    int is_map;
+} Dead;
+
+static Dead *dead;
+static int64_t dead_len;
+static int64_t dead_cap;
+static int freeing;
+
+static void free_list(BrimList *l);
+struct BrimMap;
+static void free_map(struct BrimMap *m);
+
+static void bury(void *ptr, int is_map) {
+    if (dead_len == dead_cap) {
+        int64_t cap = dead_cap < 16 ? 16 : dead_cap * 2;
+        Dead *bigger = realloc(dead, (size_t)cap * sizeof(Dead));
+        if (bigger == NULL) {
+            fatal("out of memory");
+        }
+        dead = bigger;
+        dead_cap = cap;
+    }
+    dead[dead_len].ptr = ptr;
+    dead[dead_len].is_map = is_map;
+    dead_len++;
+    if (freeing) {
         return;
     }
+    freeing = 1;
+    while (dead_len > 0) {
+        Dead d = dead[--dead_len];
+        if (d.is_map) {
+            free_map(d.ptr);
+        } else {
+            free_list(d.ptr);
+        }
+    }
+    freeing = 0;
+}
+
+static void free_list(BrimList *l) {
     if (l->release != NULL) {
         for (int64_t i = 0; i < l->len; i++) {
             l->release(elem_at(l, i));
@@ -318,6 +363,13 @@ void brim_rt_list_release(BrimList *l) {
         live_strings--;
     }
     free(l);
+}
+
+void brim_rt_list_release(BrimList *l) {
+    if (l == NULL || --l->rc > 0) {
+        return;
+    }
+    bury(l, 0);
 }
 
 int64_t brim_rt_list_len(const BrimList *l) {
@@ -609,6 +661,10 @@ void brim_rt_map_release(BrimMap *m) {
     if (m == NULL || --m->rc > 0) {
         return;
     }
+    bury(m, 1);
+}
+
+static void free_map(BrimMap *m) {
     for (int64_t i = 0; i < m->len; i++) {
         if (m->key_kind == KEY_STR) {
             brim_rt_release(*(BrimStr **)entry_at(m, i));

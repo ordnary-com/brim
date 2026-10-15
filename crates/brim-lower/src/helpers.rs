@@ -164,6 +164,14 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         self.emit_value(InstKind::Extract(v, index), ir_ty, NO_SPAN)
     }
 
+    /// The value in the box in `slot`.
+    fn boxed(&mut self, slot: SlotId, inner: Type) -> ValueId {
+        let b = self.load(slot);
+        let zero = self.int(0);
+        let ir_ty = self.m.ir_type(inner);
+        self.emit_value(InstKind::ListGet(b, zero), ir_ty, NO_SPAN)
+    }
+
     /// The concrete types of the fields of a struct, or of each variant's
     /// payload of an enum.
     fn struct_fields(&mut self, ty: Type) -> Vec<(String, Type)> {
@@ -255,6 +263,12 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         let differ = self.new_block();
         let (def, args) = self.type_args_of(ty);
         match def {
+            Def::Box => {
+                let x = self.boxed(a, args[0]);
+                let y = self.boxed(b, args[0]);
+                let eq = self.values_equal(x, y, args[0], NO_SPAN);
+                self.require(eq, differ);
+            }
             Def::Struct(_) => {
                 for (index, (_, field_ty)) in self.struct_fields(ty).into_iter().enumerate() {
                     let x = self.field(a, index, field_ty);
@@ -363,6 +377,12 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         let value = SlotId(0);
         let (def, args) = self.type_args_of(ty);
         match def {
+            // A box shows as the value inside it.
+            Def::Box => {
+                let x = self.boxed(value, args[0]);
+                let shown = self.value_text(x, args[0], NO_SPAN);
+                self.terminate(Terminator::Return(Some(shown)));
+            }
             Def::Struct(s) => {
                 let name = self.m.program.struct_def(s).name.clone();
                 let fields = self.struct_fields(ty);

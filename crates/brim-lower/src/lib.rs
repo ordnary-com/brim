@@ -219,6 +219,7 @@ impl ModuleLowerer<'_> {
                     Def::Enum(e) => &self.program.enum_def(e).name,
                     Def::List => "List",
                     Def::Map => "Map",
+                    Def::Box => "Box",
                 };
                 if named.args.is_empty() {
                     name.to_string()
@@ -259,7 +260,9 @@ impl ModuleLowerer<'_> {
                     self.module.maps[id.index()] = (key, value);
                     return ir;
                 }
-                if named.def == Def::List {
+                // A box is a list that always holds one element: it shares
+                // the lists' reference counting and copy-on-write.
+                if matches!(named.def, Def::List | Def::Box) {
                     let id = ListId(
                         u32::try_from(self.module.lists.len()).expect("list count fits in u32"),
                     );
@@ -310,7 +313,7 @@ impl ModuleLowerer<'_> {
                         }
                         self.enum_layouts.insert(ty, EnumLayout { offsets });
                     }
-                    Def::List | Def::Map => unreachable!("handled above"),
+                    Def::List | Def::Map | Def::Box => unreachable!("handled above"),
                 }
                 self.module.structs[id.index()].fields = fields;
                 ir
@@ -339,9 +342,10 @@ fn branches(expr: &CheckedExpr) -> bool {
         | CheckedExprKind::Bool(_)
         | CheckedExprKind::Str(_)
         | CheckedExprKind::Local(_) => false,
-        CheckedExprKind::Unary { operand, .. } | CheckedExprKind::Show(operand) => {
-            branches(operand)
-        }
+        CheckedExprKind::Unary { operand, .. }
+        | CheckedExprKind::Show(operand)
+        | CheckedExprKind::BoxNew(operand)
+        | CheckedExprKind::BoxValue(operand) => branches(operand),
         CheckedExprKind::Binary { lhs, rhs, .. } => branches(lhs) || branches(rhs),
         CheckedExprKind::CallMut { .. } => true,
         // Most intrinsics build an `Option` or `Result` with a branch.
@@ -1728,6 +1732,18 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                     }
                     _ => self.binary(*op, a, b, span),
                 }
+            }
+            CheckedExprKind::BoxNew(value) => {
+                let v = self.value(value);
+                let IrType::List(list) = ty else {
+                    unreachable!("boxes lower to lists")
+                };
+                self.emit_value(InstKind::ListNew(list, vec![v]), ty, span)
+            }
+            CheckedExprKind::BoxValue(boxed) => {
+                let b = self.value(boxed);
+                let zero = self.emit_value(InstKind::Const(Const::I64(0)), IrType::I64, span);
+                self.emit_value(InstKind::ListGet(b, zero), ty, span)
             }
             CheckedExprKind::Show(value) => {
                 let v = self.value(value);

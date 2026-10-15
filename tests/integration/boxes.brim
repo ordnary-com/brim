@@ -1,0 +1,81 @@
+// `Box[T]` lets a type contain itself.
+
+enum Expr {
+    Num(i64)
+    Add(Box[Expr], Box[Expr])
+    Mul(Box[Expr], Box[Expr])
+    Neg(Box[Expr])
+}
+
+fn eval(e: Expr) -> i64 {
+    match e {
+        Num(n) => return n
+        Add(a, b) => return eval(a.value()) + eval(b.value())
+        Mul(a, b) => return eval(a.value()) * eval(b.value())
+        Neg(a) => return -eval(a.value())
+    }
+}
+
+fn num(n: i64) -> Box[Expr] {
+    return Box(Expr.Num(n))
+}
+
+enum Chain {
+    Link(i64, Box[Chain])
+    End
+}
+
+fn build(n: i64) -> Chain {
+    let mut chain: Chain = Chain.End
+    for i in 0..n {
+        chain = Chain.Link(n - i, Box(chain))
+    }
+    return chain
+}
+
+fn total(c: Chain) -> i64 {
+    let mut sum: i64 = 0
+    let mut current: Chain = c
+    let mut done: bool = false
+    while !done {
+        match current {
+            Link(v, rest) => {
+                sum += v
+                current = rest.value()
+            }
+            End => done = true
+        }
+    }
+    return sum
+}
+
+struct Person {
+    name: string
+    manager: Option[Box[Person]]
+}
+
+fn main() {
+    // (2 + 3) * -4
+    let e: Expr = Expr.Mul(Box(Expr.Add(num(2), num(3))), Box(Expr.Neg(num(4))))
+    print(eval(e))
+    print(e)
+    print(e == Expr.Mul(Box(Expr.Add(num(2), num(3))), Box(Expr.Neg(num(4)))))
+    print(e == Expr.Mul(Box(Expr.Add(num(3), num(2))), Box(Expr.Neg(num(4)))))
+
+    print(build(3))
+    print(total(build(10000)))
+
+    let boss: Person = Person { name: "ada", manager: None }
+    let dev: Person = Person { name: "alan", manager: Some(Box(boss)) }
+    print(dev)
+    match dev.manager {
+        Some(m) => print(m.value().name)
+        None => print("nobody")
+    }
+
+    let b: Box[List[i64]] = Box([1, 2])
+    let mut copy: List[i64] = b.value()
+    copy.push(3)
+    print(b)
+    print(copy)
+}

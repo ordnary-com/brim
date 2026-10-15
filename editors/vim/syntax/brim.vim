@@ -9,7 +9,7 @@ syn keyword brimInclude import as
 syn keyword brimBoolean true false
 syn keyword brimSelf self
 syn keyword brimReserved async await const loop trait type use
-syn keyword brimType i64 f64 bool string void Option Result List Map
+syn keyword brimType i64 f64 bool string void Option Result List Map Box
 syn keyword brimConstant Some None Ok Err
 syn keyword brimBuiltin print eprint to_string to_float to_int read_line read_file write_file args env exit assert assert_eq
 syn match brimNumber "\<[0-9][0-9_]*\(\.[0-9][0-9_]*\)\=\([eE][+-]\=[0-9]\+\)\=\>"
