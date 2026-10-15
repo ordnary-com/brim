@@ -3449,7 +3449,11 @@ int64_t brim_rt_time_now_millis(void) {
 int64_t brim_rt_time_monotonic_millis(void) {
     static int64_t start = -1;
 #ifdef _WIN32
-    int64_t now = (int64_t)GetTickCount64();
+    /* GetTickCount64 moves in steps of about 16 ms; this counter does not. */
+    LARGE_INTEGER count, frequency;
+    QueryPerformanceCounter(&count);
+    QueryPerformanceFrequency(&frequency);
+    int64_t now = (int64_t)(count.QuadPart / (frequency.QuadPart / 1000));
 #else
     struct timespec t;
     clock_gettime(CLOCK_MONOTONIC, &t);
