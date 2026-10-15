@@ -218,6 +218,7 @@ impl Generator<'_> {
                 match named.def {
                     // A box is only a way to store a value; JSON holds the value.
                     Def::Box => args[0].clone(),
+                    Def::Tuple => format!("[{}]", args.join(", ")),
                     Def::Fn => {
                         let (ret, params) = args.split_last().expect("a return type");
                         let params: Vec<String> = params

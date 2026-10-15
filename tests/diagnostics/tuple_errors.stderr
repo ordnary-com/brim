@@ -1,0 +1,44 @@
+error[E0224]: `(i64, string)` has no field `2`
+ --> tests/diagnostics/tuple_errors.brim:3:13
+  |
+3 |     print(t.2)
+  |             ^ unknown field
+  |
+  = note: a tuple of 2 values has the fields `0` to `1`
+
+error[E0251]: the pattern of a `let` must match every value
+ --> tests/diagnostics/tuple_errors.brim:4:9
+  |
+4 |     let (a, 0) = (1, 2)
+  |         ^^^^^^ some values do not match
+  |
+  = note: not matched: `(_, _)`
+  = help: use `match` to handle the other values
+
+error[E0230]: pattern does not match the type of the value
+ --> tests/diagnostics/tuple_errors.brim:5:9
+  |
+5 |     let (x, y, z) = t
+  |         ^^^^^^^^^ expected a pattern for `(i64, string)`, found a tuple of 3 values
+  |
+  = note: the value being matched is `(i64, string)`
+
+error[E0206]: mismatched types
+ --> tests/diagnostics/tuple_errors.brim:6:18
+  |
+6 |     let n: i64 = t
+  |            --- expected due to this type
+  |                  ^ expected `i64`, found `(i64, string)`
+  |
+  = note: Brim never converts between types implicitly
+
+error[E0229]: `match` does not cover every value
+ --> tests/diagnostics/tuple_errors.brim:7:11
+  |
+7 |     match t {
+  |           ^ some values have no matching arm
+  |
+  = note: not covered: `(_, _)`
+  = help: add an arm for each, or a `_ => ...` arm
+
+error: could not compile tests/diagnostics/tuple_errors.brim due to 5 errors

@@ -417,6 +417,11 @@ impl Analysis {
 
     fn stmt_locals(&self, stmt: &Stmt, consider: &mut dyn FnMut(&Ident, String)) {
         match &stmt.kind {
+            StmtKind::LetPattern { pattern, .. } => {
+                pattern.for_each_binding(&mut |b| {
+                    consider(b, format!("let {} in {}", b.name, self.text(pattern.span)));
+                });
+            }
             StmtKind::Let {
                 mutable, name, ty, ..
             } => {

@@ -176,7 +176,7 @@ impl<'a> Checker<'a> {
         match def {
             Def::Struct(id) => Some(self.structs[id.0].name_span),
             Def::Enum(id) => self.enums[id.0].name_span,
-            Def::List | Def::Map | Def::Box | Def::Fn => None,
+            Def::List | Def::Map | Def::Box | Def::Fn | Def::Tuple => None,
         }
     }
 
@@ -215,7 +215,7 @@ impl<'a> Checker<'a> {
         let node = |def: Def| match def {
             Def::Struct(s) => s.0,
             Def::Enum(e) => struct_count + e.0,
-            Def::List | Def::Map | Def::Box | Def::Fn => {
+            Def::List | Def::Map | Def::Box | Def::Fn | Def::Tuple => {
                 unreachable!("collections and boxes keep their contents on the heap")
             }
         };
@@ -307,7 +307,7 @@ impl<'a> Checker<'a> {
                 let kind = match def {
                     Def::Struct(_) => "struct",
                     Def::Enum(_) => "enum",
-                    Def::List | Def::Map | Def::Box | Def::Fn => "built-in type",
+                    Def::List | Def::Map | Def::Box | Def::Fn | Def::Tuple => "built-in type",
                 };
                 let mut diag =
                     Diagnostic::error(format!("`{name}` is already the name of a {kind}"))
@@ -543,6 +543,17 @@ impl<'a> Checker<'a> {
             return self.types.intern(Def::Fn, args);
         }
         let name = ty.name.name.as_str();
+        if name == "()" {
+            let args: Vec<Type> = ty
+                .args
+                .iter()
+                .map(|a| self.resolve_type(a, "a tuple element"))
+                .collect();
+            if args.contains(&Type::Error) {
+                return Type::Error;
+            }
+            return self.types.intern(Def::Tuple, args);
+        }
         let param = self.type_params.iter().position(|p| p == name);
         let builtin = Type::from_name(name);
         if (param.is_some() || builtin.is_some()) && !ty.args.is_empty() {
@@ -628,8 +639,9 @@ impl<'a> Checker<'a> {
             Def::Struct(id) => &self.structs[id.0].type_params,
             Def::Enum(id) => &self.enums[id.0].type_params,
             Def::List | Def::Box => &self.list_type_params,
-            // Function types are written `fn(...) -> R`, never by name.
-            Def::Fn => &[],
+            // Function and tuple types are written `fn(...) -> R` and
+            // `(A, B)`, never by name.
+            Def::Fn | Def::Tuple => &[],
             Def::Map => &self.map_type_params,
         }
     }

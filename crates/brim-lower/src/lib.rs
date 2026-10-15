@@ -306,6 +306,11 @@ impl ModuleLowerer<'_> {
                     Def::Map => "Map",
                     Def::Box => "Box",
                     Def::Fn => "fn",
+                    Def::Tuple => {
+                        let items: Vec<String> =
+                            named.args.iter().map(|t| self.type_name(*t)).collect();
+                        return format!("({})", items.join(", "));
+                    }
                 };
                 if named.args.is_empty() {
                     name.to_string()
@@ -402,6 +407,14 @@ impl ModuleLowerer<'_> {
                             }
                         }
                         self.enum_layouts.insert(ty, EnumLayout { offsets });
+                    }
+                    Def::Tuple => {
+                        for (i, item) in named.args.iter().enumerate() {
+                            fields.push(Field {
+                                name: i.to_string(),
+                                ty: self.ir_type(*item),
+                            });
+                        }
                     }
                     Def::List | Def::Map | Def::Box | Def::Fn => unreachable!("handled above"),
                 }
@@ -724,6 +737,21 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 else_body,
             } => self.if_stmt(cond, then_body, else_body),
             CheckedStmt::While { cond, body } => self.while_stmt(cond, body),
+            CheckedStmt::LetPattern { pattern, init } => {
+                let span = init.span;
+                let value = self.value(init);
+                let ty = self.concrete(init.ty);
+                let ir_ty = self.m.ir_type(ty);
+                let slot = self.new_slot("let", ir_ty);
+                self.emit(InstKind::Store(slot, value), None, span);
+                // The checker made sure the pattern always matches.
+                let fail = self.new_block();
+                self.match_pattern(pattern, slot, ty, fail, span);
+                let after = self.current;
+                self.switch_to(fail);
+                self.terminate(Terminator::Unreachable);
+                self.switch_to(after);
+            }
             CheckedStmt::Match { scrutinee, arms } => {
                 let falls_through = self.match_stmt(scrutinee, arms, None);
                 if !falls_through {
@@ -1728,6 +1756,11 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         let ir_ty = self.func.slots[slot.index()].ty;
         let cond = match pattern {
             CheckedPattern::Wildcard => return,
+            // A tuple always matches itself; only its values are tested.
+            CheckedPattern::Tuple(items) => {
+                self.match_fields(items, slot, 0, fail, span);
+                return;
+            }
             CheckedPattern::Binding(local) => {
                 let v = self.emit_value(InstKind::Load(slot), ir_ty, span);
                 self.emit(InstKind::Store(SlotId(local.0 as u32), v), None, span);
@@ -1801,6 +1834,20 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             return;
         };
         let offset = self.m.enum_layout(ty).offsets[*index];
+        self.match_fields(fields, slot, offset, fail, span);
+    }
+
+    /// Matches `fields` against the struct fields from `offset` of the
+    /// value in `slot`.
+    fn match_fields(
+        &mut self,
+        fields: &[(CheckedPattern, Type)],
+        slot: SlotId,
+        offset: usize,
+        fail: BlockId,
+        span: Span,
+    ) {
+        let ir_ty = self.func.slots[slot.index()].ty;
         for (j, (field, field_ty)) in fields.iter().enumerate() {
             if matches!(field, CheckedPattern::Wildcard) {
                 continue;

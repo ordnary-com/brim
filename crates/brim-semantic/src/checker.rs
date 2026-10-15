@@ -587,7 +587,7 @@ impl<'a> Checker<'a> {
         match def {
             Def::Struct(id) => self.structs[id.0].public,
             Def::Enum(id) => self.enums[id.0].public,
-            Def::List | Def::Map | Def::Box | Def::Fn => true,
+            Def::List | Def::Map | Def::Box | Def::Fn | Def::Tuple => true,
         }
     }
 
@@ -595,7 +595,7 @@ impl<'a> Checker<'a> {
         match def {
             Def::Struct(id) => self.structs[id.0].module,
             Def::Enum(id) => self.enums[id.0].module,
-            Def::List | Def::Map | Def::Box | Def::Fn => usize::MAX,
+            Def::List | Def::Map | Def::Box | Def::Fn | Def::Tuple => usize::MAX,
         }
     }
 
@@ -652,6 +652,10 @@ impl<'a> Checker<'a> {
                 .unwrap_or_else(|| format!("T{i}")),
             Type::Named(id) => {
                 let named = self.types.get(id);
+                if named.def == Def::Tuple {
+                    let items: Vec<String> = named.args.iter().map(|t| self.show(*t)).collect();
+                    return format!("({})", items.join(", "));
+                }
                 if named.def == Def::Fn {
                     let (ret, params) = named.args.split_last().expect("a return type");
                     let params: Vec<String> = params.iter().map(|t| self.show(*t)).collect();
@@ -680,6 +684,7 @@ impl<'a> Checker<'a> {
             Def::Map => "Map",
             Def::Box => "Box",
             Def::Fn => "fn",
+            Def::Tuple => "tuple",
         }
     }
 
@@ -689,7 +694,7 @@ impl<'a> Checker<'a> {
         let named = self.types.get(id);
         match named.def {
             Def::Struct(s) => Some((s, named.args.clone())),
-            Def::Enum(_) | Def::List | Def::Map | Def::Box | Def::Fn => None,
+            Def::Enum(_) | Def::List | Def::Map | Def::Box | Def::Fn | Def::Tuple => None,
         }
     }
 
@@ -699,7 +704,7 @@ impl<'a> Checker<'a> {
         let named = self.types.get(id);
         match named.def {
             Def::Enum(e) => Some((e, named.args.clone())),
-            Def::Struct(_) | Def::List | Def::Map | Def::Box | Def::Fn => None,
+            Def::Struct(_) | Def::List | Def::Map | Def::Box | Def::Fn | Def::Tuple => None,
         }
     }
 
@@ -811,6 +816,11 @@ impl<'a> Checker<'a> {
 
     fn check_stmt(&mut self, stmt: &ast::Stmt, ctx: &mut FnCtx) -> (CheckedStmt, bool) {
         match &stmt.kind {
+            ast::StmtKind::LetPattern {
+                mutable,
+                pattern,
+                init,
+            } => (self.check_let_pattern(*mutable, pattern, init, ctx), false),
             ast::StmtKind::Let {
                 mutable,
                 name,

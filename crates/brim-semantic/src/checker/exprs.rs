@@ -75,6 +75,7 @@ impl<'a> Checker<'a> {
             ast::ExprKind::Name(ident) => return self.check_name(ident, expected, ctx),
             ast::ExprKind::Branch(stmt) => return self.check_branch_value(stmt, expected, ctx).0,
             ast::ExprKind::FString(parts) => return self.check_fstring(parts, span, ctx),
+            ast::ExprKind::Tuple(items) => return self.check_tuple(items, span, expected, ctx),
             ast::ExprKind::Lambda { params, ret, body } => {
                 return self.check_lambda(params, ret.as_ref(), body, span, ctx);
             }
@@ -856,7 +857,7 @@ impl<'a> Checker<'a> {
         }
         if let Some(def) = self.type_by_name.get(name).copied() {
             let diag = match def {
-                Def::List | Def::Map | Def::Box | Def::Fn => {
+                Def::List | Def::Map | Def::Box | Def::Fn | Def::Tuple => {
                     Diagnostic::error(format!("`{name}` is a type, not a value"))
                         .with_code("E0214")
                         .with_primary(ident.span, "types cannot be used as values")
@@ -1185,6 +1186,25 @@ impl<'a> Checker<'a> {
         if ty == Type::Error {
             return None;
         }
+        if let Some(items) = self.tuple_items(ty) {
+            if let Ok(index) = field.name.parse::<usize>()
+                && index < items.len()
+            {
+                return Some((index, items[index]));
+            }
+            let shown = self.show(ty);
+            self.diags.push(
+                Diagnostic::error(format!("`{shown}` has no field `{}`", field.name))
+                    .with_code("E0224")
+                    .with_primary(field.span, "unknown field")
+                    .with_note(format!(
+                        "a tuple of {} values has the fields `0` to `{}`",
+                        items.len(),
+                        items.len() - 1
+                    )),
+            );
+            return None;
+        }
         let Some((id, args)) = self.as_struct(ty) else {
             let shown = self.show(ty);
             let mut diag = Diagnostic::error(format!("`{shown}` has no fields"))
@@ -1249,7 +1269,7 @@ impl<'a> Checker<'a> {
         let found = qualified.or_else(|| self.type_by_name.get(name.name.as_str()).copied());
         let id = match found.as_ref() {
             Some(Def::Struct(id)) => Some(*id),
-            Some(def @ (Def::List | Def::Map | Def::Box | Def::Fn)) => {
+            Some(def @ (Def::List | Def::Map | Def::Box | Def::Fn | Def::Tuple)) => {
                 self.diags.push(
                     Diagnostic::error(format!("`{}` is not a struct", name.name))
                         .with_code("E0212")
@@ -1789,6 +1809,50 @@ impl<'a> Checker<'a> {
         })
     }
 
+    /// The element types of a tuple type.
+    pub(super) fn tuple_items(&self, ty: Type) -> Option<Vec<Type>> {
+        let Type::Named(id) = ty else { return None };
+        let named = self.types.get(id);
+        (named.def == Def::Tuple).then(|| named.args.clone())
+    }
+
+    /// `(a, b, ...)`.
+    fn check_tuple(
+        &mut self,
+        items: &[ast::Expr],
+        span: Span,
+        expected: Option<Type>,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        let expected_items = expected
+            .and_then(|t| self.tuple_items(t))
+            .filter(|t| t.len() == items.len());
+        let mut fields = Vec::with_capacity(items.len());
+        let mut types = Vec::with_capacity(items.len());
+        for (i, item) in items.iter().enumerate() {
+            let want = expected_items.as_ref().map(|t| t[i]);
+            let value = self.check_expr_with(item, want, ctx);
+            if value.ty == Type::Void {
+                self.diags.push(
+                    Diagnostic::error("a tuple cannot hold a value of a call that returns nothing")
+                        .with_code("E0213")
+                        .with_primary(value.span, ""),
+                );
+                return error_expr(span);
+            }
+            types.push(value.ty);
+            fields.push((i, value));
+        }
+        if types.contains(&Type::Error) {
+            return error_expr(span);
+        }
+        CheckedExpr {
+            kind: CheckedExprKind::StructLit { fields },
+            ty: self.types.intern(Def::Tuple, types),
+            span,
+        }
+    }
+
     /// The parameter and return types of a function type.
     pub(super) fn fn_type_parts(&self, ty: Type) -> Option<(Vec<Type>, Type)> {
         let Type::Named(id) = ty else { return None };
@@ -2271,7 +2335,7 @@ impl<'a> Checker<'a> {
             .with_code("E0201")
             .with_primary(callee.span, "not found");
         match self.type_by_name.get(name) {
-            Some(Def::List | Def::Map | Def::Box | Def::Fn) => {
+            Some(Def::List | Def::Map | Def::Box | Def::Fn | Def::Tuple) => {
                 diag = diag.with_help("create a list with `[...]`, or a map with `[key: value]`");
             }
             Some(Def::Struct(_)) => {

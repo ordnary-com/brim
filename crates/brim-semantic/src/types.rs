@@ -23,6 +23,8 @@ pub enum Def {
     /// A function type `fn(A, B) -> R`: the arguments are the parameter
     /// types followed by the return type (possibly `void`).
     Fn,
+    /// A tuple type `(A, B, ...)`: the arguments are its element types.
+    Tuple,
 }
 
 /// A struct or enum applied to type arguments (none for non-generic ones).
@@ -133,7 +135,10 @@ impl TypeTable {
             if matches!(named.def, Def::List | Def::Map | Def::Box | Def::Fn) {
                 return;
             }
-            out.push(named.def);
+            // A tuple holds its elements inline, but is no declaration.
+            if named.def != Def::Tuple {
+                out.push(named.def);
+            }
             for arg in &named.args {
                 self.defs_in(*arg, out);
             }

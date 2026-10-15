@@ -53,7 +53,7 @@ impl<'a> Checker<'a> {
         let inner: Vec<Type> = match named.def {
             // Functions cannot be compared or shown.
             Def::Fn => return Some(ty),
-            Def::List | Def::Map | Def::Box => named.args.clone(),
+            Def::List | Def::Map | Def::Box | Def::Tuple => named.args.clone(),
             Def::Struct(s) => self.structs[s.0].fields.iter().map(|f| f.ty).collect(),
             Def::Enum(e) => self.enums[e.0]
                 .variants

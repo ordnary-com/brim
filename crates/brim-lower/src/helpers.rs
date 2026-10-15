@@ -265,6 +265,14 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         let (def, args) = self.type_args_of(ty);
         match def {
             Def::Fn => unreachable!("functions cannot be compared"),
+            Def::Tuple => {
+                for (index, item_ty) in args.iter().copied().enumerate() {
+                    let x = self.field(a, index, item_ty);
+                    let y = self.field(b, index, item_ty);
+                    let eq = self.values_equal(x, y, item_ty, NO_SPAN);
+                    self.require(eq, differ);
+                }
+            }
             Def::Box => {
                 let x = self.boxed(a, args[0]);
                 let y = self.boxed(b, args[0]);
@@ -380,6 +388,21 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
         let (def, args) = self.type_args_of(ty);
         match def {
             Def::Fn => unreachable!("functions have no text form"),
+            Def::Tuple => {
+                let mut acc = self.text("(");
+                for (index, item_ty) in args.iter().copied().enumerate() {
+                    if index > 0 {
+                        let sep = self.text(", ");
+                        acc = self.concat(acc, sep);
+                    }
+                    let x = self.field(value, index, item_ty);
+                    let shown = self.value_text(x, item_ty, NO_SPAN);
+                    acc = self.concat(acc, shown);
+                }
+                let close = self.text(")");
+                let result = self.concat(acc, close);
+                self.terminate(Terminator::Return(Some(result)));
+            }
             // A box shows as the value inside it.
             Def::Box => {
                 let x = self.boxed(value, args[0]);

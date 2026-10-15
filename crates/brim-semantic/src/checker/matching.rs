@@ -34,11 +34,15 @@ enum Ctor {
     Bool(bool),
     Int(i64),
     Str(String),
+    /// The one constructor of a tuple type.
+    Tuple,
 }
 
 /// The constructors a type's values are built from.
 enum Shape {
     Enum(EnumId, Vec<Type>),
+    /// A tuple with these element types: one constructor.
+    Tuple(Vec<Type>),
     Bool,
     /// Too many values to list (integers, strings), or a type that can only
     /// be matched with `_` or a name.
@@ -53,6 +57,8 @@ struct Bindings {
     /// In the second and later alternatives of an or-pattern: the locals of
     /// the first alternative, which the same names must reuse.
     reuse: Option<HashMap<String, LocalId>>,
+    /// `let mut (a, b) = ...`: the names are mutable.
+    mutable: bool,
 }
 
 impl<'a> Checker<'a> {
@@ -147,6 +153,44 @@ impl<'a> Checker<'a> {
         (scrutinee, checked_arms, diverges, value_ty)
     }
 
+    /// `let (a, b) = init`: the pattern must match every value, and its
+    /// names are declared in the current scope.
+    pub(super) fn check_let_pattern(
+        &mut self,
+        mutable: bool,
+        pattern: &ast::Pattern,
+        init: &ast::Expr,
+        ctx: &mut FnCtx,
+    ) -> CheckedStmt {
+        let init = self.check_expr(init, ctx);
+        let mut bindings = Bindings {
+            mutable,
+            ..Bindings::default()
+        };
+        let checked = self.check_pattern(pattern, init.ty, &mut bindings, ctx);
+        if let Some(checked) = &checked {
+            let missing = self.missing(&[vec![to_pat(checked)]], &[init.ty], true);
+            if !missing.is_empty() {
+                let shown: Vec<String> = missing
+                    .iter()
+                    .take(MAX_MISSING)
+                    .map(|values| format!("`{}`", self.show_pat(&values[0], init.ty)))
+                    .collect();
+                self.diags.push(
+                    Diagnostic::error("the pattern of a `let` must match every value")
+                        .with_code("E0251")
+                        .with_primary(pattern.span, "some values do not match")
+                        .with_note(format!("not matched: {}", shown.join(", ")))
+                        .with_help("use `match` to handle the other values"),
+                );
+            }
+        }
+        CheckedStmt::LetPattern {
+            pattern: checked.unwrap_or(CheckedPattern::Wildcard),
+            init,
+        }
+    }
+
     /// Checks one pattern against a value of type `ty`. `None` after an
     /// error; the names the pattern binds are declared either way, so the
     /// arm's body does not report them as undefined.
@@ -195,6 +239,32 @@ impl<'a> Checker<'a> {
                     index,
                     fields: checked_fields?,
                 })
+            }
+            ast::PatternKind::Tuple(items) => {
+                let item_types = match self.tuple_items(ty) {
+                    Some(types) if types.len() == items.len() => Some(types),
+                    _ => {
+                        if ty != Type::Error {
+                            let what = format!("a tuple of {} values", items.len());
+                            self.pattern_mismatch(pattern.span, ty, &what);
+                        }
+                        None
+                    }
+                };
+                let mut checked = Some(Vec::with_capacity(items.len()));
+                for (i, item) in items.iter().enumerate() {
+                    let item_ty = item_types.as_ref().map_or(Type::Error, |t| t[i]);
+                    let one = self.check_pattern(item, item_ty, bindings, ctx);
+                    checked = match (checked, one) {
+                        (Some(mut all), Some(one)) => {
+                            all.push((one, item_ty));
+                            Some(all)
+                        }
+                        _ => None,
+                    };
+                }
+                item_types?;
+                checked.map(CheckedPattern::Tuple)
             }
             ast::PatternKind::Or(alternatives) => {
                 let start = bindings.bound.len();
@@ -294,7 +364,7 @@ impl<'a> Checker<'a> {
             }
             return Some(CheckedPattern::Binding(local));
         }
-        let local = self.declare(name, ty, false, ctx);
+        let local = self.declare(name, ty, bindings.mutable, ctx);
         bindings.bound.push((name.name.clone(), local));
         Some(CheckedPattern::Binding(local))
     }
@@ -487,9 +557,10 @@ impl<'a> Checker<'a> {
     fn shape(&self, ty: Type) -> Shape {
         match ty {
             Type::Bool => Shape::Bool,
-            ty => match self.as_enum(ty) {
-                Some((e, args)) => Shape::Enum(e, args),
-                None => Shape::Open,
+            ty => match (self.as_enum(ty), self.tuple_items(ty)) {
+                (Some((e, args)), _) => Shape::Enum(e, args),
+                (None, Some(items)) => Shape::Tuple(items),
+                (None, None) => Shape::Open,
             },
         }
     }
@@ -504,6 +575,7 @@ impl<'a> Checker<'a> {
                     .map(|field| self.types.subst(field, &args))
                     .collect()
             }
+            (Ctor::Tuple, Shape::Tuple(items)) => items,
             _ => Vec::new(),
         }
     }
@@ -517,6 +589,7 @@ impl<'a> Checker<'a> {
                     .collect(),
             ),
             Shape::Bool => Some(vec![Ctor::Bool(false), Ctor::Bool(true)]),
+            Shape::Tuple(_) => Some(vec![Ctor::Tuple]),
             Shape::Open => None,
         }
     }
@@ -645,6 +718,15 @@ impl<'a> Checker<'a> {
             Pat::Ctor(Ctor::Bool(b), _) => b.to_string(),
             Pat::Ctor(Ctor::Int(v), _) => v.to_string(),
             Pat::Ctor(Ctor::Str(s), _) => format!("{s:?}"),
+            Pat::Ctor(Ctor::Tuple, items) => {
+                let types = self.tuple_items(ty).unwrap_or_default();
+                let shown: Vec<String> = items
+                    .iter()
+                    .zip(types)
+                    .map(|(item, item_ty)| self.show_pat(item, item_ty))
+                    .collect();
+                format!("({})", shown.join(", "))
+            }
             Pat::Ctor(ctor @ Ctor::Variant(index), fields) => {
                 let field_tys = self.ctor_fields(ty, ctor);
                 let Shape::Enum(e, _) = self.shape(ty) else {
@@ -683,6 +765,10 @@ fn to_pat(pattern: &CheckedPattern) -> Pat {
         CheckedPattern::Str(s) => Pat::Ctor(Ctor::Str(s.clone()), Vec::new()),
         CheckedPattern::Bool(b) => Pat::Ctor(Ctor::Bool(*b), Vec::new()),
         CheckedPattern::Or(alternatives) => Pat::Or(alternatives.iter().map(to_pat).collect()),
+        CheckedPattern::Tuple(items) => Pat::Ctor(
+            Ctor::Tuple,
+            items.iter().map(|(item, _)| to_pat(item)).collect(),
+        ),
     }
 }
 

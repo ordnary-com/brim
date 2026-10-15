@@ -1,0 +1,10 @@
+fn main() {
+    let t = (1, "a")
+    print(t.2)
+    let (a, 0) = (1, 2)
+    let (x, y, z) = t
+    let n: i64 = t
+    match t {
+        (1, "a") => print(1)
+    }
+}

@@ -1,0 +1,58 @@
+// Tuples: `(a, b)` values, `(A, B)` types, fields `.0`, patterns and
+// `let (a, b) = ...`.
+
+fn divmod(a: i64, b: i64) -> (i64, i64) {
+    return (a / b, a % b)
+}
+
+fn swap[A, B](pair: (A, B)) -> (B, A) {
+    return (pair.1, pair.0)
+}
+
+fn describe(p: (i64, bool)) -> string {
+    return match p {
+        (0, _) => "zero"
+        (n, true) if n > 0 => "positive and flagged"
+        (_, true) => "flagged"
+        (_, false) => "plain"
+    }
+}
+
+fn main() {
+    let (q, r) = divmod(17, 5)
+    print(f"{q} remainder {r}")
+    let pair = ("ada", 36)
+    print(pair)
+    print(pair.0)
+    print(swap(pair))
+    print(describe((0, true)))
+    print(describe((3, true)))
+    print(describe((-3, true)))
+    print(describe((3, false)))
+
+    let mut point: (i64, i64) = (1, 2)
+    point.0 = 10
+    point.1 += 5
+    print(point)
+    print(point == (10, 7))
+
+    let nested = ((1, 2), "x")
+    print(nested.0.1)
+    let ((a, b), label) = nested
+    print(f"{a} {b} {label}")
+    let mut (x, y) = (1, 2)
+    x += y
+    y = 0
+    print((x, y))
+
+    let scores: Map[string, (i64, i64)] = ["ada": (3, 4)]
+    match scores.get("ada") {
+        Some((wins, losses)) => print(f"{wins}-{losses}")
+        None => print("no score")
+    }
+    let entries: List[(string, i64)] = [("a", 1), ("b", 2)]
+    for e in entries {
+        let (name, n) = e
+        print(f"{name}={n}")
+    }
+}

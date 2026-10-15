@@ -163,7 +163,10 @@ module.exports = grammar({
         '}',
       ),
 
-    _type: ($) => choice($.primitive_type, $.generic_type, $.path_type, $.function_type),
+    _type: ($) =>
+      choice($.primitive_type, $.generic_type, $.path_type, $.function_type, $.tuple_type),
+
+    tuple_type: ($) => seq('(', $._type, repeat1(seq(',', $._type)), optional(','), ')'),
 
     // `fn(i64, i64) -> i64`
     function_type: ($) =>
@@ -199,7 +202,7 @@ module.exports = grammar({
       seq(
         'let',
         optional('mut'),
-        field('name', $.identifier),
+        field('name', choice($.identifier, $.tuple_pattern)),
         optional(seq(':', field('type', $._type))),
         '=',
         field('value', $._expression),
@@ -256,7 +259,11 @@ module.exports = grammar({
 
     or_pattern: ($) => seq($._single_pattern, repeat1(seq('|', $._single_pattern))),
 
-    _single_pattern: ($) => choice($.wildcard_pattern, $.literal_pattern, $.variant_pattern),
+    _single_pattern: ($) =>
+      choice($.wildcard_pattern, $.literal_pattern, $.variant_pattern, $.tuple_pattern),
+
+    tuple_pattern: ($) =>
+      seq('(', $._pattern, repeat1(seq(',', $._pattern)), optional(','), ')'),
 
     wildcard_pattern: (_) => '_',
 
@@ -288,6 +295,7 @@ module.exports = grammar({
         $.identifier,
         $.self,
         $.parenthesized_expression,
+        $.tuple_expression,
         $.list_expression,
         $.map_expression,
         $.unary_expression,
@@ -319,6 +327,9 @@ module.exports = grammar({
       prec(PREC.postfix, seq(field('function', $._expression), field('arguments', $.arguments))),
 
     parenthesized_expression: ($) => seq('(', $._expression, ')'),
+
+    tuple_expression: ($) =>
+      seq('(', $._expression, repeat1(seq(',', $._expression)), optional(','), ')'),
 
     list_expression: ($) => seq('[', commaSep($._expression), ']'),
 
@@ -376,7 +387,7 @@ module.exports = grammar({
     field_expression: ($) =>
       prec.left(
         PREC.postfix,
-        seq(field('value', $._expression), '.', field('field', fieldId($))),
+        seq(field('value', $._expression), '.', field('field', choice(fieldId($), $.integer))),
       ),
 
     index_expression: ($) =>

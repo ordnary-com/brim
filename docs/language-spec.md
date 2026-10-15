@@ -158,7 +158,7 @@ terminator  = separator { separator } ;     (* see 6.1; "}" also ends a statemen
 
 statement   = let_stmt | assign_stmt | if_stmt | while_stmt | for_stmt | match_stmt
             | "break" | "continue" | return_stmt | block | expr_stmt ;
-let_stmt    = "let" [ "mut" ] identifier [ ":" type ] "=" expression ;
+let_stmt    = "let" [ "mut" ] ( identifier [ ":" type ] | tuple_pat ) "=" expression ;
 assign_stmt = place assign_op expression ;
 place       = identifier { "." identifier | "[" expression "]" } ;
 assign_op   = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
@@ -239,6 +239,7 @@ Comparison operators at the same level cannot be chained: `a < b < c` and `a == 
 | `List[T]` | ordered sequences of `T` (section 5.5)  |
 | `Map[K, V]` | values of type `V` looked up by keys of type `K` (section 5.6) |
 | `Box[T]` | one value of type `T` on the heap, so a type can contain itself (section 5.7) |
+| `(A, B, ...)` | tuples: two or more values of the given types (section 5.13) |
 
 - `void` may only appear as a function return type. Variables and parameters of type `void` are error `E0213`.
 - Unknown type names are error `E0212`.
@@ -500,6 +501,22 @@ fn total_area[T: Shape](shapes: List[T]) -> f64 {
 const MAX_TRIES: i64 = 5
 const ORIGIN: Point = Point { x: 0, y: 0 }
 ```
+
+### 5.13 Tuples
+
+A **tuple** groups two or more values without naming them: `(i64, string)` is the type, `("ada", 36)` a value (a single value in parentheses is just that value).
+
+```brim
+fn divmod(a: i64, b: i64) -> (i64, i64) {
+    return (a / b, a % b)
+}
+
+let (q, r) = divmod(17, 5)
+```
+
+- `t.0`, `t.1`, ... are the values; `t.0.1` reads into a nested tuple. Fields of a tuple in a `let mut` variable can be assigned (`t.0 = 5`). A field past the end is `E0224`.
+- `(p, q)` is a pattern in `match`. `let (a, b) = value` and `let mut (a, b) = value` take a tuple apart; the pattern must match every value (`E0251`), so it can use names, `_` and nested tuples but not literals that could fail.
+- Tuples are values like structs: `==`, `print` and `to_string` work when their values do (`(36, "ada")`), and they can be map values, list elements and type arguments. `brim gen ts` writes them as TypeScript tuples.
 
 ## 6. Statements
 

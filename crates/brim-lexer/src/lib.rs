@@ -155,6 +155,15 @@ impl Lexer<'_> {
 
     fn number(&mut self) {
         let start = self.pos;
+        // After `.`, a number is a tuple field: `t.0.1` is fields 0 and 1.
+        if self.tokens.last().is_some_and(|t| t.kind == TokenKind::Dot) {
+            while matches!(self.peek(), Some('0'..='9')) {
+                self.bump();
+            }
+            let text = &self.src[start..self.pos];
+            self.push(TokenKind::Int(text.parse().unwrap_or(u64::MAX)), start);
+            return;
+        }
         while matches!(self.peek(), Some('0'..='9' | '_')) {
             self.bump();
         }
@@ -647,6 +656,23 @@ mod tests {
                 TokenKind::Dot,
                 TokenKind::Ident("x".into()),
                 TokenKind::Eof
+            ]
+        );
+    }
+
+    #[test]
+    fn tuple_fields_after_a_dot_are_integers() {
+        use TokenKind::*;
+        assert_eq!(
+            kinds("t.0.1 1.5"),
+            vec![
+                ident("t"),
+                Dot,
+                Int(0),
+                Dot,
+                Int(1),
+                Float(1.5f64.to_bits()),
+                Eof
             ]
         );
     }

@@ -409,3 +409,67 @@ fn main() {
                 (binary_expression
                   (identifier)
                   (integer))))))))))
+
+==================
+Tuples
+==================
+
+fn divmod(a: i64, b: i64) -> (i64, i64) {
+    let (q, r) = (a / b, a % b)
+    return match (q, r) {
+        (0, _) => (q, r)
+        _ => (r, q.0)
+    }
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (primitive_type))
+      (parameter
+        (identifier)
+        (primitive_type)))
+    (tuple_type
+      (primitive_type)
+      (primitive_type))
+    (block
+      (let_statement
+        (tuple_pattern
+          (variant_pattern
+            (identifier))
+          (variant_pattern
+            (identifier)))
+        (tuple_expression
+          (binary_expression
+            (identifier)
+            (identifier))
+          (binary_expression
+            (identifier)
+            (identifier))))
+      (return_statement
+        (match_statement
+          (tuple_expression
+            (identifier)
+            (identifier))
+          (match_arm
+            (tuple_pattern
+              (literal_pattern
+                (integer))
+              (wildcard_pattern))
+            (expression_statement
+              (tuple_expression
+                (identifier)
+                (identifier))))
+          (match_arm
+            (wildcard_pattern)
+            (expression_statement
+              (tuple_expression
+                (identifier)
+                (field_expression
+                  (identifier)
+                  (integer))))))))))

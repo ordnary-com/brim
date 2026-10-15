@@ -117,6 +117,7 @@ Guidelines for writing diagnostics:
 | E0248 | A type argument that does not implement a bound of its type parameter |
 | E0249 | A constant whose value is not computed from literals, or that is defined in terms of itself |
 | E0250 | An `if` used as a value without `else`, or a block used as a value that does not end with one |
+| E0251 | A `let` pattern that does not match every value |
 
 ### Warnings
 

@@ -158,6 +158,8 @@ pub enum PatternKind {
     Literal(Expr),
     /// `p | q`: matches when any alternative matches.
     Or(Vec<Pattern>),
+    /// `(p, q, ...)`: a tuple whose values match.
+    Tuple(Vec<Pattern>),
 }
 
 impl Pattern {
@@ -173,6 +175,11 @@ impl Pattern {
                 }
             }
             PatternKind::Or(alternatives) => alternatives[0].for_each_binding(f),
+            PatternKind::Tuple(items) => {
+                for item in items {
+                    item.for_each_binding(f);
+                }
+            }
             PatternKind::Wildcard | PatternKind::Literal(_) => {}
         }
     }
@@ -277,6 +284,12 @@ pub struct Stmt {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StmtKind {
     /// `let name: type = init` or `let mut name: type = init`
+    /// `let (a, b) = value`: names for the parts of a tuple.
+    LetPattern {
+        mutable: bool,
+        pattern: Pattern,
+        init: Expr,
+    },
     Let {
         mutable: bool,
         name: Ident,
@@ -363,6 +376,8 @@ pub enum ExprKind {
     Str(String),
     /// `f"Hello, {name}!"`: text and values, in order.
     FString(Vec<FStringPart>),
+    /// `(a, b, ...)`: two or more values.
+    Tuple(Vec<Expr>),
     /// A reference to a variable or parameter.
     Name(Ident),
     /// `fn(x: i64) -> i64 { ... }`: a function value, which can use the
@@ -508,6 +523,10 @@ impl fmt::Display for Expr {
             ExprKind::Float(bits) => write!(f, "{:?}", f64::from_bits(*bits)),
             ExprKind::Bool(v) => write!(f, "{v}"),
             ExprKind::Str(v) => write!(f, "{v:?}"),
+            ExprKind::Tuple(items) => {
+                let items: Vec<String> = items.iter().map(ToString::to_string).collect();
+                write!(f, "({})", items.join(", "))
+            }
             ExprKind::FString(parts) => {
                 f.write_str("f\"")?;
                 for part in parts {

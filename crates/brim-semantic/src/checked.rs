@@ -138,6 +138,12 @@ pub struct Local {
 
 #[derive(Clone, Debug)]
 pub enum CheckedStmt {
+    /// `let (a, b) = init`: a pattern that always matches, binding its
+    /// names.
+    LetPattern {
+        pattern: CheckedPattern,
+        init: CheckedExpr,
+    },
     Let {
         local: LocalId,
         init: CheckedExpr,
@@ -299,6 +305,8 @@ pub enum CheckedPattern {
     /// Matches when any alternative matches. Every alternative binds the
     /// same locals.
     Or(Vec<CheckedPattern>),
+    /// A tuple; each value, of the given type, matched by a pattern.
+    Tuple(Vec<(CheckedPattern, Type)>),
 }
 
 #[derive(Clone, Debug)]

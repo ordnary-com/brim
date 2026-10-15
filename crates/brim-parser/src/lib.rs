@@ -789,6 +789,9 @@ impl Parser {
         if self.at(&TokenKind::Fn) {
             return self.fn_type();
         }
+        if self.at(&TokenKind::LParen) {
+            return self.tuple_type();
+        }
         let mut name = self.expect_ident("a type")?;
         // `module.Type`
         while self.eat(&TokenKind::Dot).is_some() {
@@ -821,6 +824,45 @@ impl Parser {
         }
         Ok(TypeExpr {
             name,
+            args,
+            ret: None,
+            span,
+        })
+    }
+
+    /// `(A, B, ...)`: a tuple type, named `()` in the syntax tree.
+    fn tuple_type(&mut self) -> PResult<TypeExpr> {
+        let open = self.expect(&TokenKind::LParen)?;
+        self.enter(0, open.span)?;
+        self.nesting += 1;
+        let result = self.in_parens(|p| {
+            let mut args = Vec::new();
+            while !p.at(&TokenKind::RParen) {
+                args.push(p.type_expr()?);
+                if p.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            if !p.at(&TokenKind::RParen) {
+                return Err(p.error_unexpected("`,` or `)`"));
+            }
+            Ok((args, p.bump()))
+        });
+        self.nesting -= 1;
+        let (args, close) = result?;
+        let span = open.span.to(close.span);
+        if args.len() < 2 {
+            let diag = Diagnostic::error("a tuple type has two or more types")
+                .with_code("E0100")
+                .with_primary(span, "")
+                .with_help("write `(A, B)`, or just the type for one value");
+            return Err(self.report(diag));
+        }
+        Ok(TypeExpr {
+            name: Ident {
+                name: "()".into(),
+                span: open.span,
+            },
             args,
             ret: None,
             span,
@@ -1518,6 +1560,30 @@ impl Parser {
             span: token.span,
         };
         let kind = match &token.kind {
+            TokenKind::LParen => {
+                self.bump();
+                let (items, close) = self.in_parens(|p| {
+                    let mut items = Vec::new();
+                    while !p.at(&TokenKind::RParen) {
+                        items.push(p.pattern()?);
+                        if p.eat(&TokenKind::Comma).is_none() {
+                            break;
+                        }
+                    }
+                    Ok((items, p.expect(&TokenKind::RParen)?))
+                })?;
+                let span = token.span.to(close.span);
+                if items.len() < 2 {
+                    let diag = Diagnostic::error("a tuple pattern has two or more patterns")
+                        .with_code("E0100")
+                        .with_primary(span, "");
+                    return Err(self.report(diag));
+                }
+                return Ok(Pattern {
+                    span,
+                    kind: PatternKind::Tuple(items),
+                });
+            }
             TokenKind::Ident(name) if name == "_" => {
                 self.bump();
                 PatternKind::Wildcard
@@ -1665,6 +1731,24 @@ impl Parser {
     fn let_stmt(&mut self) -> PResult<Stmt> {
         let let_token = self.bump();
         let mutable = self.eat(&TokenKind::Mut).is_some();
+        if self.at(&TokenKind::LParen) {
+            // `let (a, b) = value`
+            let pattern = self.single_pattern()?;
+            if !self.at(&TokenKind::Eq) {
+                return Err(self.error_unexpected("`=` and the value to take apart"));
+            }
+            self.bump();
+            self.skip_newlines();
+            let init = self.expr()?;
+            return Ok(Stmt {
+                span: let_token.span.to(init.span),
+                kind: StmtKind::LetPattern {
+                    mutable,
+                    pattern,
+                    init,
+                },
+            });
+        }
         let name = self.expect_ident("a variable name")?;
         let ty = if self.eat(&TokenKind::Colon).is_some() {
             Some(self.type_expr()?)
@@ -1848,7 +1932,17 @@ impl Parser {
                 }
                 TokenKind::Dot => {
                     self.bump();
-                    let field = self.expect_ident("a field name after `.`")?;
+                    // `t.0`: a tuple's field.
+                    let field = match self.peek().kind {
+                        TokenKind::Int(index) => {
+                            let token = self.bump();
+                            Ident {
+                                name: index.to_string(),
+                                span: token.span,
+                            }
+                        }
+                        _ => self.expect_ident("a field name after `.`")?,
+                    };
                     expr = Expr {
                         span: expr.span.to(field.span),
                         kind: ExprKind::Field {
@@ -2067,14 +2161,24 @@ impl Parser {
             }
             TokenKind::LParen => {
                 self.bump();
-                let (inner, close) = self.in_parens(|p| {
-                    let inner = p.expr()?;
-                    Ok((inner, p.expect(&TokenKind::RParen)?))
+                let (mut items, close) = self.in_parens(|p| {
+                    let mut items = vec![p.expr()?];
+                    // `(a, b)` is a tuple; `(a)` just `a`.
+                    while p.eat(&TokenKind::Comma).is_some() {
+                        if p.at(&TokenKind::RParen) {
+                            break;
+                        }
+                        items.push(p.expr()?);
+                    }
+                    Ok((items, p.expect(&TokenKind::RParen)?))
                 })?;
-                return Ok(Expr {
-                    kind: inner.kind,
-                    span: token.span.to(close.span),
-                });
+                let span = token.span.to(close.span);
+                let kind = if items.len() == 1 {
+                    items.pop().expect("one item").kind
+                } else {
+                    ExprKind::Tuple(items)
+                };
+                return Ok(Expr { kind, span });
             }
             TokenKind::Reserved(word) => return Err(self.reserved_keyword(word, token.span)),
             _ => return Err(self.expected_expression(&token)),
