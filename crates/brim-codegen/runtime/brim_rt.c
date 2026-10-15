@@ -30,6 +30,7 @@
 /* For `fileno` and `struct stat` with a strict C11 compiler. */
 #define _POSIX_C_SOURCE 200809L
 
+#include <dirent.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <math.h>
@@ -1445,6 +1446,275 @@ static const char *errno_reason(int error) {
     default:
         return "input/output error";
     }
+}
+
+/* ---- std.fs ---------------------------------------------------------------- */
+
+/* As brim_runtime::fs_error: `cannot <verb> "<path>": <reason>`. */
+static void fs_error(const char *verb, const BrimStr *path, int error) {
+    const char *reason;
+    switch (error) {
+    case ENOENT:
+        reason = "not found";
+        break;
+    case EACCES:
+    case EPERM:
+        reason = "permission denied";
+        break;
+    case EEXIST:
+        reason = "already exists";
+        break;
+    case ENOTEMPTY:
+        reason = "directory not empty";
+        break;
+    case ENOTDIR:
+        reason = "not a directory";
+        break;
+    case EISDIR:
+        reason = "is a directory";
+        break;
+    default:
+        reason = "input/output error";
+    }
+    Buffer b = {0};
+    buffer_add(&b, "cannot ", 7);
+    buffer_add(&b, verb, (int64_t)strlen(verb));
+    buffer_add(&b, " \"", 2);
+    buffer_add(&b, path->data, path->len);
+    buffer_add(&b, "\": ", 3);
+    buffer_add(&b, reason, (int64_t)strlen(reason));
+    set_error(buffer_finish(&b));
+}
+
+uint8_t brim_rt_fs_exists(const BrimStr *path) {
+    char *name = c_string(path);
+    struct stat info;
+    int found = stat(name, &info) == 0;
+    free(name);
+    return (uint8_t)found;
+}
+
+uint8_t brim_rt_fs_is_dir(const BrimStr *path) {
+    char *name = c_string(path);
+    struct stat info;
+    int dir = stat(name, &info) == 0 && S_ISDIR(info.st_mode);
+    free(name);
+    return (uint8_t)dir;
+}
+
+static int compare_names(const void *a, const void *b) {
+    return strcmp(*(char *const *)a, *(char *const *)b);
+}
+
+BrimList *brim_rt_fs_list(const BrimStr *path) {
+    set_error(NULL);
+    char *name = c_string(path);
+    DIR *dir = opendir(name);
+    free(name);
+    if (dir == NULL) {
+        fs_error("list directory", path, errno);
+        return NULL;
+    }
+    char **names = NULL;
+    size_t count = 0;
+    size_t cap = 0;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        if (count == cap) {
+            cap = cap < 16 ? 16 : cap * 2;
+            char **bigger = realloc(names, cap * sizeof *names);
+            if (bigger == NULL) {
+                fatal("out of memory");
+            }
+            names = bigger;
+        }
+        names[count] = malloc(strlen(entry->d_name) + 1);
+        if (names[count] == NULL) {
+            fatal("out of memory");
+        }
+        strcpy(names[count], entry->d_name);
+        count++;
+    }
+    closedir(dir);
+    /* Byte order, as Rust sorts the names. */
+    qsort(names, count, sizeof *names, compare_names);
+    BrimList *l = NULL;
+    for (size_t i = 0; i < count; i++) {
+        l = push_str(l, str_from(names[i], (int64_t)strlen(names[i])));
+        free(names[i]);
+    }
+    free(names);
+    return l;
+}
+
+/* mkdir -p: each parent in turn. */
+uint8_t brim_rt_fs_create_dir(const BrimStr *path) {
+    set_error(NULL);
+    char *name = c_string(path);
+    struct stat info;
+    if (stat(name, &info) == 0 && S_ISDIR(info.st_mode)) {
+        free(name);
+        return 0;
+    }
+    size_t len = strlen(name);
+    for (size_t i = 1; i <= len; i++) {
+        if (name[i] == '/' || name[i] == '\0') {
+            char saved = name[i];
+            name[i] = '\0';
+            if (mkdir(name, 0777) != 0 && errno != EEXIST) {
+                int error = errno;
+                free(name);
+                fs_error("create directory", path, error);
+                return 0;
+            }
+            name[i] = saved;
+        }
+    }
+    int ok = stat(name, &info) == 0 && S_ISDIR(info.st_mode);
+    free(name);
+    if (!ok) {
+        fs_error("create directory", path, EEXIST);
+        return 0;
+    }
+    return 1;
+}
+
+/* Removes `name`: a file, or a directory (with its contents when `all`). */
+static int remove_path(const char *name, int all) {
+    struct stat info;
+    if (lstat(name, &info) != 0) {
+        return -1;
+    }
+    if (!S_ISDIR(info.st_mode)) {
+        return unlink(name);
+    }
+    if (all) {
+        DIR *dir = opendir(name);
+        if (dir == NULL) {
+            return -1;
+        }
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+                continue;
+            }
+            size_t n = strlen(name) + strlen(entry->d_name) + 2;
+            char *child = malloc(n);
+            if (child == NULL) {
+                fatal("out of memory");
+            }
+            snprintf(child, n, "%s/%s", name, entry->d_name);
+            int failed = remove_path(child, 1);
+            free(child);
+            if (failed != 0) {
+                int error = errno;
+                closedir(dir);
+                errno = error;
+                return -1;
+            }
+        }
+        closedir(dir);
+    }
+    return rmdir(name);
+}
+
+static uint8_t fs_remove(const BrimStr *path, int all) {
+    set_error(NULL);
+    char *name = c_string(path);
+    struct stat info;
+    if (lstat(name, &info) != 0 && errno == ENOENT) {
+        free(name);
+        return 0;
+    }
+    int failed = remove_path(name, all);
+    int error = errno;
+    free(name);
+    if (failed != 0) {
+        fs_error("remove", path, error);
+        return 0;
+    }
+    return 1;
+}
+
+uint8_t brim_rt_fs_remove(const BrimStr *path) {
+    return fs_remove(path, 0);
+}
+
+uint8_t brim_rt_fs_remove_all(const BrimStr *path) {
+    return fs_remove(path, 1);
+}
+
+uint8_t brim_rt_fs_rename(const BrimStr *from, const BrimStr *to) {
+    set_error(NULL);
+    char *a = c_string(from);
+    char *b = c_string(to);
+    int failed = rename(a, b);
+    int error = errno;
+    free(a);
+    free(b);
+    if (failed != 0) {
+        fs_error("rename", from, error);
+        return 0;
+    }
+    return 1;
+}
+
+int64_t brim_rt_fs_size(const BrimStr *path) {
+    set_error(NULL);
+    char *name = c_string(path);
+    struct stat info;
+    int failed = stat(name, &info);
+    int error = errno;
+    free(name);
+    if (failed != 0) {
+        fs_error("read the size of", path, error);
+        return 0;
+    }
+    return (int64_t)info.st_size;
+}
+
+int64_t brim_rt_fs_modified(const BrimStr *path) {
+    set_error(NULL);
+    char *name = c_string(path);
+    struct stat info;
+    int failed = stat(name, &info);
+    int error = errno;
+    free(name);
+    if (failed != 0) {
+        fs_error("read the time of", path, error);
+        return 0;
+    }
+#ifdef __APPLE__
+    /* macOS in strict POSIX mode. */
+    return (int64_t)info.st_mtime * 1000 + (int64_t)(info.st_mtimensec / 1000000);
+#else
+    return (int64_t)info.st_mtim.tv_sec * 1000 + (int64_t)(info.st_mtim.tv_nsec / 1000000);
+#endif
+}
+
+int64_t brim_rt_fs_append(const BrimStr *path, const BrimStr *text) {
+    set_error(NULL);
+    char *name = c_string(path);
+    FILE *f = fopen(name, "ab");
+    int error = errno;
+    free(name);
+    if (f == NULL) {
+        fs_error("append to", path, error);
+        return 0;
+    }
+    size_t written = fwrite(text->data, 1, (size_t)text->len, f);
+    int failed = written != (size_t)text->len;
+    if (fclose(f) != 0) {
+        failed = 1;
+    }
+    if (failed) {
+        fs_error("append to", path, EIO);
+        return 0;
+    }
+    return text->len;
 }
 
 BrimStr *brim_rt_read_file(const BrimStr *path) {

@@ -1,0 +1,20 @@
+false
+true
+false
+true
+4
+4
+["one", "two"]
+8
+true
+true
+true
+["b", "renamed.txt"]
+: not found
+: directory not empty
+: not found
+true
+false
+true
+false
+done

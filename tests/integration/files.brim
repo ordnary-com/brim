@@ -1,0 +1,45 @@
+// std.fs: directories, files, sizes and errors. Each run works in its own
+// directory under target/, so runs can happen at the same time.
+import std.fs
+import std.random
+
+fn main() {
+    match run(f"target/brim-fs-{random.int(0, 1000000000)}") {
+        Ok(_) => print("done")
+        Err(e) => print("error: " + e)
+    }
+}
+
+fn run(dir: string) -> Result[bool, string] {
+    print(fs.exists(dir))
+    print(fs.create_dir(dir + "/a/b")?)
+    print(fs.create_dir(dir + "/a/b")?)
+    print(fs.is_dir(dir + "/a"))
+    print(fs.write(dir + "/a/notes.txt", "one\n")?)
+    print(fs.append(dir + "/a/notes.txt", "two\n")?)
+    print(fs.read(dir + "/a/notes.txt")?.lines())
+    print(fs.size(dir + "/a/notes.txt")?)
+    print(fs.is_file(dir + "/a/notes.txt"))
+    print(fs.modified(dir + "/a/notes.txt")?.unix_seconds() > 1700000000)
+    print(fs.rename(dir + "/a/notes.txt", dir + "/a/renamed.txt")?)
+    print(fs.list(dir + "/a")?)
+
+    // Errors name the path and the reason; the directory part varies, so
+    // only the end is printed.
+    print(tail(fs.list(dir + "/missing")))
+    print(tail(fs.remove(dir + "/a")))
+    print(tail(fs.size(dir + "/nothing.txt")))
+
+    print(fs.remove(dir + "/a/renamed.txt")?)
+    print(fs.remove(dir + "/a/renamed.txt")?)
+    print(fs.remove_all(dir)?)
+    print(fs.exists(dir))
+    return Ok(true)
+}
+
+fn tail[T](r: Result[T, string]) -> string {
+    return match r {
+        Ok(_) => "ok"
+        Err(e) => e.slice(e.find(": ").unwrap_or(0), e.len())
+    }
+}

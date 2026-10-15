@@ -321,6 +321,21 @@ pub fn file_error(verb: &str, path: &str, error: &io::Error) -> String {
     format!("cannot {verb} file \"{path}\": {reason}")
 }
 
+/// The message for a failed operation of `std.fs` on `path`, the same in
+/// the interpreter and in native executables.
+pub fn fs_error(verb: &str, path: &str, error: &io::Error) -> String {
+    let reason = match error.kind() {
+        io::ErrorKind::NotFound => "not found",
+        io::ErrorKind::PermissionDenied => "permission denied",
+        io::ErrorKind::AlreadyExists => "already exists",
+        io::ErrorKind::DirectoryNotEmpty => "directory not empty",
+        io::ErrorKind::NotADirectory => "not a directory",
+        io::ErrorKind::IsADirectory => "is a directory",
+        _ => "input/output error",
+    };
+    format!("cannot {verb} \"{path}\": {reason}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

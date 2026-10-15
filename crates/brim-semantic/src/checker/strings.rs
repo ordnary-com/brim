@@ -106,6 +106,7 @@ pub(super) fn intrinsic_function(name: &str) -> Option<(Intrinsic, &'static [Typ
         "args" => (Intrinsic::Args, &[], Ret::StrList),
         "env" => (Intrinsic::Env, STR, Ret::OptionStr),
         "from_code_point" => (Intrinsic::FromCodePoint, &[Type::I64], Ret::OptionStr),
+        "__fs_list" => (Intrinsic::FsList, STR, Ret::StrList),
         _ => return None,
     })
 }
@@ -282,6 +283,9 @@ impl<'a> Checker<'a> {
     ) -> Option<CheckedExpr> {
         if callee.name == "string_from_bytes" {
             return Some(self.check_string_from_bytes(args, span, ctx));
+        }
+        if brim_stdlib::is_internal(&callee.name) && !self.in_std_module() {
+            return None;
         }
         let (op, params, ret) = intrinsic_function(&callee.name)?;
         let Some(checked) = self.fixed_args(&callee.name, params, args, span, ctx) else {

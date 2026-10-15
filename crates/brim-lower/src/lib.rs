@@ -2331,6 +2331,7 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 self.choose_variant(ok, enum_ty, value, error, span)
             }
             Intrinsic::Args => self.runtime(RuntimeFn::Args, vec![], ty, span),
+            Intrinsic::FsList => self.runtime(RuntimeFn::FsList, args, ty, span),
         }
     }
 

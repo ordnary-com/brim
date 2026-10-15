@@ -717,6 +717,79 @@ fn binary(op: BinaryOp, a: &Value, b: &Value) -> Result<Value, RuntimeError> {
     })
 }
 
+/// The `std.fs` operations: the result, or what failed and why.
+fn fs_call(
+    rt: RuntimeFn,
+    cwd: &std::path::Path,
+    args: &[&Value],
+) -> Result<Value, (&'static str, std::io::Error)> {
+    use std::io::ErrorKind;
+    let path = cwd.join(args[0].str());
+    match rt {
+        RuntimeFn::FsList => {
+            let mut names: Vec<String> = std::fs::read_dir(&path)
+                .map_err(|e| ("list directory", e))?
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            Ok(str_list(names.into_iter().map(BrimStr::from).collect()))
+        }
+        RuntimeFn::FsCreateDir => {
+            if path.is_dir() {
+                return Ok(Value::Bool(false));
+            }
+            std::fs::create_dir_all(&path).map_err(|e| ("create directory", e))?;
+            Ok(Value::Bool(true))
+        }
+        RuntimeFn::FsRemove | RuntimeFn::FsRemoveAll => {
+            let meta = match std::fs::symlink_metadata(&path) {
+                Ok(meta) => meta,
+                Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Value::Bool(false)),
+                Err(e) => return Err(("remove", e)),
+            };
+            let removed = if !meta.is_dir() {
+                std::fs::remove_file(&path)
+            } else if rt == RuntimeFn::FsRemoveAll {
+                std::fs::remove_dir_all(&path)
+            } else {
+                std::fs::remove_dir(&path)
+            };
+            removed.map_err(|e| ("remove", e))?;
+            Ok(Value::Bool(true))
+        }
+        RuntimeFn::FsRename => {
+            std::fs::rename(&path, cwd.join(args[1].str())).map_err(|e| ("rename", e))?;
+            Ok(Value::Bool(true))
+        }
+        RuntimeFn::FsSize => {
+            let meta = std::fs::metadata(&path).map_err(|e| ("read the size of", e))?;
+            Ok(Value::I64(meta.len() as i64))
+        }
+        RuntimeFn::FsModified => {
+            let meta = std::fs::metadata(&path).map_err(|e| ("read the time of", e))?;
+            let millis = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_millis() as i64);
+            Ok(Value::I64(millis))
+        }
+        RuntimeFn::FsAppend => {
+            use std::io::Write;
+            let text = args[1].str();
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .and_then(|mut f| f.write_all(text.as_bytes()))
+                .map_err(|e| ("append to", e))?;
+            Ok(Value::I64(text.len() as i64))
+        }
+        _ => unreachable!("only std.fs operations"),
+    }
+}
+
 /// A `List[u8]` as bytes.
 fn bytes(list: &Value) -> Vec<u8> {
     list.list().iter().map(|b| b.i64() as u8).collect()
@@ -901,6 +974,32 @@ fn call_runtime(
             }
         }
         RuntimeFn::LastError => str_value(BrimStr::from(state.last_error.as_str())),
+        RuntimeFn::FsExists => Some(Value::Bool(state.host.cwd.join(s(0)).exists())),
+        RuntimeFn::FsIsDir => Some(Value::Bool(state.host.cwd.join(s(0)).is_dir())),
+        RuntimeFn::FsList
+        | RuntimeFn::FsCreateDir
+        | RuntimeFn::FsRemove
+        | RuntimeFn::FsRemoveAll
+        | RuntimeFn::FsRename
+        | RuntimeFn::FsSize
+        | RuntimeFn::FsModified
+        | RuntimeFn::FsAppend => {
+            state.last_error.clear();
+            let cwd = state.host.cwd.clone();
+            match fs_call(rt, &cwd, args) {
+                Ok(value) => Some(value),
+                Err((verb, e)) => {
+                    state.last_error = r::fs_error(verb, s(0), &e);
+                    Some(match rt {
+                        RuntimeFn::FsList => Value::List(Rc::default()),
+                        RuntimeFn::FsSize | RuntimeFn::FsModified | RuntimeFn::FsAppend => {
+                            Value::I64(0)
+                        }
+                        _ => Value::Bool(false),
+                    })
+                }
+            }
+        }
         RuntimeFn::Args => Some(str_list(
             state
                 .host

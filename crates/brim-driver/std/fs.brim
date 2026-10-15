@@ -1,0 +1,95 @@
+// Files and directories:
+//
+//   import std.fs
+//
+//   fs.create_dir("out/logs")?
+//   fs.write("out/logs/today.txt", "started\n")?
+//   fs.append("out/logs/today.txt", "done\n")?
+//   for name in fs.list("out")? {
+//       print(name)
+//   }
+//
+// Paths are relative to the working directory. Errors are messages such as
+// `cannot list directory "out": not found`.
+import std.time
+
+// Whether a file or directory exists at `path`.
+pub fn exists(path: string) -> bool {
+    return __fs_exists(path)
+}
+
+// Whether `path` is a directory.
+pub fn is_dir(path: string) -> bool {
+    return __fs_is_dir(path)
+}
+
+// Whether `path` exists and is not a directory.
+pub fn is_file(path: string) -> bool {
+    return __fs_exists(path) && !__fs_is_dir(path)
+}
+
+// The names of the files and directories in `dir`, sorted, without `.`
+// and `..`.
+pub fn list(dir: string) -> Result[List[string], string] {
+    return checked(__fs_list(dir))
+}
+
+// Creates a directory and any missing parents. `Ok(false)` when it already
+// existed.
+pub fn create_dir(path: string) -> Result[bool, string] {
+    return checked(__fs_create_dir(path))
+}
+
+// Removes a file or an empty directory. `Ok(false)` when there was nothing
+// to remove.
+pub fn remove(path: string) -> Result[bool, string] {
+    return checked(__fs_remove(path))
+}
+
+// Removes a file, or a directory with everything in it. `Ok(false)` when
+// there was nothing to remove.
+pub fn remove_all(path: string) -> Result[bool, string] {
+    return checked(__fs_remove_all(path))
+}
+
+// Renames or moves a file or directory.
+pub fn rename(from: string, to: string) -> Result[bool, string] {
+    return checked(__fs_rename(from, to))
+}
+
+// A file's size in bytes.
+pub fn size(path: string) -> Result[i64, string] {
+    return checked(__fs_size(path))
+}
+
+// When a file was last changed.
+pub fn modified(path: string) -> Result[time.Time, string] {
+    let millis = checked(__fs_modified(path))?
+    return Ok(time.from_unix_millis(millis))
+}
+
+// The text of a file, which must be UTF-8 (the same as `read_file`).
+pub fn read(path: string) -> Result[string, string] {
+    return read_file(path)
+}
+
+// Replaces a file's text, creating the file if needed (the same as
+// `write_file`); the number of bytes written.
+pub fn write(path: string, text: string) -> Result[i64, string] {
+    return write_file(path, text)
+}
+
+// Adds text at the end of a file, creating the file if needed; the number
+// of bytes written.
+pub fn append(path: string, text: string) -> Result[i64, string] {
+    return checked(__fs_append(path, text))
+}
+
+// `value`, or the runtime's last error.
+fn checked[T](value: T) -> Result[T, string] {
+    let error = __last_error()
+    if !error.is_empty() {
+        return Err(error)
+    }
+    return Ok(value)
+}

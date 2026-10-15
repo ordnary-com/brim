@@ -75,6 +75,37 @@ fn main() {
 cannot read file "does-not-exist.txt": file not found
 ```
 
+### Directories and more: std.fs
+
+`std.fs` has the rest of what a program does with files:
+
+| Function | Result | |
+|----------|--------|---|
+| `exists(path)`, `is_dir(path)`, `is_file(path)` | `bool` | |
+| `list(dir)` | `Result[List[string], string]` | the names in a directory, sorted |
+| `create_dir(path)` | `Result[bool, string]` | with any missing parents; `Ok(false)` if it existed |
+| `remove(path)` | `Result[bool, string]` | a file or an empty directory; `Ok(false)` if there was none |
+| `remove_all(path)` | `Result[bool, string]` | a directory with everything in it |
+| `rename(from, to)` | `Result[bool, string]` | also moves |
+| `size(path)` | `Result[i64, string]` | in bytes |
+| `modified(path)` | `Result[time.Time, string]` | when it last changed |
+| `read(path)`, `write(path, text)`, `append(path, text)` | | `read` and `write` are `read_file` and `write_file` |
+
+```brim
+import std.fs
+
+fn main() {
+    match fs.list("no-such-dir") {
+        Ok(names) => print(names)
+        Err(message) => print(message)
+    }
+}
+```
+
+```text
+cannot list directory "no-such-dir": not found
+```
+
 ## Numbers and conversion
 
 | Function | Result | |

@@ -12,6 +12,7 @@ use brim_semantic::ModuleAst;
 /// The standard library modules, written in Brim and built into the
 /// compiler: `import std.net`.
 pub const STD_MODULES: &[(&str, &str)] = &[
+    ("std.fs", include_str!("../std/fs.brim")),
     ("std.http", include_str!("../std/http.brim")),
     ("std.json", include_str!("../std/json.brim")),
     ("std.log", include_str!("../std/log.brim")),

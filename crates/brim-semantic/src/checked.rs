@@ -529,6 +529,9 @@ pub enum Intrinsic {
     StrFromBytes,
     /// `from_code_point(n)`: `Option[string]`.
     FromCodePoint,
+    /// std.fs: `__fs_list(dir)`, the names in a directory (sets the last
+    /// error).
+    FsList,
     /// `s.find(t)`: `Option[i64]`.
     StrFind,
     /// `s.parse_int()`: `Option[i64]`.

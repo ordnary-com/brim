@@ -258,6 +258,31 @@ runtime_fns! {
     CharCode = "brim_rt_char_code" (Str) -> I64;
     /// Milliseconds since 1970-01-01T00:00:00Z (the wall clock).
     TimeNowMillis = "brim_rt_time_now_millis" () -> I64;
+    /// std.fs: whether a file or directory exists.
+    FsExists = "brim_rt_fs_exists" (Str) -> Bool;
+    /// std.fs: whether a path is a directory.
+    FsIsDir = "brim_rt_fs_is_dir" (Str) -> Bool;
+    /// std.fs: the names in a directory, sorted. Sets the last error.
+    FsList = "brim_rt_fs_list" (Str) -> StrList;
+    /// std.fs: creates a directory and its parents; false if it existed.
+    /// Sets the last error.
+    FsCreateDir = "brim_rt_fs_create_dir" (Str) -> Bool;
+    /// std.fs: removes a file or an empty directory; false if it did not
+    /// exist. Sets the last error.
+    FsRemove = "brim_rt_fs_remove" (Str) -> Bool;
+    /// std.fs: removes a file, or a directory with everything in it; false
+    /// if it did not exist. Sets the last error.
+    FsRemoveAll = "brim_rt_fs_remove_all" (Str) -> Bool;
+    /// std.fs: renames or moves a file or directory. Sets the last error.
+    FsRename = "brim_rt_fs_rename" (Str, Str) -> Bool;
+    /// std.fs: a file's size in bytes. Sets the last error.
+    FsSize = "brim_rt_fs_size" (Str) -> I64;
+    /// std.fs: when a file was last changed, in Unix milliseconds. Sets the
+    /// last error.
+    FsModified = "brim_rt_fs_modified" (Str) -> I64;
+    /// std.fs: adds text at the end of a file, creating it if needed; the
+    /// number of bytes. Sets the last error.
+    FsAppend = "brim_rt_fs_append" (Str, Str) -> I64;
     /// std.random: make the numbers that follow repeatable.
     RandomSeed = "brim_rt_random_seed" (I64) -> Void;
     /// std.random: a number from the first argument up to the second.

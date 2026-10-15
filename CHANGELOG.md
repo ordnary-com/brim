@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- `std.fs`: `exists`, `is_dir`, `is_file`, `list`, `create_dir`, `remove`, `remove_all`, `rename`, `size`, `modified`, `read`, `write` and `append`, with the same messages in the interpreter and native code.
 - Methods on `Option` (`is_some`, `is_none`, `unwrap_or`, `map`) and `Result` (`is_ok`, `is_err`, `unwrap_or`, `ok`, `map`), from the prelude.
 - `std.random`: `int(low, high)`, `float()`, `bool()`, `choice`, `shuffle` and `seed(n)`. The generator (xoshiro256**) is the same in the interpreter and the C runtime, so seeded programs print the same numbers in both.
 - Strings: `StringBuilder` (in the prelude: `new`, `add`, `add_line`, `is_empty`, `build`), `s.code_points()`, `s.char_count()` and `from_code_point(n)`. The prelude's public types are known in every module.

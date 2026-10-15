@@ -405,6 +405,87 @@ pub const BUILTINS: &[Builtin] = &[
         }],
     },
     Builtin {
+        name: "__fs_exists",
+        summary: "std.fs: whether a path exists.",
+        overloads: &[Overload {
+            params: &[Prim::String],
+            ret: Prim::Bool,
+            runtime: RuntimeFn::FsExists,
+        }],
+    },
+    Builtin {
+        name: "__fs_is_dir",
+        summary: "std.fs: whether a path is a directory.",
+        overloads: &[Overload {
+            params: &[Prim::String],
+            ret: Prim::Bool,
+            runtime: RuntimeFn::FsIsDir,
+        }],
+    },
+    Builtin {
+        name: "__fs_create_dir",
+        summary: "std.fs: create a directory and its parents.",
+        overloads: &[Overload {
+            params: &[Prim::String],
+            ret: Prim::Bool,
+            runtime: RuntimeFn::FsCreateDir,
+        }],
+    },
+    Builtin {
+        name: "__fs_remove",
+        summary: "std.fs: remove a file or an empty directory.",
+        overloads: &[Overload {
+            params: &[Prim::String],
+            ret: Prim::Bool,
+            runtime: RuntimeFn::FsRemove,
+        }],
+    },
+    Builtin {
+        name: "__fs_remove_all",
+        summary: "std.fs: remove a file or a directory tree.",
+        overloads: &[Overload {
+            params: &[Prim::String],
+            ret: Prim::Bool,
+            runtime: RuntimeFn::FsRemoveAll,
+        }],
+    },
+    Builtin {
+        name: "__fs_rename",
+        summary: "std.fs: rename a file or directory.",
+        overloads: &[Overload {
+            params: &[Prim::String, Prim::String],
+            ret: Prim::Bool,
+            runtime: RuntimeFn::FsRename,
+        }],
+    },
+    Builtin {
+        name: "__fs_size",
+        summary: "std.fs: a file's size.",
+        overloads: &[Overload {
+            params: &[Prim::String],
+            ret: Prim::I64,
+            runtime: RuntimeFn::FsSize,
+        }],
+    },
+    Builtin {
+        name: "__fs_modified",
+        summary: "std.fs: when a file changed, in Unix milliseconds.",
+        overloads: &[Overload {
+            params: &[Prim::String],
+            ret: Prim::I64,
+            runtime: RuntimeFn::FsModified,
+        }],
+    },
+    Builtin {
+        name: "__fs_append",
+        summary: "std.fs: add text to the end of a file.",
+        overloads: &[Overload {
+            params: &[Prim::String, Prim::String],
+            ret: Prim::I64,
+            runtime: RuntimeFn::FsAppend,
+        }],
+    },
+    Builtin {
         name: "__random_seed",
         summary: "std.random: make the numbers that follow repeatable.",
         overloads: &[Overload {
