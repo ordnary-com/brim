@@ -1162,6 +1162,54 @@ BrimList *brim_rt_str_chars(const BrimStr *s) {
     return l;
 }
 
+BrimList *brim_rt_str_code_points(const BrimStr *s) {
+    BrimList *l = NULL;
+    const uint8_t *d = (const uint8_t *)s->data;
+    for (int64_t i = 0; i < s->len;) {
+        int64_t n = char_len(s, i);
+        int64_t cp = d[i];
+        if (n == 2) {
+            cp = ((d[i] & 0x1F) << 6) | (d[i + 1] & 0x3F);
+        } else if (n == 3) {
+            cp = ((d[i] & 0x0F) << 12) | ((d[i + 1] & 0x3F) << 6) | (d[i + 2] & 0x3F);
+        } else if (n == 4) {
+            cp = ((int64_t)(d[i] & 0x07) << 18) | ((d[i + 1] & 0x3F) << 12) |
+                 ((d[i + 2] & 0x3F) << 6) | (d[i + 3] & 0x3F);
+        }
+        l = brim_rt_list_push(l, &cp, (int64_t)sizeof cp, NULL, NULL);
+        i += n;
+    }
+    return l;
+}
+
+uint8_t brim_rt_code_point_ok(int64_t n) {
+    return (uint8_t)(n >= 0 && n <= 0x10FFFF && !(n >= 0xD800 && n <= 0xDFFF));
+}
+
+BrimStr *brim_rt_code_point_to_str(int64_t n) {
+    char buf[4];
+    int64_t len = 0;
+    if (!brim_rt_code_point_ok(n)) {
+        return str_from(buf, 0);
+    }
+    if (n < 0x80) {
+        buf[len++] = (char)n;
+    } else if (n < 0x800) {
+        buf[len++] = (char)(0xC0 | (n >> 6));
+        buf[len++] = (char)(0x80 | (n & 0x3F));
+    } else if (n < 0x10000) {
+        buf[len++] = (char)(0xE0 | (n >> 12));
+        buf[len++] = (char)(0x80 | ((n >> 6) & 0x3F));
+        buf[len++] = (char)(0x80 | (n & 0x3F));
+    } else {
+        buf[len++] = (char)(0xF0 | (n >> 18));
+        buf[len++] = (char)(0x80 | ((n >> 12) & 0x3F));
+        buf[len++] = (char)(0x80 | ((n >> 6) & 0x3F));
+        buf[len++] = (char)(0x80 | (n & 0x3F));
+    }
+    return str_from(buf, len);
+}
+
 BrimList *brim_rt_str_bytes(const BrimStr *s) {
     BrimList *l = NULL;
     for (int64_t i = 0; i < s->len; i++) {

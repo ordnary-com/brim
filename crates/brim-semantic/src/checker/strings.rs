@@ -27,6 +27,8 @@ pub(super) enum Ret {
     StrList,
     /// `List[u8]`.
     ByteList,
+    /// `List[i64]`.
+    IntList,
     OptionI64,
     OptionF64,
     OptionStr,
@@ -58,6 +60,7 @@ fn str_method(name: &str) -> Option<(StrMethod, &'static [Type], Ret)> {
         "lines" => (F(R::StrLines), NONE, Ret::StrList),
         "chars" => (F(R::StrChars), NONE, Ret::StrList),
         "bytes" => (F(R::StrBytes), NONE, Ret::ByteList),
+        "code_points" => (F(R::StrCodePoints), NONE, Ret::IntList),
         "parse_int" => (I(Intrinsic::ParseInt), NONE, Ret::OptionI64),
         "parse_float" => (I(Intrinsic::ParseFloat), NONE, Ret::OptionF64),
         _ => return None,
@@ -83,6 +86,8 @@ const STR_METHODS: &[&str] = &[
     "lines",
     "chars",
     "bytes",
+    "code_points",
+    "char_count",
     "parse_int",
     "parse_float",
 ];
@@ -100,6 +105,7 @@ pub(super) fn intrinsic_function(name: &str) -> Option<(Intrinsic, &'static [Typ
         ),
         "args" => (Intrinsic::Args, &[], Ret::StrList),
         "env" => (Intrinsic::Env, STR, Ret::OptionStr),
+        "from_code_point" => (Intrinsic::FromCodePoint, &[Type::I64], Ret::OptionStr),
         _ => return None,
     })
 }
@@ -111,6 +117,7 @@ pub(super) const INTRINSIC_FUNCTIONS: &[&str] = &[
     "args",
     "env",
     "string_from_bytes",
+    "from_code_point",
 ];
 
 impl<'a> Checker<'a> {
@@ -123,6 +130,7 @@ impl<'a> Checker<'a> {
             Ret::Str => Type::String,
             Ret::StrList => self.list_of(Type::String),
             Ret::ByteList => self.list_of(Type::U8),
+            Ret::IntList => self.list_of(Type::I64),
             Ret::OptionI64 => option(self, Type::I64),
             Ret::OptionF64 => option(self, Type::F64),
             Ret::OptionStr => option(self, Type::String),
@@ -223,6 +231,11 @@ impl<'a> Checker<'a> {
         span: Span,
         ctx: &mut FnCtx,
     ) -> CheckedExpr {
+        if str_method(&name.name).is_none()
+            && let Some(result) = self.prelude_method("string", base, name, args, span, ctx)
+        {
+            return result;
+        }
         let receiver = self.check_expr(base, ctx);
         let Some((method, params, ret)) = str_method(&name.name) else {
             for arg in args {

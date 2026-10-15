@@ -1,0 +1,41 @@
+// StringBuilder, code points and characters.
+
+fn main() {
+    let mut out = StringBuilder.new()
+    print(out.is_empty())
+    for i in 1..4 {
+        out.add(to_string(i))
+        out.add(", ")
+    }
+    out.add_line("go!")
+    out.add("done")
+    print(out.build())
+    print(out.is_empty())
+
+    let word = "héllo €"
+    print(word.len())
+    print(word.char_count())
+    print(word.code_points())
+    print(word.chars())
+    print(from_code_point(8364))
+    print(from_code_point(55296))
+    print(from_code_point(-1))
+    print(from_code_point(1114112))
+
+    // Shift every letter one place: the code points make it arithmetic.
+    let mut shifted = StringBuilder.new()
+    for cp in "HAL".code_points() {
+        match from_code_point(cp + 1) {
+            Some(c) => shifted.add(c)
+            None => shifted.add("?")
+        }
+    }
+    print(shifted.build())
+
+    // Many pieces are joined once.
+    let mut big = StringBuilder.new()
+    for i in 0..10000 {
+        big.add("x")
+    }
+    print(big.build().len())
+}

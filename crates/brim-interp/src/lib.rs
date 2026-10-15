@@ -831,6 +831,24 @@ fn call_runtime(
         RuntimeFn::StrSplit => Some(str_list(r::str_split(s(0), s(1)))),
         RuntimeFn::StrLines => Some(str_list(r::str_lines(s(0)))),
         RuntimeFn::StrChars => Some(str_list(r::str_chars(s(0)))),
+        RuntimeFn::StrCodePoints => Some(Value::List(Rc::new(
+            s(0).chars()
+                .map(|c| Value::I64(i64::from(u32::from(c))))
+                .collect(),
+        ))),
+        RuntimeFn::CodePointOk => Some(Value::Bool(
+            u32::try_from(args[0].i64())
+                .ok()
+                .and_then(char::from_u32)
+                .is_some(),
+        )),
+        // Called next to `CodePointOk`, whose result decides which is used.
+        RuntimeFn::CodePointToStr => str_value(BrimStr::from(
+            u32::try_from(args[0].i64())
+                .ok()
+                .and_then(char::from_u32)
+                .map_or(String::new(), String::from),
+        )),
         RuntimeFn::StrBytes => Some(Value::List(Rc::new(
             s(0).bytes().map(|b| Value::I64(i64::from(b))).collect(),
         ))),

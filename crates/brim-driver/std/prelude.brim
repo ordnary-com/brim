@@ -25,6 +25,60 @@ pub fn clamp[T: Ord](x: T, low: T, high: T) -> T {
     return min(max(x, low), high)
 }
 
+// ---- strings -------------------------------------------------------------
+
+// The number of characters (Unicode code points) in `s`; `len()` counts
+// bytes.
+pub fn string_char_count(s: string) -> i64 {
+    return s.code_points().len()
+}
+
+// Builds a string from many pieces. Joining with `+` in a loop copies the
+// text so far each time; a builder keeps the pieces and joins them once:
+//
+//     let mut out = StringBuilder.new()
+//     for name in names {
+//         out.add(name)
+//         out.add(", ")
+//     }
+//     print(out.build())
+pub struct StringBuilder {
+    parts: List[string]
+}
+
+impl StringBuilder {
+    // An empty builder.
+    pub fn new() -> StringBuilder {
+        return StringBuilder { parts: [] }
+    }
+
+    // Adds `text` at the end.
+    pub fn add(mut self, text: string) {
+        self.parts.push(text)
+    }
+
+    // Adds `text` and a line break.
+    pub fn add_line(mut self, text: string) {
+        self.parts.push(text)
+        self.parts.push("\n")
+    }
+
+    // Whether nothing has been added (or only empty strings).
+    pub fn is_empty(self) -> bool {
+        for part in self.parts {
+            if part.len() > 0 {
+                return false
+            }
+        }
+        return true
+    }
+
+    // The text added so far.
+    pub fn build(self) -> string {
+        return self.parts.join("")
+    }
+}
+
 // ---- lists ---------------------------------------------------------------
 
 // A sorted copy of `xs`, smallest first. The sort is stable: equal values

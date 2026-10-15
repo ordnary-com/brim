@@ -827,6 +827,9 @@ The prelude also has the constants `PI` and `E` (`f64`). Its functions and const
 | `to_int` | `to_int(f64) -> i64`, `to_int(i32) -> i64`, `to_int(u8) -> i64`, `to_int(u64) -> i64` | rounds an `f64` toward zero; NaN and numbers outside the `i64` range are run-time error `R0010`; a `u64` above the `i64` range is `R0001` |
 | `to_i32`, `to_u8`, `to_u64` | `to_i32(x) -> i32` and so on, for any integer `x` | the same number in another integer type; `R0001` if it does not fit |
 | `string_from_bytes` | `string_from_bytes(List[u8]) -> Option[string]` | the text of UTF-8 bytes, or `None` if they are not valid UTF-8 |
+| `from_code_point` | `from_code_point(i64) -> Option[string]` | the character with a Unicode code point, or `None` for a surrogate or a number outside `0..=10FFFF` (hex) |
+
+The prelude's struct `StringBuilder` builds a string from pieces: `StringBuilder.new()`, `b.add(text)`, `b.add_line(text)`, `b.is_empty()` and `b.build()`. Joining with `+` in a loop copies the text so far every time; a builder joins once.
 | `read_line` | `read_line() -> Option[string]` | the next line of standard input without its line ending (`\n` or `\r\n`); `None` at the end of input |
 | `read_file` | `read_file(path: string) -> Result[string, string]` | a file's contents; `Err` with a message if it cannot be read or is not UTF-8 |
 | `write_file` | `write_file(path: string, text: string) -> Result[i64, string]` | creates or replaces a file; `Ok` with the number of bytes written |
@@ -860,6 +863,8 @@ Positions and lengths count **bytes** of the UTF-8 text.
 | `split(sep)` | `List[string]` | the parts between separators (`"a,,b"` gives three parts); an empty separator splits into characters |
 | `lines()` | `List[string]` | without line endings; a final line ending does not start another line |
 | `chars()` | `List[string]` | each character as a string |
+| `char_count()` | `i64` | the number of characters (code points); `len()` counts bytes |
+| `code_points()` | `List[i64]` | the Unicode code point of each character |
 | `parse_int()` | `Option[i64]` | a decimal integer with an optional `+` or `-`, and nothing else |
 | `parse_float()` | `Option[f64]` | a decimal number with an optional sign, fraction and exponent (`-1.5e3`, `12`); the nearest `f64`, or `inf` for numbers too large. `NaN`, `inf`, `1.` and `.5` are not accepted |
 

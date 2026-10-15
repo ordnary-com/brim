@@ -160,6 +160,9 @@ Positions and lengths count bytes of the UTF-8 text. Strings compare with
 | `split(sep)` | `List[string]` | an empty separator splits into characters |
 | `lines()` | `List[string]` | without line endings |
 | `chars()` | `List[string]` | each character as a string |
+| `char_count()` | `i64` | the number of characters |
+| `code_points()` | `List[i64]` | the Unicode code point of each character |
+| `bytes()` | `List[u8]` | the UTF-8 bytes |
 | `parse_int()` | `Option[i64]` | |
 
 ```brim
@@ -193,6 +196,29 @@ ababab
 2
 h-é-l-l-o
 true
+```
+
+`from_code_point(n)` is the character with a code point, or `None`. To
+build a long string from many pieces, use a `StringBuilder`: it joins the
+pieces once, where `+` in a loop copies the text each time.
+
+```brim
+fn main() {
+    let mut out = StringBuilder.new()
+    for cp in "HAL".code_points() {
+        match from_code_point(cp + 1) {
+            Some(c) => out.add(c)
+            None => out.add("?")
+        }
+    }
+    out.add_line("!")
+    print(out.build())
+}
+```
+
+```text
+IBM!
+
 ```
 
 ## Lists

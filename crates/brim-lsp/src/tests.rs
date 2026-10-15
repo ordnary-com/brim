@@ -314,6 +314,7 @@ fn brim_stdlib_names() -> impl Iterator<Item = &'static str> {
         "to_u8",
         "to_u64",
         "string_from_bytes",
+        "from_code_point",
         "abs",
         "sqrt",
         "floor",

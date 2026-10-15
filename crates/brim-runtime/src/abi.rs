@@ -178,6 +178,12 @@ runtime_fns! {
     StrLines = "brim_rt_str_lines" (Str) -> StrList;
     /// `s.chars()`: each character as a string.
     StrChars = "brim_rt_str_chars" (Str) -> StrList;
+    /// `s.code_points()`: the Unicode code point of each character.
+    StrCodePoints = "brim_rt_str_code_points" (Str) -> IntList;
+    /// Whether `n` is a Unicode scalar value, for `from_code_point`.
+    CodePointOk = "brim_rt_code_point_ok" (I64) -> Bool;
+    /// The character with a code point for which `CodePointOk` is true.
+    CodePointToStr = "brim_rt_code_point_to_str" (I64) -> Str;
     /// `s.bytes()`: the UTF-8 bytes of a string.
     StrBytes = "brim_rt_str_bytes" (Str) -> IntList;
     /// Whether bytes are valid UTF-8, for `string_from_bytes`.

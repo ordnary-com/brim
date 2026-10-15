@@ -22,7 +22,7 @@
       <item>Ok</item><item>Err</item>
     </list>
     <list name="builtins">
-      <item>print</item><item>eprint</item><item>to_string</item><item>to_float</item><item>to_int</item><item>to_i32</item><item>to_u8</item><item>to_u64</item><item>string_from_bytes</item><item>abs</item><item>sqrt</item><item>floor</item><item>ceil</item><item>round</item><item>pow</item><item>min</item><item>max</item><item>clamp</item><item>read_line</item>
+      <item>print</item><item>eprint</item><item>to_string</item><item>to_float</item><item>to_int</item><item>to_i32</item><item>to_u8</item><item>to_u64</item><item>string_from_bytes</item><item>from_code_point</item><item>abs</item><item>sqrt</item><item>floor</item><item>ceil</item><item>round</item><item>pow</item><item>min</item><item>max</item><item>clamp</item><item>read_line</item>
       <item>read_file</item><item>write_file</item><item>args</item><item>env</item><item>exit</item>
       <item>assert</item><item>assert_eq</item>
     </list>

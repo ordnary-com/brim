@@ -314,6 +314,23 @@ impl<'a> Checker<'a> {
                 .collect();
             scope.own_fns = scope.fns.clone();
         }
+        // The prelude's public types, such as `StringBuilder`, are known in
+        // every module that does not declare its own.
+        if let Some(prelude) = checker.module_names.iter().position(|n| n == "std.prelude") {
+            let types: Vec<(String, Def)> = checker.scopes[prelude]
+                .own_types
+                .iter()
+                .filter(|(_, d)| checker.def_public(**d))
+                .map(|(n, d)| (n.clone(), *d))
+                .collect();
+            for (m, scope) in checker.scopes.iter_mut().enumerate() {
+                if m != prelude {
+                    for (name, def) in &types {
+                        scope.types.entry(name.clone()).or_insert(*def);
+                    }
+                }
+            }
+        }
         for (m, module) in modules.iter().enumerate() {
             checker.collect_consts(m, &module.program);
         }

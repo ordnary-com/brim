@@ -527,6 +527,8 @@ pub enum Intrinsic {
     StrIsEmpty,
     /// `string_from_bytes(b)`: `Option[string]`.
     StrFromBytes,
+    /// `from_code_point(n)`: `Option[string]`.
+    FromCodePoint,
     /// `s.find(t)`: `Option[i64]`.
     StrFind,
     /// `s.parse_int()`: `Option[i64]`.

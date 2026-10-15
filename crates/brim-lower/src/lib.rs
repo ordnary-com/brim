@@ -2300,6 +2300,11 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                     self.runtime(RuntimeFn::StrParseFloat, vec![args[0]], IrType::F64, span);
                 self.choose_variant(ok, enum_ty, value, None, span)
             }
+            Intrinsic::FromCodePoint => {
+                let ok = self.runtime(RuntimeFn::CodePointOk, vec![args[0]], bool_ty, span);
+                let value = self.runtime(RuntimeFn::CodePointToStr, vec![args[0]], str_ty, span);
+                self.choose_variant(ok, enum_ty, value, None, span)
+            }
             Intrinsic::StrFromBytes => {
                 let ok = self.runtime(RuntimeFn::BytesUtf8Ok, vec![args[0]], bool_ty, span);
                 let value = self.runtime(RuntimeFn::BytesToStr, vec![args[0]], str_ty, span);
