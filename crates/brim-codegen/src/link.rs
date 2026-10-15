@@ -2,7 +2,8 @@
 //!
 //! The module is written as an object file, and the system C compiler links
 //! it together with the Brim runtime (`runtime/brim_rt.c`, embedded in the
-//! compiler). The C compiler is `$BRIM_CC`, else `$CC`, else `cc`.
+//! compiler). The C compiler is `$BRIM_CC`, else `$CC`, else `cc` (`clang`
+//! on Windows, which links with the MSVC tools).
 
 use std::fs;
 use std::path::PathBuf;
@@ -47,10 +48,19 @@ pub(crate) fn link(
         .is_some()
     {
         let https = runtime_object(&linker, opt, "brim_rt_https", HTTPS_SOURCE, &dir, options)?;
-        command.arg(&https).arg("-lcurl");
+        command.arg(&https);
+        // Windows builds have no libcurl (HTTPS fails there with a message).
+        if !cfg!(windows) {
+            command.arg("-lcurl");
+        }
     }
-    // The math functions (`sqrt`, `pow`, ...) are in libm on Linux.
-    command.arg("-lm");
+    if cfg!(windows) {
+        // Winsock, the random source and the UTF-8 command line.
+        command.args(["-lws2_32", "-lbcrypt", "-lshell32"]);
+    } else {
+        // The math functions (`sqrt`, `pow`, ...) are in libm on Linux.
+        command.arg("-lm");
+    }
     command.arg("-o").arg(&options.output);
     let shown = format!("{command:?}").replace('"', "");
     let output = command.output().map_err(|e| CodegenError::LinkerNotFound {
@@ -149,7 +159,7 @@ fn linker() -> String {
         .iter()
         .filter_map(|var| std::env::var(var).ok())
         .find(|v| !v.trim().is_empty())
-        .unwrap_or_else(|| "cc".to_string())
+        .unwrap_or_else(|| if cfg!(windows) { "clang" } else { "cc" }.to_string())
 }
 
 /// A temporary directory, removed when dropped.

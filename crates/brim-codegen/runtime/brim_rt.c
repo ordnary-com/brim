@@ -27,6 +27,32 @@
  * compiler's tests run every native program this way.
  */
 
+#ifdef _WIN32
+/* Windows: Winsock and Win32 in place of the POSIX calls; see the
+ * sections marked `_WIN32` below. */
+#define WIN32_LEAN_AND_MEAN
+#define _CRT_SECURE_NO_WARNINGS
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0600 /* Vista: WSAPoll */
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <shellapi.h>
+#include <bcrypt.h>
+#include <direct.h>
+#include <io.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <inttypes.h>
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+#else
 /* For `fileno` and `struct stat` with a strict C11 compiler. */
 #define _POSIX_C_SOURCE 200809L
 
@@ -51,6 +77,153 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#endif
+
+/* ---- platform differences ------------------------------------------------ */
+
+#ifdef _WIN32
+#ifndef __MINGW32__
+typedef intptr_t ssize_t;
+#endif
+#ifndef S_ISDIR
+#define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
+#endif
+/* 64-bit sizes and times. */
+#define stat _stat64
+#define fstat _fstat64
+#define lstat _stat64
+#define fileno _fileno
+#define rmdir _rmdir
+#define unlink _unlink
+#define SHUT_RDWR SD_BOTH
+#define poll WSAPoll
+typedef ULONG brim_nfds_t;
+#define sock_close closesocket
+#define make_dir(name) _mkdir(name)
+
+/* The POSIX error number for the last Winsock error. */
+static int sock_errno(void) {
+    switch (WSAGetLastError()) {
+    case WSAECONNREFUSED: return ECONNREFUSED;
+    case WSAEADDRINUSE: return EADDRINUSE;
+    case WSAEADDRNOTAVAIL: return EADDRNOTAVAIL;
+    case WSAEACCES: return EACCES;
+    case WSAETIMEDOUT: return ETIMEDOUT;
+    case WSAEWOULDBLOCK: return EWOULDBLOCK;
+    case WSAECONNRESET: return ECONNRESET;
+    case WSAECONNABORTED: return ECONNABORTED;
+    case WSAENOTCONN: return ENOTCONN;
+    case WSAEINTR: return EINTR;
+    default: return EIO;
+    }
+}
+
+/* The POSIX error number for the last Win32 error. */
+static int win_errno(void) {
+    switch (GetLastError()) {
+    case ERROR_FILE_NOT_FOUND:
+    case ERROR_PATH_NOT_FOUND:
+    case ERROR_INVALID_NAME: return ENOENT;
+    case ERROR_ACCESS_DENIED:
+    case ERROR_SHARING_VIOLATION: return EACCES;
+    case ERROR_DIRECTORY: return ENOTDIR;
+    case ERROR_DIR_NOT_EMPTY: return ENOTEMPTY;
+    case ERROR_ALREADY_EXISTS:
+    case ERROR_FILE_EXISTS: return EEXIST;
+    default: return EIO;
+    }
+}
+#else
+typedef nfds_t brim_nfds_t;
+#define sock_close close
+#define make_dir(name) mkdir(name, 0777)
+static int sock_errno(void) {
+    return errno;
+}
+#endif
+
+/* Directory listing: the names in a directory, one at a time (with `.` and
+ * `..`). `dir_open` returns NULL and sets `errno` on failure. */
+typedef struct DirIter DirIter;
+#ifdef _WIN32
+struct DirIter {
+    HANDLE find;
+    WIN32_FIND_DATAA data;
+    int first;
+};
+
+static DirIter *dir_open(const char *name) {
+    size_t n = strlen(name);
+    char *pattern = malloc(n + 3);
+    if (pattern == NULL) {
+        return NULL;
+    }
+    memcpy(pattern, name, n);
+    memcpy(pattern + n, "\\*", 3);
+    DirIter *it = malloc(sizeof *it);
+    if (it == NULL) {
+        free(pattern);
+        return NULL;
+    }
+    DWORD attributes = GetFileAttributesA(name);
+    it->find = INVALID_HANDLE_VALUE;
+    if (attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        SetLastError(ERROR_DIRECTORY);
+    } else {
+        it->find = FindFirstFileA(pattern, &it->data);
+    }
+    free(pattern);
+    if (it->find == INVALID_HANDLE_VALUE) {
+        errno = win_errno();
+        free(it);
+        return NULL;
+    }
+    it->first = 1;
+    return it;
+}
+
+static const char *dir_next(DirIter *it) {
+    if (it->first) {
+        it->first = 0;
+        return it->data.cFileName;
+    }
+    return FindNextFileA(it->find, &it->data) ? it->data.cFileName : NULL;
+}
+
+static void dir_close(DirIter *it) {
+    FindClose(it->find);
+    free(it);
+}
+#else
+struct DirIter {
+    DIR *dir;
+};
+
+static DirIter *dir_open(const char *name) {
+    DIR *dir = opendir(name);
+    if (dir == NULL) {
+        return NULL;
+    }
+    DirIter *it = malloc(sizeof *it);
+    if (it == NULL) {
+        closedir(dir);
+        errno = ENOMEM;
+        return NULL;
+    }
+    it->dir = dir;
+    return it;
+}
+
+static const char *dir_next(DirIter *it) {
+    struct dirent *entry = readdir(it->dir);
+    return entry == NULL ? NULL : entry->d_name;
+}
+
+static void dir_close(DirIter *it) {
+    closedir(it->dir);
+    free(it);
+}
+#endif
 
 typedef struct BrimStr {
     int64_t rc;
@@ -1526,7 +1699,7 @@ static int compare_names(const void *a, const void *b) {
 BrimList *brim_rt_fs_list(const BrimStr *path) {
     set_error(NULL);
     char *name = c_string(path);
-    DIR *dir = opendir(name);
+    DirIter *dir = dir_open(name);
     free(name);
     if (dir == NULL) {
         fs_error("list directory", path, errno);
@@ -1535,9 +1708,9 @@ BrimList *brim_rt_fs_list(const BrimStr *path) {
     char **names = NULL;
     size_t count = 0;
     size_t cap = 0;
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+    const char *entry;
+    while ((entry = dir_next(dir)) != NULL) {
+        if (strcmp(entry, ".") == 0 || strcmp(entry, "..") == 0) {
             continue;
         }
         if (count == cap) {
@@ -1548,14 +1721,14 @@ BrimList *brim_rt_fs_list(const BrimStr *path) {
             }
             names = bigger;
         }
-        names[count] = malloc(strlen(entry->d_name) + 1);
+        names[count] = malloc(strlen(entry) + 1);
         if (names[count] == NULL) {
             fatal("out of memory");
         }
-        strcpy(names[count], entry->d_name);
+        strcpy(names[count], entry);
         count++;
     }
-    closedir(dir);
+    dir_close(dir);
     /* Byte order, as Rust sorts the names. */
     qsort(names, count, sizeof *names, compare_names);
     BrimList *l = NULL;
@@ -1581,7 +1754,7 @@ uint8_t brim_rt_fs_create_dir(const BrimStr *path) {
         if (name[i] == '/' || name[i] == '\0') {
             char saved = name[i];
             name[i] = '\0';
-            if (mkdir(name, 0777) != 0 && errno != EEXIST) {
+            if (make_dir(name) != 0 && errno != EEXIST) {
                 int error = errno;
                 free(name);
                 fs_error("create directory", path, error);
@@ -1609,31 +1782,31 @@ static int remove_path(const char *name, int all) {
         return unlink(name);
     }
     if (all) {
-        DIR *dir = opendir(name);
+        DirIter *dir = dir_open(name);
         if (dir == NULL) {
             return -1;
         }
-        struct dirent *entry;
-        while ((entry = readdir(dir)) != NULL) {
-            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+        const char *entry;
+        while ((entry = dir_next(dir)) != NULL) {
+            if (strcmp(entry, ".") == 0 || strcmp(entry, "..") == 0) {
                 continue;
             }
-            size_t n = strlen(name) + strlen(entry->d_name) + 2;
+            size_t n = strlen(name) + strlen(entry) + 2;
             char *child = malloc(n);
             if (child == NULL) {
                 fatal("out of memory");
             }
-            snprintf(child, n, "%s/%s", name, entry->d_name);
+            snprintf(child, n, "%s/%s", name, entry);
             int failed = remove_path(child, 1);
             free(child);
             if (failed != 0) {
                 int error = errno;
-                closedir(dir);
+                dir_close(dir);
                 errno = error;
                 return -1;
             }
         }
-        closedir(dir);
+        dir_close(dir);
     }
     return rmdir(name);
 }
@@ -1704,7 +1877,19 @@ int64_t brim_rt_fs_modified(const BrimStr *path) {
         fs_error("read the time of", path, error);
         return 0;
     }
-#ifdef __APPLE__
+#if defined(_WIN32)
+    /* In milliseconds, as Rust reads it; `stat` has whole seconds. */
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    char *again = c_string(path);
+    BOOL ok = GetFileAttributesExA(again, GetFileExInfoStandard, &data);
+    free(again);
+    if (!ok) {
+        return (int64_t)info.st_mtime * 1000;
+    }
+    uint64_t ticks = ((uint64_t)data.ftLastWriteTime.dwHighDateTime << 32) |
+                     data.ftLastWriteTime.dwLowDateTime;
+    return (int64_t)((ticks - 116444736000000000ULL) / 10000);
+#elif defined(__APPLE__)
     /* macOS in strict POSIX mode. */
     return (int64_t)info.st_mtime * 1000 + (int64_t)(info.st_mtimensec / 1000000);
 #else
@@ -1817,7 +2002,9 @@ _Noreturn void brim_rt_exit(int64_t code) {
 
 /* ---- std.process ----------------------------------------------------------- */
 
+#ifndef _WIN32
 extern char **environ;
+#endif
 
 static int64_t process_code;
 static BrimStr *process_stdout;
@@ -1835,6 +2022,124 @@ static int has_nul(const BrimStr *s) {
     return s->len > 0 && memchr(s->data, 0, (size_t)s->len) != NULL;
 }
 
+#ifdef _WIN32
+/* Adds `arg` to a Windows command line, quoted the way programs (and
+ * Rust's `Command`) split it again. */
+static void add_quoted(Buffer *b, const char *arg) {
+    if (*arg != '\0' && strpbrk(arg, " \t\n\v\"") == NULL) {
+        buffer_add(b, arg, (int64_t)strlen(arg));
+        return;
+    }
+    buffer_add(b, "\"", 1);
+    for (const char *p = arg;; p++) {
+        int64_t slashes = 0;
+        while (*p == '\\') {
+            p++;
+            slashes++;
+        }
+        if (*p == '\0') {
+            for (int64_t i = 0; i < slashes * 2; i++) {
+                buffer_add(b, "\\", 1);
+            }
+            break;
+        }
+        if (*p == '"') {
+            for (int64_t i = 0; i < slashes * 2 + 1; i++) {
+                buffer_add(b, "\\", 1);
+            }
+        } else {
+            for (int64_t i = 0; i < slashes; i++) {
+                buffer_add(b, "\\", 1);
+            }
+        }
+        buffer_add(b, p, 1);
+    }
+    buffer_add(b, "\"", 1);
+}
+
+typedef struct PipeReader {
+    HANDLE pipe;
+    Buffer *into;
+} PipeReader;
+
+static void read_pipe(HANDLE pipe, Buffer *into) {
+    char chunk[65536];
+    DWORD n;
+    while (ReadFile(pipe, chunk, sizeof chunk, &n, NULL) && n > 0) {
+        buffer_add(into, chunk, (int64_t)n);
+    }
+}
+
+static DWORD WINAPI pipe_reader(LPVOID arg) {
+    PipeReader *r = arg;
+    read_pipe(r->pipe, r->into);
+    return 0;
+}
+
+/* Runs `argv` with no input and collects its output; 0, or an errno. */
+static int spawn_collect(char **argv, Buffer *out, Buffer *err, int64_t *code) {
+    Buffer line = {0};
+    for (int i = 0; argv[i] != NULL; i++) {
+        if (i > 0) {
+            buffer_add(&line, " ", 1);
+        }
+        add_quoted(&line, argv[i]);
+    }
+    buffer_add(&line, "", 1);
+    line.data[line.len - 1] = '\0';
+    SECURITY_ATTRIBUTES inherit = {sizeof inherit, NULL, TRUE};
+    HANDLE out_r = NULL, out_w = NULL, err_r = NULL, err_w = NULL;
+    if (!CreatePipe(&out_r, &out_w, &inherit, 0) || !CreatePipe(&err_r, &err_w, &inherit, 0)) {
+        free(line.data);
+        return EIO;
+    }
+    SetHandleInformation(out_r, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(err_r, HANDLE_FLAG_INHERIT, 0);
+    HANDLE nul = CreateFileA("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit,
+                             OPEN_EXISTING, 0, NULL);
+    STARTUPINFOA si;
+    memset(&si, 0, sizeof si);
+    si.cb = sizeof si;
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = nul;
+    si.hStdOutput = out_w;
+    si.hStdError = err_w;
+    PROCESS_INFORMATION pi;
+    BOOL started = CreateProcessA(NULL, line.data, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL,
+                                  &si, &pi);
+    int error = started ? 0 : win_errno();
+    free(line.data);
+    CloseHandle(out_w);
+    CloseHandle(err_w);
+    if (nul != INVALID_HANDLE_VALUE) {
+        CloseHandle(nul);
+    }
+    if (!started) {
+        CloseHandle(out_r);
+        CloseHandle(err_r);
+        return error;
+    }
+    /* Standard error on a thread of its own, so neither pipe fills up. */
+    PipeReader reader = {err_r, err};
+    HANDLE thread = CreateThread(NULL, 0, pipe_reader, &reader, 0, NULL);
+    read_pipe(out_r, out);
+    if (thread != NULL) {
+        WaitForSingleObject(thread, INFINITE);
+        CloseHandle(thread);
+    } else {
+        read_pipe(err_r, err);
+    }
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exit_code = 0;
+    GetExitCodeProcess(pi.hProcess, &exit_code);
+    *code = (int64_t)exit_code;
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    CloseHandle(out_r);
+    CloseHandle(err_r);
+    return 0;
+}
+#else
 /* Reads both pipes until they close, so neither can fill up and block. */
 static void read_pipes(int out_fd, int err_fd, Buffer *out, Buffer *err) {
     struct pollfd fds[2] = {{out_fd, POLLIN, 0}, {err_fd, POLLIN, 0}};
@@ -1868,6 +2173,11 @@ static void read_pipes(int out_fd, int err_fd, Buffer *out, Buffer *err) {
         }
     }
 }
+#endif
+
+/* Runs `argv` with no input and collects its output and exit code; 0, or
+ * an errno when it cannot start. */
+static int spawn_collect(char **argv, Buffer *out, Buffer *err, int64_t *code);
 
 /* As brim_runtime::process_run. */
 int64_t brim_rt_process_run(const BrimStr *cmd, BrimList *args) {
@@ -1891,6 +2201,34 @@ int64_t brim_rt_process_run(const BrimStr *cmd, BrimList *args) {
         argv[i + 1] = c_string(*(BrimStr **)elem_at(args, i));
     }
     argv[argc + 1] = NULL;
+    Buffer out = {0};
+    Buffer err = {0};
+    int64_t code = 0;
+    int error = spawn_collect(argv, &out, &err, &code);
+    for (int64_t i = 0; i <= argc; i++) {
+        free(argv[i]);
+    }
+    free(argv);
+    if (error != 0) {
+        fs_error("run", cmd, error);
+        return -1;
+    }
+    if (!valid_utf8(out.data, out.len) || !valid_utf8(err.data, err.len)) {
+        free(out.data);
+        free(err.data);
+        Buffer b = {0};
+        buffer_add(&b, "cannot run \"", 12);
+        buffer_add(&b, cmd->data, cmd->len);
+        buffer_add(&b, "\": output is not valid UTF-8", 28);
+        set_error(buffer_finish(&b));
+        return -1;
+    }
+    set_process_output(code, buffer_finish(&out), buffer_finish(&err));
+    return code;
+}
+
+#ifndef _WIN32
+static int spawn_collect(char **argv, Buffer *out_buf, Buffer *err_buf, int64_t *code_out) {
     int out_pipe[2] = {-1, -1};
     int err_pipe[2] = {-1, -1};
     int error = 0;
@@ -1910,10 +2248,6 @@ int64_t brim_rt_process_run(const BrimStr *cmd, BrimList *args) {
         error = posix_spawnp(&pid, argv[0], &actions, NULL, argv, environ);
         posix_spawn_file_actions_destroy(&actions);
     }
-    for (int64_t i = 0; i <= argc; i++) {
-        free(argv[i]);
-    }
-    free(argv);
     if (out_pipe[1] >= 0) {
         close(out_pipe[1]);
     }
@@ -1927,29 +2261,16 @@ int64_t brim_rt_process_run(const BrimStr *cmd, BrimList *args) {
         if (err_pipe[0] >= 0) {
             close(err_pipe[0]);
         }
-        fs_error("run", cmd, error);
-        return -1;
+        return error;
     }
-    Buffer out = {0};
-    Buffer err = {0};
-    read_pipes(out_pipe[0], err_pipe[0], &out, &err);
+    read_pipes(out_pipe[0], err_pipe[0], out_buf, err_buf);
     int status = 0;
     while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
     }
-    int64_t code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
-    if (!valid_utf8(out.data, out.len) || !valid_utf8(err.data, err.len)) {
-        free(out.data);
-        free(err.data);
-        Buffer b = {0};
-        buffer_add(&b, "cannot run \"", 12);
-        buffer_add(&b, cmd->data, cmd->len);
-        buffer_add(&b, "\": output is not valid UTF-8", 28);
-        set_error(buffer_finish(&b));
-        return -1;
-    }
-    set_process_output(code, buffer_finish(&out), buffer_finish(&err));
-    return code;
+    *code_out = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+    return 0;
 }
+#endif
 
 BrimStr *brim_rt_process_stdout(void) {
     if (process_stdout == NULL) {
@@ -2012,7 +2333,12 @@ static void net_fail(const char *reason) {
 static void net_start(void) {
     static int ready;
     if (!ready) {
+#ifdef _WIN32
+        WSADATA data;
+        WSAStartup(MAKEWORD(2, 2), &data);
+#else
         signal(SIGPIPE, SIG_IGN);
+#endif
         ready = 1;
     }
     fflush(stdout);
@@ -2063,7 +2389,7 @@ static struct addrinfo *resolve(const BrimStr *host, int64_t port, int passive) 
 static void no_delay(int fd) {
 #ifdef TCP_NODELAY
     int on = 1;
-    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof on);
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&on, sizeof on);
 #else
     (void)fd;
 #endif
@@ -2084,17 +2410,17 @@ int64_t brim_rt_net_listen(const BrimStr *host, int64_t port) {
     for (struct addrinfo *a = found; a != NULL; a = a->ai_next) {
         int fd = socket(a->ai_family, a->ai_socktype, a->ai_protocol);
         if (fd < 0) {
-            error = errno;
+            error = sock_errno();
             continue;
         }
         int on = 1;
-        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof on);
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&on, sizeof on);
         if (bind(fd, a->ai_addr, a->ai_addrlen) == 0 && listen(fd, 128) == 0) {
             freeaddrinfo(found);
             return socket_add(fd, 1);
         }
-        error = errno;
-        close(fd);
+        error = sock_errno();
+        sock_close(fd);
     }
     freeaddrinfo(found);
     net_fail(net_reason(error));
@@ -2111,9 +2437,9 @@ int64_t brim_rt_net_accept(int64_t listener) {
     int fd;
     do {
         fd = accept(l->fd, NULL, NULL);
-    } while (fd < 0 && errno == EINTR);
+    } while (fd < 0 && sock_errno() == EINTR);
     if (fd < 0) {
-        net_fail(net_reason(errno));
+        net_fail(net_reason(sock_errno()));
         return 0;
     }
     no_delay(fd);
@@ -2135,7 +2461,7 @@ int64_t brim_rt_net_connect(const BrimStr *host, int64_t port) {
     for (struct addrinfo *a = found; a != NULL; a = a->ai_next) {
         int fd = socket(a->ai_family, a->ai_socktype, a->ai_protocol);
         if (fd < 0) {
-            error = errno;
+            error = sock_errno();
             continue;
         }
         if (connect(fd, a->ai_addr, a->ai_addrlen) == 0) {
@@ -2143,8 +2469,8 @@ int64_t brim_rt_net_connect(const BrimStr *host, int64_t port) {
             no_delay(fd);
             return socket_add(fd, 0);
         }
-        error = errno;
-        close(fd);
+        error = sock_errno();
+        sock_close(fd);
     }
     freeaddrinfo(found);
     net_fail(net_reason(error));
@@ -2166,9 +2492,9 @@ static int64_t socket_fill(Socket *s) {
     ssize_t n;
     do {
         n = recv(s->fd, s->buf + s->len, 8192, 0);
-    } while (n < 0 && errno == EINTR);
+    } while (n < 0 && sock_errno() == EINTR);
     if (n < 0) {
-        net_fail(net_reason(errno));
+        net_fail(net_reason(sock_errno()));
         return -1;
     }
     s->len += n;
@@ -2315,10 +2641,10 @@ int64_t brim_rt_net_write(int64_t handle, const BrimStr *text) {
     while (sent < text->len) {
         ssize_t n = send(s->fd, text->data + sent, (size_t)(text->len - sent), 0);
         if (n < 0) {
-            if (errno == EINTR) {
+            if (sock_errno() == EINTR) {
                 continue;
             }
-            net_fail(net_reason(errno));
+            net_fail(net_reason(sock_errno()));
             return 0;
         }
         sent += n;
@@ -2339,11 +2665,11 @@ int64_t brim_rt_net_write_bytes(int64_t handle, const BrimList *bytes) {
     while (sent < len) {
         ssize_t n = send(s->fd, data + sent, (size_t)(len - sent), 0);
         if (n < 0) {
-            if (errno == EINTR) {
+            if (sock_errno() == EINTR) {
                 continue;
             }
             free(data);
-            net_fail(net_reason(errno));
+            net_fail(net_reason(sock_errno()));
             return 0;
         }
         sent += n;
@@ -2397,7 +2723,7 @@ static void close_socket(int64_t handle) {
         if (!s->listening) {
             shutdown(s->fd, SHUT_RDWR);
         }
-        close(s->fd);
+        sock_close(s->fd);
         s->fd = -1;
         free(s->buf);
         s->buf = NULL;
@@ -2453,7 +2779,7 @@ static int kept_readiness(int64_t handle) {
     int got;
     do {
         got = poll(&fd, 1, 0);
-    } while (got < 0 && errno == EINTR);
+    } while (got < 0 && sock_errno() == EINTR);
     if (got == 0) {
         return 0;
     }
@@ -2465,7 +2791,7 @@ static int kept_readiness(int64_t handle) {
     ssize_t n;
     do {
         n = recv(s->fd, &byte, 1, MSG_PEEK);
-    } while (n < 0 && errno == EINTR);
+    } while (n < 0 && sock_errno() == EINTR);
     return n > 0 ? 1 : -1;
 }
 
@@ -2516,11 +2842,11 @@ int64_t brim_rt_net_next_ready(int64_t listener, int64_t idle_ms) {
                 fds[n++] = (struct pollfd){sockets[kept[i].conn - 1].fd, POLLIN, 0};
             }
         }
-        int got = poll(fds, (nfds_t)n, (int)wait);
+        int got = poll(fds, (brim_nfds_t)n, (int)wait);
         int listener_ready = got > 0 && (fds[0].revents & POLLIN);
         free(fds);
-        if (got < 0 && errno != EINTR) {
-            net_fail(net_reason(errno));
+        if (got < 0 && sock_errno() != EINTR) {
+            net_fail(net_reason(sock_errno()));
             return 0;
         }
         if (listener_ready) {
@@ -2551,7 +2877,7 @@ int64_t brim_rt_net_local_port(int64_t handle) {
     struct sockaddr_storage addr;
     socklen_t size = sizeof addr;
     if (getsockname(s->fd, (struct sockaddr *)&addr, &size) != 0) {
-        net_fail(net_reason(errno));
+        net_fail(net_reason(sock_errno()));
         return 0;
     }
     if (addr.ss_family == AF_INET6) {
@@ -2571,12 +2897,16 @@ void brim_rt_net_set_timeout(int64_t handle, int64_t millis) {
         net_fail("invalid timeout");
         return;
     }
+#ifdef _WIN32
+    DWORD tv = (DWORD)millis;
+#else
     struct timeval tv;
     tv.tv_sec = (time_t)(millis / 1000);
     tv.tv_usec = (suseconds_t)((millis % 1000) * 1000);
-    if (setsockopt(s->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv) != 0 ||
-        setsockopt(s->fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv) != 0) {
-        net_fail(net_reason(errno));
+#endif
+    if (setsockopt(s->fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv) != 0 ||
+        setsockopt(s->fd, SOL_SOCKET, SO_SNDTIMEO, (const char *)&tv, sizeof tv) != 0) {
+        net_fail(net_reason(sock_errno()));
     }
 }
 
@@ -3010,6 +3340,21 @@ BrimList *brim_rt_md5(const BrimList *l) {
     return bytes_list(out, 16);
 }
 
+/* Bytes from the system's secure random source. */
+static void os_random(void *data, size_t n) {
+#ifdef _WIN32
+    if (BCryptGenRandom(NULL, data, (ULONG)n, BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) {
+        fatal("cannot get random bytes");
+    }
+#else
+    FILE *f = fopen("/dev/urandom", "rb");
+    if (f == NULL || fread(data, 1, n, f) != n) {
+        fatal("cannot read /dev/urandom");
+    }
+    fclose(f);
+#endif
+}
+
 BrimList *brim_rt_random_bytes(int64_t n) {
     if (n <= 0) {
         return NULL;
@@ -3018,11 +3363,7 @@ BrimList *brim_rt_random_bytes(int64_t n) {
     if (data == NULL) {
         fatal("out of memory");
     }
-    FILE *f = fopen("/dev/urandom", "rb");
-    if (f == NULL || fread(data, 1, (size_t)n, f) != (size_t)n) {
-        fatal("cannot read /dev/urandom");
-    }
-    fclose(f);
+    os_random(data, (size_t)n);
     BrimList *l = bytes_list(data, n);
     free(data);
     return l;
@@ -3055,15 +3396,7 @@ static uint64_t rotl64(uint64_t x, int k) {
 static uint64_t random_next(void) {
     if (!random_ready) {
         uint64_t seed = 0;
-        FILE *f = fopen("/dev/urandom", "rb");
-        if (f == NULL || fread(&seed, sizeof seed, 1, f) != 1) {
-            struct timespec t;
-            clock_gettime(CLOCK_REALTIME, &t);
-            seed = (uint64_t)t.tv_sec * 1000000000ULL + (uint64_t)t.tv_nsec;
-        }
-        if (f != NULL) {
-            fclose(f);
-        }
+        os_random(&seed, sizeof seed);
         random_seed_with(seed);
     }
     uint64_t *s = random_state;
@@ -3101,16 +3434,27 @@ double brim_rt_random_float(void) {
 }
 
 int64_t brim_rt_time_now_millis(void) {
+#ifdef _WIN32
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    uint64_t ticks = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+    return (int64_t)((ticks - 116444736000000000ULL) / 10000);
+#else
     struct timespec t;
     clock_gettime(CLOCK_REALTIME, &t);
     return (int64_t)t.tv_sec * 1000 + (int64_t)(t.tv_nsec / 1000000);
+#endif
 }
 
 int64_t brim_rt_time_monotonic_millis(void) {
     static int64_t start = -1;
+#ifdef _WIN32
+    int64_t now = (int64_t)GetTickCount64();
+#else
     struct timespec t;
     clock_gettime(CLOCK_MONOTONIC, &t);
     int64_t now = (int64_t)t.tv_sec * 1000 + (int64_t)(t.tv_nsec / 1000000);
+#endif
     if (start < 0) {
         start = now;
     }
@@ -3122,6 +3466,10 @@ void brim_rt_time_sleep_millis(int64_t millis) {
     if (millis <= 0) {
         return;
     }
+#ifdef _WIN32
+    Sleep((DWORD)millis);
+    return;
+#endif
     struct timespec t;
     t.tv_sec = (time_t)(millis / 1000);
     t.tv_nsec = (long)((millis % 1000) * 1000000);
@@ -3329,7 +3677,37 @@ int64_t brim_rt_f64_to_i64(double x, const char *head, const char *sep, const ch
 
 /* ---- process entry ------------------------------------------------------- */
 
+#ifdef _WIN32
+/* The arguments as UTF-8 (`argv` is in the ANSI code page). */
+static char **utf8_arguments(int *argc) {
+    LPWSTR *wide = CommandLineToArgvW(GetCommandLineW(), argc);
+    char **out = malloc(sizeof(char *) * (size_t)(*argc + 1));
+    if (wide == NULL || out == NULL) {
+        fatal("cannot read the command line");
+    }
+    for (int i = 0; i < *argc; i++) {
+        int n = WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, NULL, 0, NULL, NULL);
+        out[i] = malloc((size_t)n);
+        if (out[i] == NULL) {
+            fatal("out of memory");
+        }
+        WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, out[i], n, NULL, NULL);
+    }
+    out[*argc] = NULL;
+    LocalFree(wide);
+    return out;
+}
+#endif
+
 int main(int argc, char **argv) {
+#ifdef _WIN32
+    /* Bytes as they are (no `\r\n`), and UTF-8 text in the console. */
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+    SetConsoleOutputCP(CP_UTF8);
+    argv = utf8_arguments(&argc);
+#endif
     program_argc = argc;
     program_argv = argv;
     const char *check = getenv("BRIM_RT_CHECK");

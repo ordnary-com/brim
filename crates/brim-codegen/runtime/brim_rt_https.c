@@ -5,6 +5,27 @@
  * crate (brim-interp/src/https.rs), with the same options and error texts.
  */
 
+#ifdef _WIN32
+/* Native Windows builds have no libcurl yet: HTTPS requests fail with a
+ * message, and `http://` works as everywhere. */
+#include <stdint.h>
+
+typedef struct BrimStr BrimStr;
+
+void brim_rt_internal_set_error(const char *reason);
+BrimStr *brim_rt_internal_str(const char *data, int64_t len);
+
+BrimStr *brim_rt_http_request(const BrimStr *method, const BrimStr *url, const BrimStr *headers,
+                              const BrimStr *body, int64_t timeout_ms) {
+    (void)method;
+    (void)url;
+    (void)headers;
+    (void)body;
+    (void)timeout_ms;
+    brim_rt_internal_set_error("HTTPS is not available in native Windows builds yet");
+    return brim_rt_internal_str(NULL, 0);
+}
+#else
 #include <curl/curl.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -154,3 +175,4 @@ BrimStr *brim_rt_http_request(const BrimStr *method, const BrimStr *url, const B
     free(content.data);
     return result;
 }
+#endif

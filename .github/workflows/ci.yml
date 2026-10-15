@@ -86,6 +86,35 @@ jobs:
             "target/native/$(basename "$f" .brim)"
           done
 
+  native-windows:
+    name: Native backend (LLVM 22, windows-latest)
+    runs-on: windows-latest
+    env:
+      LLVM_VERSION: 22.1.8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install LLVM 22
+        shell: bash
+        run: |
+          curl -fsSL -o llvm.tar.xz "https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/clang+llvm-${LLVM_VERSION}-x86_64-pc-windows-msvc.tar.xz"
+          mkdir -p /c/llvm
+          tar -xf llvm.tar.xz -C /c/llvm --strip-components=1
+          echo "LLVM_SYS_221_PREFIX=C:\llvm" >> "$GITHUB_ENV"
+          echo "C:\llvm\bin" >> "$GITHUB_PATH"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: llvm22-windows
+      - run: cargo test --locked -p brim-codegen -p brim-cli --features brim-cli/llvm
+      - name: Build and run the examples natively
+        shell: bash
+        run: |
+          for f in examples/*.brim; do
+            name="target/native/$(basename "$f" .brim).exe"
+            cargo run -q -p brim-cli --features llvm -- build --release -o "$name" "$f"
+            "$name"
+          done
+
   postgres:
     name: Postgres client
     runs-on: ubuntu-latest
