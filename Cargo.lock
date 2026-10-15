@@ -49,6 +49,7 @@ version = "0.4.0"
 dependencies = [
  "brim-diagnostics",
  "brim-ir",
+ "brim-llvm-extra",
  "brim-runtime",
  "inkwell",
 ]
@@ -112,6 +113,13 @@ name = "brim-lexer"
 version = "0.4.0"
 dependencies = [
  "brim-diagnostics",
+]
+
+[[package]]
+name = "brim-llvm-extra"
+version = "0.4.0"
+dependencies = [
+ "inkwell",
 ]
 
 [[package]]

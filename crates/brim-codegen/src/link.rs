@@ -39,6 +39,9 @@ pub(crate) fn link(
     let runtime = runtime_object(&linker, opt, "brim_rt", RUNTIME_SOURCE, &dir, options)?;
     let mut command = Command::new(&linker);
     command.arg(opt).arg(&object).arg(&runtime);
+    if options.opt_level == OptLevel::Debug {
+        command.arg("-g");
+    }
     if module
         .get_function(brim_runtime::RuntimeFn::HttpRequest.symbol())
         .is_some()
@@ -60,9 +63,22 @@ pub(crate) fn link(
             output: String::from_utf8_lossy(&output.stderr).into_owned(),
         });
     }
-    Ok(BuildOutput {
-        artifacts: vec![options.output.clone()],
-    })
+    let mut artifacts = vec![options.output.clone()];
+    // On macOS the debug information stays in the object file, which is
+    // removed with the scratch directory: `dsymutil` collects it into
+    // `program.dSYM` next to the executable, where lldb finds it.
+    if cfg!(target_os = "macos") && options.opt_level == OptLevel::Debug {
+        let ok = Command::new("dsymutil")
+            .arg(&options.output)
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if ok {
+            let mut dsym = options.output.clone().into_os_string();
+            dsym.push(".dSYM");
+            artifacts.push(PathBuf::from(dsym));
+        }
+    }
+    Ok(BuildOutput { artifacts })
 }
 
 /// The object file of a part of the runtime: from the cache when it was

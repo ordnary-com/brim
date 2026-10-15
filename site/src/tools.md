@@ -109,6 +109,28 @@ pub fn add_note(text: string) -> Result[Note, NoteError] {
 A project's documentation goes to `target/doc` (`-o DIR` picks another
 place); `brim doc --std` documents the standard library.
 
+## Debugging
+
+A program built without `--release` carries debug information (DWARF), so
+lldb and gdb show Brim source lines, function names and variables:
+
+```text
+$ brim build app.brim -o app
+$ lldb ./app
+(lldb) breakpoint set --file app.brim --line 12
+(lldb) run
+(lldb) bt
+  * frame #0: app`brim.area at app.brim:12:12
+    frame #1: app`brim.main at app.brim:20:17
+(lldb) frame variable
+(long) width = 3
+(long) height = 4
+```
+
+Variables of the types `i64`, `f64` and `bool` can be printed; strings,
+lists and other values not yet. On macOS the debug information is in
+`app.dSYM` next to the executable.
+
 ## Editors
 
 `brim lsp` is a language server: it shows errors as you type, completes

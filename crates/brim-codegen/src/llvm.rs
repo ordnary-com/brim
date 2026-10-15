@@ -61,7 +61,8 @@ pub(crate) fn build(
 ) -> Result<BuildOutput, CodegenError> {
     let machine = target_machine(options.opt_level)?;
     let context = Context::create();
-    let llvm_module = lower(&context, module, &options.source, &machine)?;
+    let debug = options.opt_level == OptLevel::Debug;
+    let llvm_module = lower(&context, module, &options.source, &machine, debug)?;
     if options.opt_level == OptLevel::Release {
         llvm_module
             .run_passes("default<O2>", &machine, PassBuilderOptions::create())
@@ -73,7 +74,7 @@ pub(crate) fn build(
 pub(crate) fn emit_ir(module: &IrModule, source: &SourceMap) -> Result<String, CodegenError> {
     let machine = target_machine(OptLevel::Debug)?;
     let context = Context::create();
-    let llvm_module = lower(&context, module, source, &machine)?;
+    let llvm_module = lower(&context, module, source, &machine, false)?;
     Ok(llvm_module.print_to_string().to_string())
 }
 
@@ -104,11 +105,19 @@ fn lower<'ctx>(
     ir: &IrModule,
     source: &SourceMap,
     machine: &TargetMachine,
+    debug: bool,
 ) -> Result<Module<'ctx>, CodegenError> {
     let module = context.create_module(source.main_file().name());
     module.set_triple(&machine.get_triple());
     module.set_data_layout(&TargetData::get_data_layout(&machine.get_target_data()));
     let mut lowerer = Lowerer::new(context, module, ir, source, machine.get_target_data());
+    if debug {
+        lowerer.debug = Some(crate::debug::DebugInfo::new(
+            context,
+            &lowerer.module,
+            source,
+        ));
+    }
     lowerer
         .lower_module()
         .map_err(|e| CodegenError::Llvm(e.to_string()))?;
@@ -153,6 +162,13 @@ struct Lowerer<'ctx, 'a> {
     /// Stack slots for passing elements to the runtime, per element type, in
     /// the function being lowered.
     elem_slots: HashMap<(Type, bool), PointerValue<'ctx>>,
+    /// Debug information, in debug builds.
+    debug: Option<crate::debug::DebugInfo<'ctx>>,
+    /// The debug scope of each function, in debug builds.
+    subprograms: Vec<(
+        inkwell::debug_info::DISubprogram<'ctx>,
+        inkwell::debug_info::DIFile<'ctx>,
+    )>,
 }
 
 impl<'ctx, 'a> Lowerer<'ctx, 'a> {
@@ -223,6 +239,8 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             map_infos: Vec::new(),
             index_traps: HashMap::new(),
             elem_slots: HashMap::new(),
+            debug: None,
+            subprograms: Vec::new(),
         }
     }
 
@@ -266,10 +284,34 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             );
             self.functions.push(value);
         }
+        if let Some(debug) = &self.debug {
+            for (f, value) in self.ir.functions.iter().zip(&self.functions) {
+                let first = f.blocks.iter().flat_map(|b| &b.insts).find_map(|i| i.span);
+                self.subprograms
+                    .push(debug.function(self.source, *value, &f.name, first));
+            }
+        }
         for index in 0..self.ir.functions.len() {
             self.lower_function(FuncId(index as u32))?;
         }
-        self.lower_entry()
+        self.lower_entry()?;
+        if let Some(debug) = &self.debug {
+            debug.finish();
+        }
+        Ok(())
+    }
+
+    /// Makes `span` the source location of the code built next, in debug
+    /// builds.
+    fn set_location(
+        &self,
+        scope: Option<inkwell::debug_info::DISubprogram<'ctx>>,
+        span: Option<brim_diagnostics::Span>,
+    ) {
+        if let (Some(debug), Some(scope)) = (&self.debug, scope) {
+            let location = debug.location(self.context, self.source, scope, span);
+            self.builder.set_current_debug_location(location);
+        }
     }
 
     /// `brim_entry` and `brim_max_call_depth`, used by the runtime's `main`.
@@ -288,6 +330,8 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
         );
         let block = self.context.append_basic_block(entry_fn, "entry");
         self.builder.position_at_end(block);
+        // `brim_entry` has no source of its own.
+        self.builder.unset_current_debug_location();
         let name = self.c_string(&self.ir.function(self.ir.entry).name.clone());
         // The first frame can never exceed the limit, so it needs no message.
         let null = self.context.ptr_type(AddressSpace::default()).const_null();
@@ -315,6 +359,12 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             .collect();
 
         self.builder.position_at_end(entry);
+        let (scope, scope_file) = match self.subprograms.get(id.index()) {
+            Some((sp, file)) => (Some(*sp), Some(*file)),
+            None => (None, None),
+        };
+        let first_span = f.blocks.iter().flat_map(|b| &b.insts).find_map(|i| i.span);
+        self.set_location(scope, first_span);
         let mut slots = Vec::with_capacity(f.slots.len());
         for slot in &f.slots {
             slots.push(
@@ -339,6 +389,12 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                     self.builder.build_store(slots[index], zero)?;
                 }
                 None => {}
+            }
+        }
+        if let (Some(debug), Some(scope), Some(file)) = (&self.debug, scope, scope_file) {
+            let location = debug.location(self.context, self.source, scope, first_span);
+            for (slot, ptr) in f.slots.iter().zip(&slots) {
+                debug.variable((scope, file), &slot.name, slot.ty, *ptr, location, entry);
             }
         }
         self.builder.build_unconditional_branch(blocks[0])?;
@@ -371,6 +427,9 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                 _ => {}
             }
             for (index, inst) in block.insts.iter().enumerate() {
+                if inst.span.is_some() {
+                    self.set_location(scope, inst.span);
+                }
                 // A consumed operand's reference passes to the instruction.
                 if let Some(consumed) = inst.kind.consumed() {
                     let value = values[consumed.index()].expect("validated IR: defined");

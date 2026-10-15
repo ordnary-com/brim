@@ -308,6 +308,37 @@ fn native_suite(release: bool) {
     );
 }
 
+/// Debug builds carry DWARF line tables for debuggers: in a `.dSYM` next to
+/// the executable on macOS, in the executable elsewhere.
+#[cfg(feature = "llvm")]
+#[test]
+fn debug_builds_have_debug_info() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("debug-info");
+    fs::create_dir_all(&dir).unwrap();
+    let exe = dir.join(format!("hello{}", std::env::consts::EXE_SUFFIX));
+    let built = brim(&["build", "examples/hello.brim", "-o", &exe.to_string_lossy()]);
+    assert_eq!(built.code, 0, "{}", built.stderr);
+    let file = if cfg!(target_os = "macos") {
+        let mut dsym = exe.clone().into_os_string();
+        dsym.push(".dSYM/Contents/Resources/DWARF/hello");
+        PathBuf::from(dsym)
+    } else {
+        exe.clone()
+    };
+    let bytes = fs::read(&file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+    let has = |needle: &[u8]| bytes.windows(needle.len()).any(|w| w == needle);
+    assert!(
+        has(b"debug_line") || has(b"__debug_line"),
+        "no line table in {}",
+        file.display()
+    );
+    assert!(
+        has(b"hello.brim"),
+        "the source file is not named in {}",
+        file.display()
+    );
+}
+
 #[cfg(feature = "llvm")]
 #[test]
 fn native_matches_interpreter() {

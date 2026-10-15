@@ -1,0 +1,22 @@
+[package]
+name = "brim-llvm-extra"
+description = "LLVM calls that inkwell does not wrap safely, for brim-codegen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# Without it the crate is empty, so builds without LLVM need no LLVM.
+llvm = ["dep:inkwell"]
+
+[dependencies]
+inkwell = { workspace = true, optional = true }
+
+# Not the workspace lints: this crate holds the one `unsafe` call the
+# compiler needs (see src/lib.rs). Everything else forbids `unsafe`.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"

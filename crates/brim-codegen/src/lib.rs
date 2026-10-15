@@ -16,6 +16,8 @@
 //! IR maps onto LLVM and how run-time errors are reported.
 
 #[cfg(feature = "llvm")]
+mod debug;
+#[cfg(feature = "llvm")]
 mod link;
 #[cfg(feature = "llvm")]
 mod llvm;
