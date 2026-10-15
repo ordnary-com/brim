@@ -1,4 +1,4 @@
-// map, filter, any, all, fold, find, each, min and max on lists.
+// map, filter, any, all, fold, find, each, min, max and sum on lists.
 
 struct Item {
     name: string
@@ -15,6 +15,9 @@ fn main() {
     print(xs.find(fn(x: i64) -> bool { return x > 4 }))
     print(xs.find(fn(x: i64) -> bool { return x > 100 }))
     print(xs.min())
+    print(xs.sum())
+    let halves: List[f64] = [0.5, 0.25]
+    print(halves.sum())
     print(xs.max())
     let none: List[i64] = []
     print(none.max())

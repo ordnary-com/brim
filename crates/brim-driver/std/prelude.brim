@@ -317,6 +317,51 @@ pub fn list_max[T: Ord](xs: List[T]) -> Option[T] {
     return Some(best)
 }
 
+// The sum of the elements; 0 for an empty list. Overflow stops the program.
+pub fn list_sum_i64(xs: List[i64]) -> i64 {
+    let mut total: i64 = 0
+    for x in xs {
+        total = total + x
+    }
+    return total
+}
+
+// The sum of the elements; 0 for an empty list. Overflow stops the program.
+pub fn list_sum_i32(xs: List[i32]) -> i32 {
+    let mut total: i32 = 0
+    for x in xs {
+        total = total + x
+    }
+    return total
+}
+
+// The sum of the elements; 0 for an empty list. Overflow stops the program.
+pub fn list_sum_u8(xs: List[u8]) -> u8 {
+    let mut total: u8 = 0
+    for x in xs {
+        total = total + x
+    }
+    return total
+}
+
+// The sum of the elements; 0 for an empty list. Overflow stops the program.
+pub fn list_sum_u64(xs: List[u64]) -> u64 {
+    let mut total: u64 = 0
+    for x in xs {
+        total = total + x
+    }
+    return total
+}
+
+// The sum of the elements; 0 for an empty list.
+pub fn list_sum_f64(xs: List[f64]) -> f64 {
+    let mut total: f64 = 0.0
+    for x in xs {
+        total = total + x
+    }
+    return total
+}
+
 // ---- sets ----------------------------------------------------------------
 
 // The distinct elements of `xs`, in the order they first appear: `Set(xs)`.

@@ -25,4 +25,5 @@ fn main() {
         print(p)
     }
     print([])
+    print(["a", "b"].sum())
 }

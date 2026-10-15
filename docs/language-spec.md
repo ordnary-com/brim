@@ -374,6 +374,7 @@ fn total(a: string, b: string) -> Result[i64, string] {
   | `find(test)` | `Option[T]` | the first element for which `test` holds |
   | `each(f)` | | calls `f: fn(T)` with each element |
   | `min()`, `max()` | `Option[T]` | the smallest or largest element; `T` must implement `Ord` |
+  | `sum()` | `T` | the elements added up, 0 for an empty list; only for lists of numbers, and integer overflow stops the program |
 
   The methods from `push` to `clear` change the list, so they need a variable declared with `let mut` (or a field or element of one); calling them on a temporary is `E0104`. An unknown method is `E0231`.
 - Lists can be compared with `==` and shown with `print` and `to_string` (section 5.8).

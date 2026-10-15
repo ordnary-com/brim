@@ -111,9 +111,53 @@ const LIST_METHODS: &[&str] = &[
     "each",
     "min",
     "max",
+    "sum",
 ];
 
 impl<'a> Checker<'a> {
+    /// `xs.sum()`: the prelude's `list_sum_<type>` for the element type.
+    fn check_list_sum(
+        &mut self,
+        base: &ast::Expr,
+        name: &ast::Ident,
+        args: &[ast::Expr],
+        span: Span,
+        ctx: &mut FnCtx,
+    ) -> CheckedExpr {
+        let errors = self.diags.len();
+        let probe = self.check_expr(base, ctx);
+        self.diags.truncate(errors);
+        let elem = self.as_list(probe.ty).unwrap_or(Type::Error);
+        let suffix = match elem {
+            Type::I64 => "i64",
+            Type::I32 => "i32",
+            Type::U8 => "u8",
+            Type::U64 => "u64",
+            Type::F64 => "f64",
+            _ => "",
+        };
+        if !suffix.is_empty()
+            && let Some(call) =
+                self.prelude_call(&format!("list_sum_{suffix}"), base, args, span, ctx)
+        {
+            return call;
+        }
+        self.check_expr(base, ctx);
+        for arg in args {
+            self.check_expr(arg, ctx);
+        }
+        if elem != Type::Error {
+            let shown = self.show(probe.ty);
+            self.diags.push(
+                Diagnostic::error(format!("`{shown}` has no method `sum`"))
+                    .with_code("E0231")
+                    .with_primary(name.span, "not a list of numbers")
+                    .with_help("add other values up with `fold`"),
+            );
+        }
+        error_expr(span)
+    }
+
     /// The element type, if `ty` is a list.
     pub(super) fn as_list(&self, ty: Type) -> Option<Type> {
         let Type::Named(id) = ty else { return None };
@@ -511,6 +555,9 @@ impl<'a> Checker<'a> {
         span: Span,
         ctx: &mut FnCtx,
     ) -> Option<CheckedExpr> {
+        if name.name == "sum" {
+            return Some(self.check_list_sum(base, name, args, span, ctx));
+        }
         let Some((op, params, ret)) = list_method(&name.name) else {
             if let Some(result) = self.prelude_method("list", base, name, args, span, ctx) {
                 return Some(result);

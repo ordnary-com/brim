@@ -834,9 +834,21 @@ impl<'a> Checker<'a> {
         span: Span,
         ctx: &mut FnCtx,
     ) -> Option<CheckedExpr> {
+        self.prelude_call(&format!("{kind}_{}", name.name), base, args, span, ctx)
+    }
+
+    /// `base.method(args)` as a call of the prelude function `key` with the
+    /// receiver first.
+    pub(super) fn prelude_call(
+        &mut self,
+        key: &str,
+        base: &ast::Expr,
+        args: &[ast::Expr],
+        span: Span,
+        ctx: &mut FnCtx,
+    ) -> Option<CheckedExpr> {
         let module = self.module_names.iter().position(|n| n == "std.prelude")?;
-        let key = format!("{kind}_{}", name.name);
-        let id = *self.scopes[module].own_fns.get(key.as_str())?;
+        let id = *self.scopes[module].own_fns.get(key)?;
         let receiver = self.check_expr(base, ctx);
         let arg_refs: Vec<&ast::Expr> = args.iter().collect();
         Some(self.finish_call(

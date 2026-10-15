@@ -99,4 +99,12 @@ error[E0226]: cannot infer the element type of an empty list
    |
    = help: add a type annotation, for example `let xs: List[i64] = []`
 
-error: could not compile tests/diagnostics/list_errors.brim due to 12 errors
+error[E0231]: `List[string]` has no method `sum`
+  --> tests/diagnostics/list_errors.brim:28:22
+   |
+28 |     print(["a", "b"].sum())
+   |                      ^^^ not a list of numbers
+   |
+   = help: add other values up with `fold`
+
+error: could not compile tests/diagnostics/list_errors.brim due to 13 errors

@@ -277,6 +277,7 @@ stops the program; `get` returns an `Option` instead.
 | `any(test)`, `all(test)` | `bool` | |
 | `fold(init, f)` | | combines the elements, left to right |
 | `find(test)`, `min()`, `max()` | `Option[T]` | |
+| `sum()` | `T` | for lists of numbers; 0 when empty |
 | `each(f)` | | calls `f` with each element |
 
 `push` up to `clear` change the list, so it needs `let mut`. The others
