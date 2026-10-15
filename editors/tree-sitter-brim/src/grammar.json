@@ -2101,6 +2101,14 @@
         {
           "type": "SYMBOL",
           "name": "value_call_expression"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "if_statement"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "match_statement"
         }
       ]
     },
@@ -3129,6 +3137,10 @@
     [
       "_expression",
       "scoped_type_identifier"
+    ],
+    [
+      "_statement",
+      "_expression"
     ]
   ],
   "precedences": [],

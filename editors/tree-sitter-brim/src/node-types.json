@@ -36,6 +36,10 @@
           "named": true
         },
         {
+          "type": "if_statement",
+          "named": true
+        },
+        {
           "type": "index_expression",
           "named": true
         },
@@ -49,6 +53,10 @@
         },
         {
           "type": "map_expression",
+          "named": true
+        },
+        {
+          "type": "match_statement",
           "named": true
         },
         {
@@ -175,6 +183,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -188,6 +200,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -263,6 +279,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -276,6 +296,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -403,6 +427,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -416,6 +444,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -623,6 +655,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -636,6 +672,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -755,6 +795,10 @@
           "named": true
         },
         {
+          "type": "if_statement",
+          "named": true
+        },
+        {
           "type": "index_expression",
           "named": true
         },
@@ -768,6 +812,10 @@
         },
         {
           "type": "map_expression",
+          "named": true
+        },
+        {
+          "type": "match_statement",
           "named": true
         },
         {
@@ -890,6 +938,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -903,6 +955,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -988,6 +1044,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -1001,6 +1061,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -1086,6 +1150,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -1099,6 +1167,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -1404,6 +1476,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -1417,6 +1493,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -1578,6 +1658,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -1591,6 +1675,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -1660,6 +1748,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -1673,6 +1765,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -1780,6 +1876,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -1793,6 +1893,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -1868,6 +1972,10 @@
           "named": true
         },
         {
+          "type": "if_statement",
+          "named": true
+        },
+        {
           "type": "index_expression",
           "named": true
         },
@@ -1881,6 +1989,10 @@
         },
         {
           "type": "map_expression",
+          "named": true
+        },
+        {
+          "type": "match_statement",
           "named": true
         },
         {
@@ -1994,6 +2106,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -2007,6 +2123,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -2076,6 +2196,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -2089,6 +2213,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -2233,6 +2361,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -2246,6 +2378,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -2343,6 +2479,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -2356,6 +2496,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -2461,6 +2605,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -2474,6 +2622,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -2629,6 +2781,10 @@
           "named": true
         },
         {
+          "type": "if_statement",
+          "named": true
+        },
+        {
           "type": "index_expression",
           "named": true
         },
@@ -2642,6 +2798,10 @@
         },
         {
           "type": "map_expression",
+          "named": true
+        },
+        {
+          "type": "match_statement",
           "named": true
         },
         {
@@ -2736,6 +2896,10 @@
           "named": true
         },
         {
+          "type": "if_statement",
+          "named": true
+        },
+        {
           "type": "index_expression",
           "named": true
         },
@@ -2749,6 +2913,10 @@
         },
         {
           "type": "map_expression",
+          "named": true
+        },
+        {
+          "type": "match_statement",
           "named": true
         },
         {
@@ -2823,6 +2991,10 @@
           "named": true
         },
         {
+          "type": "if_statement",
+          "named": true
+        },
+        {
           "type": "index_expression",
           "named": true
         },
@@ -2836,6 +3008,10 @@
         },
         {
           "type": "map_expression",
+          "named": true
+        },
+        {
+          "type": "match_statement",
           "named": true
         },
         {
@@ -3141,6 +3317,10 @@
           "named": true
         },
         {
+          "type": "if_statement",
+          "named": true
+        },
+        {
           "type": "index_expression",
           "named": true
         },
@@ -3154,6 +3334,10 @@
         },
         {
           "type": "map_expression",
+          "named": true
+        },
+        {
+          "type": "match_statement",
           "named": true
         },
         {
@@ -3296,6 +3480,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -3309,6 +3497,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -3408,6 +3600,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -3421,6 +3617,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {
@@ -3592,6 +3792,10 @@
             "named": true
           },
           {
+            "type": "if_statement",
+            "named": true
+          },
+          {
             "type": "index_expression",
             "named": true
           },
@@ -3605,6 +3809,10 @@
           },
           {
             "type": "map_expression",
+            "named": true
+          },
+          {
+            "type": "match_statement",
             "named": true
           },
           {

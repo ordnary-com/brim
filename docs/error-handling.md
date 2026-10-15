@@ -116,6 +116,7 @@ Guidelines for writing diagnostics:
 | E0247 | An `impl Trait for Type` that misses a method of the trait, has a method with another signature or one the trait does not declare, implements the trait twice, or implements `Eq` or `Show` |
 | E0248 | A type argument that does not implement a bound of its type parameter |
 | E0249 | A constant whose value is not computed from literals, or that is defined in terms of itself |
+| E0250 | An `if` used as a value without `else`, or a block used as a value that does not end with one |
 
 ### Warnings
 

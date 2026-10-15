@@ -105,3 +105,23 @@ fn formatting_is_idempotent() {
     }
     assert!(checked > 20);
 }
+
+#[test]
+fn function_types_and_values() {
+    assert_eq!(
+        fmt(
+            "fn apply(f: fn (i64) -> i64) -> fn (i64) -> i64 {\n    return fn (x: i64) -> i64 {\n        return f(x)\n    }\n}\n"
+        ),
+        "fn apply(f: fn(i64) -> i64) -> fn(i64) -> i64 {\n    return fn(x: i64) -> i64 {\n        return f(x)\n    }\n}\n"
+    );
+    assert_eq!(
+        fmt("fn main() {\n    let s = if n < 0 { 1 } else { 2 }\n}\n"),
+        "fn main() {\n    let s = if n < 0 { 1 } else { 2 }\n}\n"
+    );
+}
+
+#[test]
+fn closing_a_block_inside_call_arguments() {
+    let src = "fn main() {\n    print(run(fn(x: i64) -> i64 {\n        return x\n    }, 10))\n}\n";
+    assert_eq!(fmt(src), src);
+}

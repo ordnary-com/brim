@@ -333,3 +333,51 @@ fn main() {
               (identifier))
             (block
               (break_statement))))))))
+
+==================
+If and match as values
+==================
+
+fn sign(n: i64) -> string {
+    let s = if n < 0 { "neg" } else { "pos" }
+    return match n {
+        0 => "zero"
+        _ => s
+    }
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (primitive_type)))
+    (primitive_type)
+    (block
+      (let_statement
+        (identifier)
+        (if_statement
+          (binary_expression
+            (identifier)
+            (integer))
+          (block
+            (expression_statement
+              (string)))
+          (block
+            (expression_statement
+              (string)))))
+      (return_statement
+        (match_statement
+          (identifier)
+          (match_arm
+            (literal_pattern
+              (integer))
+            (expression_statement
+              (string)))
+          (match_arm
+            (wildcard_pattern)
+            (expression_statement
+              (identifier))))))))

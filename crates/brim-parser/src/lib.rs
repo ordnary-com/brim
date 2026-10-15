@@ -2015,6 +2015,24 @@ impl Parser {
                 return self.collection_literal(token.span);
             }
             TokenKind::Fn => return self.lambda(),
+            // `if` and `match` as values: parsed as the statements, whose
+            // blocks are newline-sensitive even inside parentheses.
+            TokenKind::If | TokenKind::Match => {
+                let saved_parens = std::mem::replace(&mut self.paren_depth, 0);
+                let no_struct = std::mem::replace(&mut self.no_struct_literal, false);
+                let stmt = if token.kind == TokenKind::If {
+                    self.if_stmt()
+                } else {
+                    self.match_stmt()
+                };
+                self.paren_depth = saved_parens;
+                self.no_struct_literal = no_struct;
+                let stmt = stmt?;
+                return Ok(Expr {
+                    span: stmt.span,
+                    kind: ExprKind::Branch(Box::new(stmt)),
+                });
+            }
             TokenKind::LParen => {
                 self.bump();
                 let (inner, close) = self.in_parens(|p| {

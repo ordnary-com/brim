@@ -180,7 +180,8 @@ struct_lit  = "{" [ field_init { "," field_init } [ "," ] ] "}" ;   (* only dire
 field_init  = identifier ":" expression ;
 args        = expression { "," expression } [ "," ] ;
 primary     = integer_literal | string_literal | "true" | "false"
-            | identifier | "(" expression ")" | list_lit | map_lit ;
+            | identifier | "(" expression ")" | list_lit | map_lit
+            | if_stmt | match_stmt | fn_expr ;
 list_lit    = "[" [ expression { "," expression } [ "," ] ] "]" ;
 map_lit     = "[" ":" "]" | "[" expression ":" expression { "," expression ":" expression } [ "," ] "]" ;
 ```
@@ -535,7 +536,19 @@ Assignment is a statement, not an expression: it produces no value.
 
 `if cond { ... }` runs the block when `cond` is `true`. `cond` must be a `bool` (`E0206`); there is no implicit truthiness, so write `n != 0` instead of `n`. An optional `else { ... }` runs otherwise, and `else if` chains are allowed. Each block opens a new scope.
 
-`if` is a statement, not an expression (see section 11).
+**`if` as a value.** In an expression, `if cond { a } else { b }` is the value of the branch that runs: `let sign = if n < 0 { -1 } else { 1 }`. The `else` is required (`E0250`), and both branches give values of the same type. A block used as a value ends with an expression (or an `if` or `match` used as a value), after any other statements; a block that ends otherwise is `E0250`, unless it returns or breaks first, in which case it needs no value:
+
+```brim
+let n = match text.parse_int() {
+    Some(n) => n
+    None => {
+        print("not a number")
+        return
+    }
+}
+```
+
+At the start of a line, `if` and `match` are statements, and their blocks' values are unused.
 
 ### 6.5 `while`
 
@@ -596,7 +609,7 @@ An arm may have a **guard**, `pattern if condition => body`: the arm only runs w
 
 A pattern must fit the type of the matched value (`E0230`). The arms must be **exhaustive** (`E0229`): together they must match every value, so every variant of an enum (at every depth of nesting), both `true` and `false`, and some arm that matches any integer, string or value of another type. Arms with a guard do not count towards this, since the guard may be false. The error lists examples of values no arm matches. An arm, or an alternative of `|`, that can never match because earlier arms cover everything it matches produces warning `W0004`.
 
-`match` is a statement. It diverges (section 6.11) when it is exhaustive and every arm diverges.
+A `match` statement diverges (section 6.11) when it is exhaustive and every arm diverges. In an expression, `match` is a value, like `if` (section 6.4): every arm's body ends with a value of one type, or diverges.
 
 ### 6.11 Reachability and returns
 
@@ -814,7 +827,7 @@ These questions are not settled. The current behavior is a reversible default.
 10. **Modules.** Modules are files and `pub` controls visibility; dependencies add their modules under the package's name. Re-exports, visibility of single struct fields, and a package registry with version requirements are undecided.
 11. **Loop forms.** `while`, `loop` and `for` exist. Labeled `break` for nested loops and `for` over other collections are candidates.
 12. **Struct literals.** Field-shorthand literals (`Point { x, y }`) and default values are undecided. Ordering structs with `<` is not supported.
-13. **`match` as an expression and more patterns.** `match` is a statement. Patterns for struct fields, ranges (`1..5`) and binding a whole value while matching its parts (`x @ Some(_)`) are not supported yet.
+13. **More patterns.** Patterns for struct fields, ranges (`1..5`) and binding a whole value while matching its parts (`x @ Some(_)`) are not supported yet.
 14. **More from traits.** Default method bodies, traits with static methods (`T.new()`), traits for built-in types, and trait objects (a list of values of different types that share a trait) are not supported yet.
 
 ## 12. Possible future features

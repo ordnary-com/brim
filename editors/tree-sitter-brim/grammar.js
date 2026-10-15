@@ -31,6 +31,9 @@ module.exports = grammar({
     [$._expression, $.struct_expression],
     [$.call_expression, $._expression],
     [$._expression, $.scoped_type_identifier],
+    // A line starting with `if` or `match` is a statement; elsewhere they
+    // are values.
+    [$._statement, $._expression],
   ],
 
   rules: {
@@ -296,6 +299,9 @@ module.exports = grammar({
         $.try_expression,
         $.function_expression,
         $.value_call_expression,
+        // `if` and `match` used as values.
+        $.if_statement,
+        $.match_statement,
       ),
 
     // `fn(x: i64) -> i64 { return x * 2 }`

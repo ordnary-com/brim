@@ -446,7 +446,9 @@ fn branches(expr: &CheckedExpr) -> bool {
         | CheckedExprKind::IntCast(operand)
         | CheckedExprKind::BoxValue(operand) => branches(operand),
         CheckedExprKind::Binary { lhs, rhs, .. } => branches(lhs) || branches(rhs),
-        CheckedExprKind::CallMut { .. } => true,
+        CheckedExprKind::CallMut { .. }
+        | CheckedExprKind::IfValue { .. }
+        | CheckedExprKind::MatchValue { .. } => true,
         // Most intrinsics build an `Option` or `Result` with a branch.
         CheckedExprKind::Intrinsic { .. } => true,
         CheckedExprKind::Call { args, .. }
@@ -722,7 +724,12 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 else_body,
             } => self.if_stmt(cond, then_body, else_body),
             CheckedStmt::While { cond, body } => self.while_stmt(cond, body),
-            CheckedStmt::Match { scrutinee, arms } => self.match_stmt(scrutinee, arms),
+            CheckedStmt::Match { scrutinee, arms } => {
+                let falls_through = self.match_stmt(scrutinee, arms, None);
+                if !falls_through {
+                    self.terminated = true;
+                }
+            }
             CheckedStmt::Break => {
                 let (_, exit) = *self.loops.last().expect("checked: break is inside a loop");
                 self.terminate(Terminator::Jump(exit));
@@ -1641,7 +1648,14 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
     /// The scrutinee is stored in a slot. Each arm tests it, binds its
     /// names and checks its guard, and falls through to the next arm when
     /// any of that fails.
-    fn match_stmt(&mut self, scrutinee: &CheckedExpr, arms: &[CheckedArm]) {
+    /// With `result`, each arm stores its value there. Returns whether any
+    /// arm continues after the `match`.
+    fn match_stmt(
+        &mut self,
+        scrutinee: &CheckedExpr,
+        arms: &[CheckedArm],
+        result: Option<SlotId>,
+    ) -> bool {
         let span = scrutinee.span;
         let value = self.value(scrutinee);
         let ty = self.concrete(scrutinee.ty);
@@ -1664,16 +1678,40 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 });
                 self.switch_to(body);
             }
-            falls_through |= self.stmts_then_jump(&arm.body, join);
+            falls_through |= self.branch_value(&arm.body, arm.value.as_ref(), result, join);
             self.switch_to(next);
         }
         // The arms are exhaustive: no value gets here.
         self.terminate(Terminator::Unreachable);
 
         self.switch_to(join);
-        if !falls_through {
-            self.terminated = true;
+        falls_through
+    }
+
+    /// Runs a branch's statements, stores its value in `result` (if any)
+    /// and jumps to `join`. Returns whether it got there.
+    fn branch_value(
+        &mut self,
+        body: &[CheckedStmt],
+        value: Option<&CheckedExpr>,
+        result: Option<SlotId>,
+        join: BlockId,
+    ) -> bool {
+        self.stmts(body);
+        if self.terminated {
+            return false;
         }
+        if let Some(value) = value {
+            let v = self.expr(value);
+            if self.terminated {
+                return false;
+            }
+            if let (Some(slot), Some(v)) = (result, v) {
+                self.emit(InstKind::Store(slot, v), None, value.span);
+            }
+        }
+        self.terminate(Terminator::Jump(join));
+        true
     }
 
     /// Tests the value in `slot`, of type `ty`, against `pattern` and
@@ -1906,6 +1944,37 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             CheckedExprKind::FnRef(func) => {
                 let thunk = self.m.thunk(func.0);
                 self.emit_value(InstKind::MakeClosure(thunk, None), ty, span)
+            }
+            CheckedExprKind::IfValue {
+                cond,
+                then_body,
+                then_value,
+                else_body,
+                else_value,
+            } => {
+                let c = self.value(cond);
+                let result = (ty != IrType::Void).then(|| self.new_slot("if", ty));
+                let then_block = self.new_block();
+                let else_block = self.new_block();
+                let join = self.new_block();
+                self.terminate(Terminator::Branch {
+                    cond: c,
+                    then_block,
+                    else_block,
+                });
+                self.switch_to(then_block);
+                self.branch_value(then_body, then_value.as_deref(), result, join);
+                self.switch_to(else_block);
+                self.branch_value(else_body, else_value.as_deref(), result, join);
+                self.switch_to(join);
+                let slot = result?;
+                self.emit_value(InstKind::Load(slot), ty, span)
+            }
+            CheckedExprKind::MatchValue { scrutinee, arms } => {
+                let result = (ty != IrType::Void).then(|| self.new_slot("match", ty));
+                self.match_stmt(scrutinee, arms, result);
+                let slot = result?;
+                self.emit_value(InstKind::Load(slot), ty, span)
             }
             CheckedExprKind::TraitCall {
                 method,

@@ -277,6 +277,9 @@ pub struct CheckedArm {
     /// `if guard`: the arm only runs when this is also true.
     pub guard: Option<CheckedExpr>,
     pub body: Vec<CheckedStmt>,
+    /// In a `match` used as a value: the arm's value, after `body` (`None`
+    /// when the arm returns or breaks instead).
+    pub value: Option<CheckedExpr>,
 }
 
 #[derive(Clone, Debug)]
@@ -383,6 +386,21 @@ pub enum CheckedExprKind {
         method: String,
         receiver: Box<CheckedExpr>,
         args: Vec<CheckedExpr>,
+    },
+    /// `if cond { ... } else { ... }` as a value. Each branch runs its
+    /// statements, then gives its value (`None` when it returns or breaks
+    /// instead).
+    IfValue {
+        cond: Box<CheckedExpr>,
+        then_body: Vec<CheckedStmt>,
+        then_value: Option<Box<CheckedExpr>>,
+        else_body: Vec<CheckedStmt>,
+        else_value: Option<Box<CheckedExpr>>,
+    },
+    /// `match` as a value; each arm has its `value`.
+    MatchValue {
+        scrutinee: Box<CheckedExpr>,
+        arms: Vec<CheckedArm>,
     },
     /// A call of a function value.
     CallValue {

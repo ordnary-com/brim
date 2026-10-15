@@ -14,7 +14,7 @@ use brim_ast as ast;
 use brim_diagnostics::{Diagnostic, Span};
 
 use super::{Checker, FnCtx, LocalId};
-use crate::checked::{CheckedArm, CheckedPattern, CheckedStmt};
+use crate::checked::{CheckedArm, CheckedExpr, CheckedExprKind, CheckedPattern, CheckedStmt};
 use crate::{Def, EnumId, Type};
 
 /// At most this many missing patterns are listed.
@@ -62,8 +62,47 @@ impl<'a> Checker<'a> {
         arms: &[ast::MatchArm],
         ctx: &mut FnCtx,
     ) -> (CheckedStmt, bool) {
+        let (scrutinee, arms, diverges, _) = self.match_parts(scrutinee, arms, None, ctx);
+        (CheckedStmt::Match { scrutinee, arms }, diverges)
+    }
+
+    /// A `match` used as a value of type `expected` (if known): its value,
+    /// and whether every arm returns or breaks instead of giving one.
+    pub(super) fn check_match_value(
+        &mut self,
+        scrutinee: &ast::Expr,
+        arms: &[ast::MatchArm],
+        expected: Option<Type>,
+        span: Span,
+        ctx: &mut FnCtx,
+    ) -> (CheckedExpr, bool) {
+        let (scrutinee, arms, diverges, ty) =
+            self.match_parts(scrutinee, arms, Some(expected), ctx);
+        (
+            CheckedExpr {
+                kind: CheckedExprKind::MatchValue {
+                    scrutinee: Box::new(scrutinee),
+                    arms,
+                },
+                ty: ty.unwrap_or(Type::Void),
+                span,
+            },
+            diverges,
+        )
+    }
+
+    /// Checks a `match`. With `value` (the expected type, if known), each
+    /// arm's body ends with a value; returns their common type.
+    fn match_parts(
+        &mut self,
+        scrutinee: &ast::Expr,
+        arms: &[ast::MatchArm],
+        value: Option<Option<Type>>,
+        ctx: &mut FnCtx,
+    ) -> (CheckedExpr, Vec<CheckedArm>, bool, Option<Type>) {
         let scrutinee = self.check_expr(scrutinee, ctx);
         let ty = scrutinee.ty;
+        let mut value_ty = value.flatten();
 
         let mut checked_arms = Vec::with_capacity(arms.len());
         let mut all_diverge = true;
@@ -77,13 +116,27 @@ impl<'a> Checker<'a> {
                 .guard
                 .as_ref()
                 .map(|guard| self.check_condition(guard, "if", ctx));
-            let (body, diverges) = self.check_stmts(&arm.body.stmts, ctx);
+            let (body, arm_value, diverges) = if value.is_some() {
+                let (body, arm_value, diverges) =
+                    self.check_value_block(&arm.body.stmts, value_ty, arm.body.span, ctx);
+                if let Some(v) = &arm_value {
+                    match value_ty {
+                        Some(expected) => self.expect_type(v, expected, None, ""),
+                        None => value_ty = Some(v.ty),
+                    }
+                }
+                (body, arm_value, diverges)
+            } else {
+                let (body, diverges) = self.check_stmts(&arm.body.stmts, ctx);
+                (body, None, diverges)
+            };
             ctx.scopes.pop();
             all_diverge &= diverges;
             checked_arms.push(CheckedArm {
                 pattern: pattern.unwrap_or(CheckedPattern::Wildcard),
                 guard,
                 body,
+                value: arm_value,
             });
         }
 
@@ -91,13 +144,7 @@ impl<'a> Checker<'a> {
         // nothing more about them.
         let exhaustive = errors || self.check_coverage(arms, &checked_arms, ty, scrutinee.span);
         let diverges = exhaustive && !arms.is_empty() && all_diverge;
-        (
-            CheckedStmt::Match {
-                scrutinee,
-                arms: checked_arms,
-            },
-            diverges,
-        )
+        (scrutinee, checked_arms, diverges, value_ty)
     }
 
     /// Checks one pattern against a value of type `ty`. `None` after an

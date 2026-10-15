@@ -1,0 +1,65 @@
+// `if` and `match` as values.
+
+enum Shape {
+    Circle(f64)
+    Square(f64)
+    Dot
+}
+
+fn sign(n: i64) -> string {
+    return if n < 0 {
+        "negative"
+    } else if n == 0 {
+        "zero"
+    } else {
+        "positive"
+    }
+}
+
+fn area(s: Shape) -> f64 {
+    return match s {
+        Circle(r) => 3.0 * r * r
+        Square(side) => side * side
+        Dot => 0.0
+    }
+}
+
+fn parse_or(text: string, fallback: i64) -> i64 {
+    let n = match text.parse_int() {
+        Some(n) => n
+        None => {
+            print("not a number: " + text)
+            return fallback
+        }
+    }
+    return n * 10
+}
+
+fn main() {
+    print(sign(-5))
+    print(sign(0))
+    print(sign(7))
+    print(area(Shape.Circle(1.0)))
+    print(area(Shape.Square(3.0)))
+    print(area(Shape.Dot))
+    print(parse_or("4", 0))
+    print(parse_or("x", -1))
+
+    let level: u8 = if area(Shape.Dot) > 1.0 { 10 } else { 200 }
+    print(level + 1)
+    let label = match level {
+        0 | 1 => "low"
+        n if n > 100 => {
+            let doubled = to_int(n) * 2
+            "high, doubled " + to_string(doubled)
+        }
+        _ => "medium"
+    }
+    print(label)
+    print(if level > 5 { [1, 2] } else { [] })
+    let mut total = 0
+    for i in 0..5 {
+        total += if i % 2 == 0 { i } else { 0 }
+    }
+    print(total)
+}

@@ -73,6 +73,7 @@ impl<'a> Checker<'a> {
             ast::ExprKind::Bool(value) => (CheckedExprKind::Bool(*value), Type::Bool),
             ast::ExprKind::Str(value) => (CheckedExprKind::Str(value.clone()), Type::String),
             ast::ExprKind::Name(ident) => return self.check_name(ident, expected, ctx),
+            ast::ExprKind::Branch(stmt) => return self.check_branch_value(stmt, expected, ctx).0,
             ast::ExprKind::Lambda { params, ret, body } => {
                 return self.check_lambda(params, ret.as_ref(), body, span, ctx);
             }

@@ -1,0 +1,42 @@
+error[E0250]: `if` used as a value needs an `else`
+ --> tests/diagnostics/branch_value_errors.brim:2:13
+  |
+2 |     let a = if true { 1 }
+  |             ^^^^^^^^^^^^^ no value when the condition is false
+  |
+  = help: add an `else` block with the other value
+
+error[E0206]: mismatched types
+ --> tests/diagnostics/branch_value_errors.brim:3:34
+  |
+3 |     let b = if true { 1 } else { "one" }
+  |                                  ^^^^^ expected `i64`, found `string`
+  |
+  = note: Brim never converts between types implicitly
+
+error[E0250]: this block has no value
+ --> tests/diagnostics/branch_value_errors.brim:5:9
+  |
+5 |         let x = 1
+  |         ^^^^^^^^^ this statement has no value
+  |
+  = note: a block used as a value ends with an expression, such as `x + 1` or a call
+
+error[E0206]: mismatched types
+  --> tests/diagnostics/branch_value_errors.brim:11:14
+   |
+11 |         _ => 2
+   |              ^ expected `string`, found `i64`
+   |
+   = note: Brim never converts between types implicitly
+
+error[E0229]: `match` does not cover every value
+  --> tests/diagnostics/branch_value_errors.brim:13:19
+   |
+13 |     let e = match 3 {
+   |                   ^ some values have no matching arm
+   |
+   = note: `i64` has too many values to list each one
+   = help: add a `_ => ...` arm for the remaining values
+
+error: could not compile tests/diagnostics/branch_value_errors.brim due to 5 errors

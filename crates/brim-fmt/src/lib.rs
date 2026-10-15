@@ -126,8 +126,10 @@ fn render(lines: &[Line<'_>]) -> String {
             }
         }
         // An expression continues on this line, or the innermost bracket
-        // was opened on an earlier line with contents after it.
-        if continues(prev_last, first) || open > 0 && !stack[open - 1].broken {
+        // was opened on an earlier line with contents after it. A line that
+        // starts by closing a block lines up with the line that opened it:
+        // `}, 10))` after `run(fn(x: i64) {`.
+        if continues(prev_last, first) || open > 0 && !stack[open - 1].broken && !closes_block {
             depth += 1;
         }
         for _ in 0..depth {
@@ -279,6 +281,8 @@ fn space_between(
         _ => {}
     }
     match next {
+        // A function type or `fn` expression: `fn(i64) -> i64`.
+        T::LParen if *prev == T::Fn => false,
         // A call, or generic arguments and indexing.
         T::LParen | T::LBracket => !ends_value(prev) || *prev == T::RBrace,
         _ => true,

@@ -378,6 +378,10 @@ pub enum ExprKind {
         callee: Ident,
         args: Vec<Expr>,
     },
+    /// An `if` with `else`, or a `match`, used as a value: a
+    /// [`StmtKind::If`] or [`StmtKind::Match`] whose blocks end with the
+    /// value.
+    Branch(Box<Stmt>),
     /// A call of a function value that is not a plain name:
     /// `make_adder(1)(2)`.
     CallValue {
@@ -503,6 +507,10 @@ impl fmt::Display for Expr {
             ExprKind::Binary { op, lhs, rhs, .. } => {
                 write!(f, "({lhs} {} {rhs})", op.as_str())
             }
+            ExprKind::Branch(stmt) => match &stmt.kind {
+                StmtKind::Match { scrutinee, .. } => write!(f, "match {scrutinee} {{...}}"),
+                _ => f.write_str("if ... {...} else {...}"),
+            },
             ExprKind::CallValue { callee, args } => {
                 let args: Vec<String> = args.iter().map(ToString::to_string).collect();
                 write!(f, "{callee}({})", args.join(", "))
