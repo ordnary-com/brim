@@ -143,6 +143,25 @@ jobs:
           echo "$PWD/target/debug" >> "$GITHUB_PATH"
       - run: editors/test/run.sh
 
+  container:
+    name: Example service in a container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t notes examples/http
+      - name: Run it and call the API
+        run: |
+          docker run -d --name notes -p 8080:8080 notes
+          for i in $(seq 30); do curl -sf localhost:8080/notes > /dev/null && break; sleep 1; done
+          created=$(curl -sf -X POST localhost:8080/notes -d '{"text": "from CI"}')
+          echo "$created"
+          [ "$created" = '{"id":1,"text":"from CI"}' ]
+          [ "$(curl -sf localhost:8080/notes)" = '[{"id":1,"text":"from CI"}]' ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' localhost:8080/nope)" = 404 ]
+          docker logs notes
+          docker rm -f notes
+
   msrv:
     name: Minimum supported Rust version
     runs-on: ubuntu-latest

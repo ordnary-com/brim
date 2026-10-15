@@ -1,6 +1,6 @@
 // A small JSON API for notes, kept in memory.
 //
-//   brim run examples/http/notes.brim
+//   brim run examples/http/notes.brim       (PORT and HOST change where it listens)
 //   curl -X POST localhost:8080/notes -d '{"text": "buy milk"}'
 //   curl localhost:8080/notes
 //   curl localhost:8080/notes/1
@@ -98,9 +98,9 @@ fn error(status: i64, message: string) -> http.Response {
     return http.json(status, json.stringify(json.object(["error": json.from_string(message)])))
 }
 
-fn serve(port: i64) -> Result[i64, string] {
-    let server: http.Server = http.serve("127.0.0.1", port)?
-    print("listening on http://127.0.0.1:" + to_string(server.port()))
+fn serve(host: string, port: i64) -> Result[i64, string] {
+    let server: http.Server = http.serve(host, port)?
+    print("listening on http://" + host + ":" + to_string(server.port()))
     log.info("notes service started")
     let mut notes: Notes = Notes { texts: [:], next_id: 1 }
     while true {
@@ -123,7 +123,14 @@ fn main() {
         }
         None => {}
     }
-    match serve(port) {
+    // HOST=0.0.0.0 to accept connections from other machines (as in a
+    // container).
+    let mut host: string = "127.0.0.1"
+    match env("HOST") {
+        Some(h) => host = h
+        None => {}
+    }
+    match serve(host, port) {
         Ok(_) => {}
         Err(e) => {
             log.error(e)

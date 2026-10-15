@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- A Dockerfile for the notes example (`examples/http`), which CI builds, runs and calls. The example reads `HOST` as well as `PORT`.
+
 ## [0.2.0] - 2026-10-15
 
 ### Added
