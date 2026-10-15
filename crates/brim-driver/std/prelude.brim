@@ -1,0 +1,93 @@
+// The prelude: functions behind the methods of built-in types that are
+// written in Brim itself. Every program has this module; `xs.sorted()` is
+// `list_sorted(xs)` here. It is not imported by name.
+
+// ---- lists ---------------------------------------------------------------
+
+// A sorted copy of `xs`, smallest first. The sort is stable: equal values
+// keep their order.
+pub fn list_sorted[T: Ord](xs: List[T]) -> List[T] {
+    return list_sorted_by(xs, fn(a: T, b: T) -> bool {
+        return a < b
+    })
+}
+
+// A copy of `xs` sorted so that `less(a, b)` holds for each `a` before
+// `b`, unless they are equal; stable, like `sorted`.
+pub fn list_sorted_by[T](xs: List[T], less: fn(T, T) -> bool) -> List[T] {
+    // Bottom-up merge sort: runs of 1, 2, 4, ... elements are merged.
+    let n = xs.len()
+    let mut from = xs
+    let mut width = 1
+    while width < n {
+        let mut into: List[T] = []
+        let mut start = 0
+        while start < n {
+            let middle = min_i64(start + width, n)
+            let end = min_i64(start + 2 * width, n)
+            let mut i = start
+            let mut j = middle
+            while i < middle || j < end {
+                // Take from the right run only when it is strictly smaller,
+                // so equal values keep their order.
+                if j < end && (i == middle || less(from[j], from[i])) {
+                    into.push(from[j])
+                    j += 1
+                } else {
+                    into.push(from[i])
+                    i += 1
+                }
+            }
+            start = end
+        }
+        from = into
+        width = width * 2
+    }
+    return from
+}
+
+// A copy of `xs` with the elements in the opposite order.
+pub fn list_reversed[T](xs: List[T]) -> List[T] {
+    let mut out: List[T] = []
+    let mut i = xs.len() - 1
+    while i >= 0 {
+        out.push(xs[i])
+        i -= 1
+    }
+    return out
+}
+
+// The elements from index `start` up to, but not including, `end`. Indices
+// outside the list are moved to its start or end, so the result is never
+// an error: `[1, 2, 3].slice(1, 10)` is `[2, 3]`.
+pub fn list_slice[T](xs: List[T], start: i64, end: i64) -> List[T] {
+    let from = max_i64(start, 0)
+    let to = min_i64(end, xs.len())
+    let mut out: List[T] = []
+    let mut i = from
+    while i < to {
+        out.push(xs[i])
+        i += 1
+    }
+    return out
+}
+
+// The index of the first element equal to `x`, or `None`.
+pub fn list_index_of[T: Eq](xs: List[T], x: T) -> Option[i64] {
+    let mut i = 0
+    for y in xs {
+        if y == x {
+            return Some(i)
+        }
+        i += 1
+    }
+    return None
+}
+
+fn min_i64(a: i64, b: i64) -> i64 {
+    return if a < b { a } else { b }
+}
+
+fn max_i64(a: i64, b: i64) -> i64 {
+    return if a > b { a } else { b }
+}

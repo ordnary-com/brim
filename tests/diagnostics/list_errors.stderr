@@ -57,7 +57,7 @@ error[E0231]: `List[i64]` has no method `size`
 19 |     print(xs.size())
    |              ^^^^ unknown method
    |
-   = note: list methods: `len`, `is_empty`, `get`, `first`, `last`, `contains`, `join`, `push`, `pop`, `insert`, `remove`, `clear`
+   = help: did you mean `len`?
 
 error[E0231]: `List[i64]` has no method `psuh`
   --> tests/diagnostics/list_errors.brim:20:8

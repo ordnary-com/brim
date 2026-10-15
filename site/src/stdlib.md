@@ -182,8 +182,32 @@ stops the program; `get` returns an `Option` instead.
 | `insert(i, x)` | | inserts before index `i` |
 | `remove(i)` | `T` | removes element `i` |
 | `clear()` | | |
+| `sorted()`, `reversed()` | `List[T]` | a sorted or reversed copy |
+| `sorted_by(less)` | `List[T]` | a copy sorted by `fn(a, b) -> bool` |
+| `slice(a, b)` | `List[T]` | elements `a` up to `b`, clamped to the list |
+| `index_of(x)` | `Option[i64]` | where `x` is first |
 
-`push` and the methods after it change the list, so it needs `let mut`.
+`push` up to `clear` change the list, so it needs `let mut`. The others
+return a new list and leave the original as it was:
+
+```brim
+fn main() {
+    let xs = [3, 1, 2]
+    print(xs.sorted())
+    print(xs.reversed().slice(0, 2))
+    print(xs.index_of(2))
+    print(["bb", "a", "ccc"].sorted_by(fn(a: string, b: string) -> bool {
+        return a.len() < b.len()
+    }))
+}
+```
+
+```text
+[1, 2, 3]
+[2, 1]
+Some(2)
+["a", "bb", "ccc"]
+```
 
 ```brim
 fn main() {

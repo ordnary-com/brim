@@ -16,8 +16,12 @@ pub const STD_MODULES: &[(&str, &str)] = &[
     ("std.json", include_str!("../std/json.brim")),
     ("std.log", include_str!("../std/log.brim")),
     ("std.net", include_str!("../std/net.brim")),
+    ("std.prelude", include_str!("../std/prelude.brim")),
     ("std.time", include_str!("../std/time.brim")),
 ];
+
+/// The module every program has: Brim functions behind built-in methods.
+pub const PRELUDE: &str = "std.prelude";
 
 /// The source of a standard library module.
 pub fn std_module(name: &str) -> Option<&'static str> {
@@ -64,6 +68,13 @@ pub fn load(
     };
     let mut pending = VecDeque::new();
     pending.extend(locate_imports(&mut program, 0, graph, &root_dir));
+    // Every program has the prelude, behind methods such as `xs.sorted()`.
+    pending.push_back(ModuleFile {
+        name: PRELUDE.to_string(),
+        shown: "std/prelude.brim".to_string(),
+        span: Span::point(0),
+        package: 0,
+    });
     let mut modules = vec![ModuleAst {
         name: String::new(),
         program,
@@ -90,6 +101,7 @@ pub fn load(
                             "its modules are {}",
                             STD_MODULES
                                 .iter()
+                                .filter(|(n, _)| *n != PRELUDE)
                                 .map(|(n, _)| format!("`{n}`"))
                                 .collect::<Vec<_>>()
                                 .join(", ")

@@ -24,6 +24,8 @@ pub(super) struct TraitId(pub usize);
 pub(super) const EQ: TraitId = TraitId(0);
 /// `T: Show`: `print` and `to_string` work on `T`.
 pub(super) const SHOW: TraitId = TraitId(1);
+/// `T: Ord`: `<`, `<=`, `>` and `>=` work on `T`.
+pub(super) const ORD: TraitId = TraitId(2);
 
 pub(super) struct TraitInfo {
     pub name: String,
@@ -44,7 +46,7 @@ pub(super) struct TraitMethodInfo {
 }
 
 pub(super) fn builtin_traits() -> Vec<TraitInfo> {
-    ["Eq", "Show"]
+    ["Eq", "Show", "Ord"]
         .into_iter()
         .map(|name| TraitInfo {
             name: name.into(),
@@ -180,14 +182,18 @@ impl<'a> Checker<'a> {
     pub(super) fn check_trait_impl(&mut self, decl: &ast::ImplDecl, trait_id: TraitId, def: Def) {
         let trait_name = self.traits[trait_id.0].name.clone();
         let type_name = decl.type_name.name.clone();
-        if trait_id == EQ || trait_id == SHOW {
+        if trait_id == EQ || trait_id == SHOW || trait_id == ORD {
             self.diags.push(
                 Diagnostic::error(format!("`{trait_name}` cannot be implemented by hand"))
                     .with_code("E0247")
                     .with_primary(decl.trait_name.as_ref().map_or(decl.span, |t| t.span), "")
                     .with_note(format!(
                         "every type whose values can all be {} implements `{trait_name}`",
-                        if trait_id == EQ { "compared" } else { "shown" }
+                        match trait_id {
+                            EQ => "compared",
+                            SHOW => "shown",
+                            _ => "ordered with `<`",
+                        }
                     )),
             );
             return;
@@ -271,7 +277,7 @@ impl<'a> Checker<'a> {
         if ty == Type::Error {
             return true;
         }
-        if trait_id == EQ || trait_id == SHOW {
+        if trait_id == EQ || trait_id == SHOW || trait_id == ORD {
             return self.not_comparable(ty, trait_id).is_none();
         }
         match ty {
@@ -309,7 +315,7 @@ impl<'a> Checker<'a> {
                         Type::Param(_) => diag.with_help(format!(
                             "add the bound to this function's type parameter: `{shown}: {trait_name}`"
                         )),
-                        _ if trait_id == EQ || trait_id == SHOW => diag.with_note(format!(
+                        _ if trait_id == EQ || trait_id == SHOW || trait_id == ORD => diag.with_note(format!(
                             "`{trait_name}` needs every value inside `{shown}` to support it"
                         )),
                         Type::Named(id)
@@ -404,7 +410,11 @@ impl<'a> Checker<'a> {
 
 /// Traits by name, starting with the built-in ones.
 pub(super) fn builtin_trait_names() -> HashMap<String, TraitId> {
-    [("Eq".to_string(), EQ), ("Show".to_string(), SHOW)]
-        .into_iter()
-        .collect()
+    [
+        ("Eq".to_string(), EQ),
+        ("Show".to_string(), SHOW),
+        ("Ord".to_string(), ORD),
+    ]
+    .into_iter()
+    .collect()
 }

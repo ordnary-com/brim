@@ -71,8 +71,23 @@ const MAP_METHODS: &[&str] = &[
 ];
 
 const LIST_METHODS: &[&str] = &[
-    "len", "is_empty", "get", "first", "last", "contains", "join", "push", "pop", "insert",
-    "remove", "clear",
+    "len",
+    "is_empty",
+    "get",
+    "first",
+    "last",
+    "contains",
+    "join",
+    "push",
+    "pop",
+    "insert",
+    "remove",
+    "clear",
+    "sorted",
+    "sorted_by",
+    "reversed",
+    "slice",
+    "index_of",
 ];
 
 impl<'a> Checker<'a> {
@@ -344,6 +359,9 @@ impl<'a> Checker<'a> {
         ctx: &mut FnCtx,
     ) -> Option<CheckedExpr> {
         let Some((op, params, ret)) = list_method(&name.name) else {
+            if let Some(result) = self.prelude_method("list", base, name, args, span, ctx) {
+                return Some(result);
+            }
             let receiver = self.check_expr(base, ctx);
             for arg in args {
                 self.check_expr(arg, ctx);
@@ -352,7 +370,18 @@ impl<'a> Checker<'a> {
             let mut diag = Diagnostic::error(format!("`{ty}` has no method `{}`", name.name))
                 .with_code("E0231")
                 .with_primary(name.span, "unknown method");
-            diag = match crate::suggest::similar(&name.name, LIST_METHODS.iter().copied()) {
+            // Names other languages use for the same thing.
+            let alias = match name.name.as_str() {
+                "size" | "length" | "count" => Some("len"),
+                "sort" => Some("sorted"),
+                "reverse" => Some("reversed"),
+                "append" | "add" => Some("push"),
+                "find" | "position" => Some("index_of"),
+                _ => None,
+            };
+            let similar =
+                alias.or_else(|| crate::suggest::similar(&name.name, LIST_METHODS.iter().copied()));
+            diag = match similar {
                 Some(similar) => diag.with_help(format!("did you mean `{similar}`?")),
                 None => diag.with_note(format!(
                     "list methods: {}",

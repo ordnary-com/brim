@@ -120,6 +120,23 @@ pub fn lower_tests(program: &CheckedProgram) -> (Module, Vec<FuncId>) {
     (m.module, tests)
 }
 
+/// The comparison `op` (`ValueLt`, ...) for values of the concrete type
+/// `ty`: a number or a string.
+fn order_op(op: BinaryOp, ty: Type) -> BinaryOp {
+    use BinaryOp::*;
+    let ops = match ty {
+        Type::F64 => [FloatLt, FloatLe, FloatGt, FloatGe],
+        Type::String => [StrLt, StrLe, StrGt, StrGe],
+        _ => [IntLt, IntLe, IntGt, IntGe],
+    };
+    match op {
+        ValueLt => ops[0],
+        ValueLe => ops[1],
+        ValueGt => ops[2],
+        _ => ops[3],
+    }
+}
+
 fn func_id(index: usize) -> FuncId {
     FuncId(u32::try_from(index).expect("function count fits in u32"))
 }
@@ -1953,6 +1970,14 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                             )
                         }
                     }
+                    BinaryOp::ValueLt
+                    | BinaryOp::ValueLe
+                    | BinaryOp::ValueGt
+                    | BinaryOp::ValueGe => {
+                        let operand_ty = self.concrete(lhs.ty);
+                        let concrete_op = order_op(*op, operand_ty);
+                        self.int_binary(concrete_op, a, b, operand_ty, span)
+                    }
                     _ => {
                         let operand_ty = self.concrete(lhs.ty);
                         self.int_binary(*op, a, b, operand_ty, span)
@@ -2545,7 +2570,12 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 };
                 return self.emit_value(InstKind::Binary(cmp, order, zero), IrType::Bool, span);
             }
-            BinaryOp::ValueEq | BinaryOp::ValueNe => {
+            BinaryOp::ValueEq
+            | BinaryOp::ValueNe
+            | BinaryOp::ValueLt
+            | BinaryOp::ValueLe
+            | BinaryOp::ValueGt
+            | BinaryOp::ValueGe => {
                 unreachable!("lowered with the operand type, in `expr`")
             }
             BinaryOp::StrEq | BinaryOp::StrNe => {

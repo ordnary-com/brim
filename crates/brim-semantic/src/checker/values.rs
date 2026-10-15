@@ -25,6 +25,19 @@ impl<'a> Checker<'a> {
         need: TraitId,
         seen: &mut HashSet<Type>,
     ) -> Option<Type> {
+        // Ordering: numbers and strings, and type parameters with `Ord`.
+        if need == super::traits::ORD && !matches!(ty, Type::Param(_)) {
+            return match ty {
+                Type::I64
+                | Type::I32
+                | Type::U8
+                | Type::U64
+                | Type::F64
+                | Type::String
+                | Type::Error => None,
+                _ => Some(ty),
+            };
+        }
         if let Type::Param(i) = ty {
             let bounded = self
                 .type_bounds

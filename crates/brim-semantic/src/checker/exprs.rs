@@ -726,6 +726,33 @@ impl<'a> Checker<'a> {
         Some(self.finish_call(id, Some(receiver), &arg_refs, span, expected, ctx))
     }
 
+    /// `value.method(args)` for a method of a built-in type that the prelude
+    /// implements in Brim: the function `{kind}_{method}` of `std.prelude`,
+    /// with the value as its first argument.
+    pub(super) fn prelude_method(
+        &mut self,
+        kind: &str,
+        base: &ast::Expr,
+        name: &ast::Ident,
+        args: &[ast::Expr],
+        span: Span,
+        ctx: &mut FnCtx,
+    ) -> Option<CheckedExpr> {
+        let module = self.module_names.iter().position(|n| n == "std.prelude")?;
+        let key = format!("{kind}_{}", name.name);
+        let id = *self.scopes[module].own_fns.get(key.as_str())?;
+        let receiver = self.check_expr(base, ctx);
+        let arg_refs: Vec<&ast::Expr> = args.iter().collect();
+        Some(self.finish_call(
+            id,
+            Some(MethodReceiver::Value(receiver)),
+            &arg_refs,
+            span,
+            None,
+            ctx,
+        ))
+    }
+
     /// Checks the arguments of a call of function `id` (with `receiver` as
     /// `self` for a method) and builds the call.
     fn finish_call(
@@ -1613,6 +1640,19 @@ impl<'a> Checker<'a> {
             (Op::Gt, F64, F64) => Some((BinaryOp::FloatGt, Bool)),
             (Op::Ge, F64, F64) => Some((BinaryOp::FloatGe, Bool)),
             (Op::And | Op::Or, Bool, Bool) => None,
+            (Op::Lt | Op::Le | Op::Gt | Op::Ge, a, b)
+                if a == b
+                    && matches!(a, Type::Param(_))
+                    && self.not_comparable(a, super::traits::ORD).is_none() =>
+            {
+                let op = match op {
+                    Op::Lt => BinaryOp::ValueLt,
+                    Op::Le => BinaryOp::ValueLe,
+                    Op::Gt => BinaryOp::ValueGt,
+                    _ => BinaryOp::ValueGe,
+                };
+                Some((op, Bool))
+            }
             (Op::Eq | Op::Ne, a, b)
                 if a == b
                     && matches!(a, Type::Named(_) | Type::Param(_))

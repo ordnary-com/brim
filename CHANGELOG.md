@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- List methods `sorted()`, `sorted_by(less)`, `reversed()`, `slice(start, end)` and `index_of(x)`. They are written in Brim, in the new module `std.prelude` that every program has. The built-in trait `Ord` allows `<` in generic code.
+
 ## [0.3.0] - 2026-10-15
 
 ### Added

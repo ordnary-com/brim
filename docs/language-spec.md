@@ -349,8 +349,13 @@ fn total(a: string, b: string) -> Result[i64, string] {
   | `insert(i, x)` | | inserts before index `i` (`0 <= i <= len`) |
   | `remove(i)` | `T` | removes and returns element `i` |
   | `clear()` | | |
+  | `sorted()` | `List[T]` | a sorted copy, smallest first; stable; `T` must implement `Ord` (section 5.11) |
+  | `sorted_by(less)` | `List[T]` | a copy sorted by `less: fn(T, T) -> bool`; stable |
+  | `reversed()` | `List[T]` | a copy in the opposite order |
+  | `slice(start, end)` | `List[T]` | the elements from `start` up to `end`; indices outside the list are moved to its ends, so `slice` never fails |
+  | `index_of(x)` | `Option[i64]` | the index of the first element equal to `x`; `T` must implement `Eq` |
 
-  The methods from `push` on change the list, so they need a variable declared with `let mut` (or a field or element of one); calling them on a temporary is `E0104`. An unknown method is `E0231`.
+  The methods from `push` to `clear` change the list, so they need a variable declared with `let mut` (or a field or element of one); calling them on a temporary is `E0104`. An unknown method is `E0231`.
 - Lists can be compared with `==` and shown with `print` and `to_string` (section 5.8).
 
 ### 5.6 Maps
@@ -492,7 +497,8 @@ fn total_area[T: Shape](shapes: List[T]) -> f64 {
 - A trait method is a signature without a body. It takes `self` (not `mut self`) and is called on a value. `Self` in its types is the type that implements the trait (`E0246` for malformed traits, unknown traits and duplicates).
 - `impl Trait for Type` implements a trait for a struct or enum declared in the same module. It must have every method of the trait, with the same signature (`Self` replaced by the type), and nothing else; other methods go in a plain `impl Type` block (`E0247`). A type implements a trait at most once. The methods are also ordinary methods of the type.
 - A type parameter of a function can have **bounds**, `[T: Shape + Show]`: the type arguments must implement every bound (`E0248`), and inside the function a `T` has the bounds' methods.
-- The built-in traits **`Eq`** and **`Show`** are implemented by every type whose values can all be compared with `==`, or shown with `print` (section 5.8), and by type parameters bounded by them. They cannot be implemented by hand.
+- The built-in traits **`Eq`** and **`Show`** are implemented by every type whose values can all be compared with `==`, or shown with `print` (section 5.8), and by type parameters bounded by them. **`Ord`** allows `<`, `<=`, `>` and `>=` and is implemented by the integer types, `f64` and `string`. They cannot be implemented by hand.
+- Methods of built-in types that are written in Brim itself, such as `sorted` on lists, live in the module `std.prelude`, which every program has.
 - Generic code is compiled per type, so a call through a bound is an ordinary call of the type's method. Traits are not types: a `List` holds values of one type, and there are no trait objects.
 
 ### 5.12 Constants

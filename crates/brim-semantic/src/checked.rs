@@ -507,6 +507,12 @@ pub enum BinaryOp {
     /// any order.
     ValueEq,
     ValueNe,
+    /// `<` and the others on a type parameter bounded by `Ord`: decided by
+    /// the concrete type when lowering.
+    ValueLt,
+    ValueLe,
+    ValueGt,
+    ValueGe,
 }
 
 /// Built-in operations that lower to more than one runtime call.
