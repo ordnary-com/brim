@@ -6,7 +6,7 @@
 # The build stage installs a released brim with native builds (Linux
 # x86_64) and compiles the service; the image only holds the executable.
 FROM --platform=linux/amd64 debian:bookworm-slim AS build
-ARG BRIM_VERSION=0.2.0
+ARG BRIM_VERSION=0.4.0
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl gcc libc6-dev \
     && rm -rf /var/lib/apt/lists/*
