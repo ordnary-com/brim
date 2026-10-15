@@ -102,6 +102,17 @@ jobs:
           tar -xf llvm.tar.xz -C /c/llvm --strip-components=1
           echo "LLVM_SYS_221_PREFIX=C:\llvm" >> "$GITHUB_ENV"
           echo "C:\llvm\bin" >> "$GITHUB_PATH"
+      - name: An empty xml2s.lib
+        # llvm-config names libxml2, which only LLVM's manifest tools use;
+        # the compiler never calls them, so an empty library links.
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments "-arch=x64"
+          Set-Content empty.c "static int brim_empty;"
+          cl /nologo /c empty.c
+          lib /nologo /OUT:C:\llvm\lib\xml2s.lib empty.obj
       - uses: Swatinem/rust-cache@v2
         with:
           key: llvm22-windows
