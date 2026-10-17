@@ -49,9 +49,9 @@ pub fn member_dirs(
                 })
                 .unwrap_or_default();
             found.sort();
-            out.extend(found.into_iter().map(|dir| (crate::normalize(&dir), *span)));
+            out.extend(found.into_iter().map(|dir| (shown(&dir), *span)));
         } else {
-            let dir = crate::normalize(&root.join(member));
+            let dir = shown(&root.join(member));
             if !cwd.join(&dir).join(brim_manifest::MANIFEST_FILE).is_file() {
                 return Err(Failure::in_file(
                     Diagnostic::error(format!(
@@ -67,6 +67,12 @@ pub fn member_dirs(
         }
     }
     Ok(out)
+}
+
+/// A directory as the compiler shows paths: normalized, with `/` on every
+/// platform.
+fn shown(dir: &Path) -> PathBuf {
+    PathBuf::from(slash(&crate::normalize(dir)))
 }
 
 /// Finds the workspace a package in `dir` (relative to `cwd`) belongs to:

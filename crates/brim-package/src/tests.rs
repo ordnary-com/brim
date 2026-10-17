@@ -350,7 +350,8 @@ fn registry_dependencies() {
     assert_eq!(graph.packages[json].name(), "json_extra");
     assert!(graph.packages[router].lib_file().is_file());
     let lock = fs::read_to_string(cwd.join("app/brim.lock")).unwrap();
-    let source = format!("registry+{}", reg.url());
+    // As a TOML string (Windows paths have `\`).
+    let source = format!("registry+{}", reg.url()).replace('\\', "\\\\");
     assert!(lock.contains(&format!(
         "name = \"router\"\nversion = \"1.3.0\"\nsource = \"{source}\"\nchecksum = \""
     )));
