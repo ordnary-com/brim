@@ -13,9 +13,10 @@ create-missing = false
 git-repository-url = "https://github.com/ordnary-com/brim"
 edit-url-template = "https://github.com/ordnary-com/brim/edit/main/site/{path}"
 additional-js = ["theme/brim-highlight.js", "theme/brim-home.js"]
-site-url = "/brim/docs/"
+site-url = "/docs/"
 default-theme = "light"
-preferred-dark-theme = "navy"
+preferred-dark-theme = "light"
+additional-css = ["theme/brim.css"]
 
 # The book moved from the site root to /docs/ when the landing page came.
 # Old links to the reference pages land here; the guide pages are

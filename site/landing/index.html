@@ -3,507 +3,207 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Brim programming language</title>
-<meta name="description" content="Brim is a small, statically typed language by Ordnary for command-line tools and backend services. It compiles to native executables through LLVM.">
-<meta property="og:title" content="Brim programming language">
-<meta property="og:description" content="A small, statically typed language for command-line tools and backend services, by Ordnary.">
-<meta property="og:image" content="https://ordnary-com.github.io/brim/brim-logo.png">
+<title>The Brim Programming Language</title>
+<meta name="description" content="Brim is an open source programming language for building reliable backend services and command-line tools.">
+<meta property="og:title" content="The Brim Programming Language">
+<meta property="og:description" content="An open source programming language for building reliable backend services and command-line tools.">
+<meta property="og:image" content="https://brimlang.com/brim-logo.png">
 <link rel="icon" href="favicon.png">
-<style>
-:root {
-  --brand: #0060ff;
-  --brand-strong: #004fd6;
-  --brand-soft: #e8f0ff;
-  --bg: #ffffff;
-  --bg-alt: #f6f8fb;
-  --text: #0e1525;
-  --muted: #566074;
-  --border: #e2e7ef;
-  --code-bg: #0d1424;
-  --code-text: #dbe4f5;
-  --code-border: #1d2740;
-  --tok-k: #7cb1ff;
-  --tok-t: #6fe0c5;
-  --tok-s: #ffcb8b;
-  --tok-c: #6b7894;
-  --tok-f: #f0f4ff;
-  --tok-n: #ff9fb2;
-  --err: #ff6b7d;
-  --warn: #ffd166;
-  --ok: #6fe0a0;
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --brand: #4d8dff;
-    --brand-strong: #79a9ff;
-    --brand-soft: #14213d;
-    --bg: #0a0f1c;
-    --bg-alt: #0f1626;
-    --text: #e8edf7;
-    --muted: #97a2b8;
-    --border: #1e2840;
-    --code-bg: #070b15;
-    --code-border: #1d2740;
-  }
-}
-:root[data-theme="dark"] {
-  --brand: #4d8dff;
-  --brand-strong: #79a9ff;
-  --brand-soft: #14213d;
-  --bg: #0a0f1c;
-  --bg-alt: #0f1626;
-  --text: #e8edf7;
-  --muted: #97a2b8;
-  --border: #1e2840;
-  --code-bg: #070b15;
-  --code-border: #1d2740;
-}
-
-* { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--sans);
-  font-size: 17px;
-  line-height: 1.6;
-}
-a { color: var(--brand); text-decoration: none; }
-a:hover { text-decoration: underline; }
-code, pre { font-family: var(--mono); font-variant-ligatures: none; }
-.wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
-
-/* Header */
-header {
-  position: sticky; top: 0; z-index: 10;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: saturate(160%) blur(10px);
-  -webkit-backdrop-filter: saturate(160%) blur(10px);
-  border-bottom: 1px solid var(--border);
-}
-header .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
-header .logo img { height: 26px; display: block; }
-nav { display: flex; gap: 28px; align-items: center; font-size: 15px; }
-nav a { color: var(--muted); font-weight: 500; }
-nav a:hover { color: var(--text); text-decoration: none; }
-nav .gh { display: inline-flex; align-items: center; gap: 6px; }
-nav .gh svg { width: 18px; height: 18px; fill: currentColor; }
-
-/* Hero */
-.hero { padding: 88px 0 72px; position: relative; overflow: hidden; }
-.hero::before {
-  content: ""; position: absolute; inset: -40% -10% auto auto; width: 720px; height: 720px;
-  background: radial-gradient(circle, color-mix(in srgb, var(--brand) 18%, transparent), transparent 65%);
-  pointer-events: none;
-}
-.hero .wrap { display: grid; grid-template-columns: 1fr 1.2fr; gap: 48px; align-items: center; position: relative; }
-.badge {
-  display: inline-flex; max-width: 100%; align-items: center; gap: 8px;
-  font-size: 13px; font-weight: 600; color: var(--brand);
-  background: var(--brand-soft); border-radius: 999px; padding: 5px 12px;
-}
-.badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brand); }
-.hero h1 {
-  font-size: clamp(38px, 5.4vw, 58px); line-height: 1.06; letter-spacing: -0.03em;
-  margin: 20px 0 18px; font-weight: 800;
-}
-.hero .wrap > *, .split > * { min-width: 0; }
-.hero .window pre { font-size: 13px; }
-.hero h1 em { font-style: italic; color: var(--brand); transform: skewX(-8deg); display: inline-block; }
-.hero p.lead { font-size: 19px; color: var(--muted); margin: 0 0 32px; max-width: 520px; }
-.actions { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 28px; }
-.btn {
-  display: inline-flex; align-items: center; gap: 8px; height: 46px; padding: 0 22px;
-  border-radius: 10px; font-weight: 600; font-size: 16px; border: 1px solid transparent;
-}
-.btn:hover { text-decoration: none; }
-.btn.primary { background: var(--brand); color: #fff; }
-.btn.primary:hover { background: var(--brand-strong); }
-.btn.secondary { border-color: var(--border); color: var(--text); background: var(--bg); }
-.btn.secondary:hover { border-color: var(--muted); }
-
-.install {
-  display: flex; align-items: center; gap: 10px; max-width: 520px;
-  background: var(--code-bg); color: var(--code-text); border: 1px solid var(--code-border);
-  border-radius: 10px; padding: 0 6px 0 16px; height: 48px; font-size: 14px;
-}
-.install .prompt { color: var(--tok-c); user-select: none; }
-.install code { flex: 1; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
-.install code::-webkit-scrollbar { display: none; }
-.copy {
-  flex: none; height: 36px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--code-border);
-  background: transparent; color: var(--code-text); font: 600 13px var(--sans); cursor: pointer;
-}
-.copy:hover { background: var(--code-border); }
-.install-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
-.install-tabs button {
-  background: none; border: 0; padding: 4px 10px; border-radius: 6px; cursor: pointer;
-  font: 500 13px var(--sans); color: var(--muted);
-}
-.install-tabs button[aria-selected="true"] { background: var(--brand-soft); color: var(--brand); }
-
-/* Code windows */
-.window {
-  background: var(--code-bg); border: 1px solid var(--code-border); border-radius: 14px;
-  box-shadow: 0 24px 60px -24px rgba(0, 40, 120, 0.35); overflow: hidden; min-width: 0;
-}
-.window .bar {
-  display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px;
-  border-bottom: 1px solid var(--code-border); color: var(--tok-c); font: 13px var(--mono);
-}
-.window .bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--code-border); display: block; }
-.window .bar span { margin-left: 8px; }
-.window pre {
-  margin: 0; padding: 20px 22px; overflow-x: auto; color: var(--code-text);
-  font-size: 14px; line-height: 1.65; tab-size: 4;
-}
-.k { color: var(--tok-k); }
-.t { color: var(--tok-t); }
-.s { color: var(--tok-s); }
-.c { color: var(--tok-c); font-style: italic; }
-.f { color: var(--tok-f); font-weight: 600; }
-.n { color: var(--tok-n); }
-.e { color: var(--err); font-weight: 700; }
-.w { color: var(--warn); }
-.g { color: var(--ok); }
-.d { color: var(--tok-c); }
-
-/* Sections */
-section { padding: 88px 0; }
-section.alt { background: var(--bg-alt); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-.eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--brand); margin: 0 0 12px; }
-h2 { font-size: clamp(28px, 3.6vw, 40px); line-height: 1.15; letter-spacing: -0.02em; margin: 0 0 16px; font-weight: 800; }
-.intro { color: var(--muted); font-size: 18px; max-width: 640px; margin: 0 0 48px; }
-
-.features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-.feature {
-  background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 26px;
-}
-section.alt .feature { background: var(--bg); }
-.feature .icon {
-  width: 40px; height: 40px; border-radius: 10px; background: var(--brand-soft); color: var(--brand);
-  display: grid; place-items: center; margin-bottom: 16px;
-}
-.feature .icon svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.feature h3 { font-size: 18px; margin: 0 0 8px; }
-.feature p { margin: 0; color: var(--muted); font-size: 15.5px; }
-.feature code { font-size: 0.9em; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; color: var(--text); }
-
-.split { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
-.split + .split { margin-top: 88px; }
-.split .copytext p { color: var(--muted); font-size: 17px; }
-.split .copytext ul { padding: 0; margin: 20px 0 0; list-style: none; }
-.split .copytext li { padding-left: 28px; position: relative; margin-bottom: 10px; color: var(--muted); }
-.split .copytext li::before {
-  content: ""; position: absolute; left: 4px; top: 9px; width: 10px; height: 6px;
-  border-left: 2px solid var(--brand); border-bottom: 2px solid var(--brand); transform: rotate(-45deg);
-}
-.split .copytext code { font-size: 0.9em; color: var(--text); }
-
-.stack { display: grid; gap: 16px; min-width: 0; }
-
-/* Commands table */
-.commands { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.cmd {
-  border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; background: var(--bg);
-}
-.cmd code { font-size: 14px; font-weight: 600; color: var(--brand); }
-.cmd p { margin: 4px 0 0; font-size: 14.5px; color: var(--muted); }
-
-/* CTA */
-.cta { text-align: center; }
-.cta .intro { margin-left: auto; margin-right: auto; }
-.cta .actions { justify-content: center; }
-.paths { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 48px; text-align: left; }
-.path {
-  display: block; border: 1px solid var(--border); border-radius: 14px; padding: 22px; color: var(--text); background: var(--bg);
-  transition: border-color .15s, transform .15s;
-}
-.path:hover { border-color: var(--brand); text-decoration: none; transform: translateY(-2px); }
-.path strong { display: block; margin-bottom: 4px; }
-.path span { color: var(--muted); font-size: 14.5px; }
-.path .arrow { color: var(--brand); float: right; }
-
-footer { border-top: 1px solid var(--border); padding: 36px 0; color: var(--muted); font-size: 14px; }
-footer .wrap { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; }
-footer nav { gap: 22px; }
-
-@media (max-width: 960px) {
-  .hero .wrap, .split { grid-template-columns: 1fr; gap: 40px; }
-  .features, .commands { grid-template-columns: 1fr 1fr; }
-  .paths { grid-template-columns: 1fr 1fr; }
-  .split.reverse .stack { order: 2; }
-}
-@media (max-width: 640px) {
-  .wrap { padding: 0 16px; }
-  nav .hide-sm { display: none; }
-  nav { gap: 18px; }
-  .hero { padding: 56px 0 48px; }
-  section { padding: 64px 0; }
-  .features, .commands, .paths { grid-template-columns: 1fr; }
-  .window pre { font-size: 13px; padding: 16px; }
-  .install { font-size: 13px; }
-}
-</style>
+<link rel="stylesheet" href="site.css">
 </head>
 <body>
-
-<header>
+<header class="top">
   <div class="wrap">
     <a class="logo" href="./" aria-label="Brim home"><img src="brim-logo.png" alt="Brim"></a>
     <nav>
-      <a href="docs/getting-started.html" class="hide-sm">Install</a>
-      <a href="docs/tour.html" class="hide-sm">Tour</a>
-      <a href="docs/playground.html">Playground</a>
+      <a href="#why">Why Brim</a>
+      <a href="docs/tour.html">Learn</a>
       <a href="docs/">Docs</a>
-      <a href="docs/stdlib.html" class="hide-sm">Std</a>
-      <a class="gh" href="https://github.com/ordnary-com/brim" aria-label="Brim on GitHub">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-        <span class="hide-sm">GitHub</span>
-      </a>
+      <a class="opt" href="docs/std/">Reference</a>
+      <a class="opt" href="https://registry.brimlang.com">Packages</a>
     </nav>
+    <div class="right">
+      <a href="https://github.com/ordnary-com/brim">GitHub</a>
+    </div>
   </div>
 </header>
 
-<main>
-<div class="hero">
+<div class="banner">
   <div class="wrap">
-    <div>
-      <a class="badge" href="https://github.com/ordnary-com/brim/releases"><span class="dot"></span>Brim 0.2 is out: HTTP, JSON and TCP in the standard library</a>
-      <h1>Backend code that is <em>hard to get wrong</em></h1>
-      <p class="lead">Brim is a small, statically typed language by Ordnary for command-line tools and backend services. It keeps Go's simplicity, compiles to native executables through LLVM, and makes the compiler catch what Go lets through.</p>
-      <div class="actions">
-        <a class="btn primary" href="docs/getting-started.html">Get started</a>
-        <a class="btn secondary" href="docs/tour.html">Take the tour</a>
-        <a class="btn secondary" href="docs/playground.html">Try it online</a>
-      </div>
-      <div class="install-tabs" role="tablist" aria-label="Install command">
-        <button role="tab" aria-selected="true" data-cmd="curl -fsSL https://raw.githubusercontent.com/ordnary-com/brim/main/install.sh | sh">macOS / Linux</button>
-        <button role="tab" aria-selected="false" data-cmd="brew install ordnary-com/tap/brim">Homebrew</button>
-        <button role="tab" aria-selected="false" data-cmd="irm https://raw.githubusercontent.com/ordnary-com/brim/main/install.ps1 | iex">Windows</button>
-      </div>
-      <div class="install">
-        <span class="prompt">$</span>
-        <code id="install-cmd">curl -fsSL https://raw.githubusercontent.com/ordnary-com/brim/main/install.sh | sh</code>
-        <button class="copy" id="copy" type="button">Copy</button>
-      </div>
-    </div>
-
-    <div class="window" aria-label="A small HTTP server in Brim">
-      <div class="bar"><i></i><i></i><i></i><span>server.brim</span></div>
-<pre><code><span class="k">import</span> std.http
-<span class="k">import</span> std.log
-
-<span class="k">fn</span> <span class="f">run</span>(port: <span class="t">i64</span>) -&gt; <span class="t">Result</span>[<span class="t">i64</span>, <span class="t">string</span>] {
-    <span class="k">let</span> server: http.<span class="t">Server</span> = http.serve(<span class="s">"127.0.0.1"</span>, port)?
-    log.info(<span class="s">"listening on port "</span> + to_string(port))
-    <span class="k">while</span> <span class="k">true</span> {
-        <span class="k">let</span> request: http.<span class="t">Request</span> = server.next()?
-        request.respond(http.text(<span class="n">200</span>, <span class="s">"Hello from Brim!"</span>))?
-    }
-}
-
-<span class="k">fn</span> <span class="f">main</span>() {
-    <span class="k">match</span> run(<span class="n">8080</span>) {
-        <span class="t">Ok</span>(_) =&gt; {}
-        <span class="t">Err</span>(e) =&gt; log.error(e)
-    }
-}</code></pre>
-    </div>
+    Brim 0.4.0 is released, with typed JSON, a PostgreSQL client and generated Angular clients.
+    <a href="https://github.com/ordnary-com/brim/releases/tag/v0.4.0">Release notes</a>
   </div>
 </div>
 
-<section class="alt" id="why">
+<section class="hero">
   <div class="wrap">
-    <p class="eyebrow">Why Brim</p>
-    <h2>Keep what makes Go productive.<br>Design out what costs time.</h2>
-    <p class="intro">Brim grew out of the bugs Ordnary kept fixing in Go services. Most of them come from Go's core design, so they cannot be fixed in Go itself.</p>
-    <div class="features">
-      <div class="feature">
-        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>
-        <h3>Errors you cannot ignore</h3>
-        <p>Errors are values: <code>Result[T, E]</code> with the <code>?</code> operator to pass them up. No exceptions, and no <code>_</code> to quietly throw one away.</p>
+    <div>
+      <p class="label">News, October 2026</p>
+      <h1>The Brim package registry is live</h1>
+      <p class="lead">Brim packages now have a home at registry.brimlang.com. Add a package to <code>brim.toml</code> by version and brim resolves it, downloads it and records the exact version in <code>brim.lock</code>. Publishing your own package takes one command.</p>
+      <div class="actions">
+        <a class="btn primary" href="docs/projects.html#publishing">Publish a package</a>
+        <a class="btn outline" href="docs/projects.html#dependencies">Use packages</a>
       </div>
-      <div class="feature">
-        <div class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></svg></div>
-        <h3>No null</h3>
-        <p>There is no <code>nil</code>. Absence is an explicit <code>Option[T]</code> that the compiler checks, so there are no nil pointer panics.</p>
-      </div>
-      <div class="feature">
-        <div class="icon"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h6"/><path d="m16 16 2 2 4-4"/></svg></div>
-        <h3>Real enums, exhaustive match</h3>
-        <p>Enums carry data, and every <code>match</code> must cover every case, at every depth. Add a variant and the compiler lists each place to update.</p>
-      </div>
-      <div class="feature">
-        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 2v6M12 16v6M4.9 4.9l4.2 4.2M14.9 14.9l4.2 4.2M2 12h6M16 12h6"/></svg></div>
-        <h3>Checked integers</h3>
-        <p>Overflow never wraps silently. It stops the program with an error pointing at the exact expression, plus the call stack.</p>
-      </div>
-      <div class="feature">
-        <div class="icon"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
-        <h3>Immutable by default</h3>
-        <p>Variables need <code>let mut</code> to change, and must be initialised. No implicit zero values hiding a forgotten field.</p>
-      </div>
-      <div class="feature">
-        <div class="icon"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/><path d="M9 12h6"/></svg></div>
-        <h3>One type system, front to back</h3>
-        <p><code>brim gen ts</code> turns your API types into TypeScript, so renaming a field breaks the frontend build, not the browser.</p>
-      </div>
+    </div>
+    <div class="term">
+      <div class="term-bar">brim.toml</div>
+<pre><span class="c">[package]</span>
+name = "orders"
+version = "0.1.0"
+license = "Apache-2.0"
+
+<span class="c">[dependencies]</span>
+router = "1.2"</pre>
+      <div class="term-bar">Terminal</div>
+<pre><span class="p">$</span> brim login
+<span class="p">$</span> brim publish
+<span class="o">published orders 0.1.0 to https://registry.brimlang.com</span></pre>
     </div>
   </div>
 </section>
 
-<section id="compiler">
-  <div class="wrap">
-    <div class="split">
-      <div class="copytext">
-        <p class="eyebrow">A helpful compiler</p>
-        <h2>Diagnostics that tell you what to do next.</h2>
-        <p>Every diagnostic has a code, points at the source and usually says how to fix the problem. Forget a case and Brim names the value nobody handles.</p>
-        <ul>
-          <li>Exhaustiveness checked for nested patterns and guards</li>
-          <li>Run-time errors show the call stack, with a stable <code>R</code> code</li>
-          <li>The same errors in your editor through <code>brim lsp</code></li>
-        </ul>
-      </div>
-      <div class="stack">
-        <div class="window">
-          <div class="bar"><i></i><i></i><i></i><span>brim check accounts.brim</span></div>
-<pre><code><span class="e">error[E0229]</span>: `match` does not cover every value
- <span class="d">--&gt;</span> accounts.brim:8:11
-  <span class="d">|</span>
-<span class="d">8 |</span>     match s {
-  <span class="d">|</span>           <span class="e">^ some values have no matching arm</span>
-  <span class="d">|</span>
-  <span class="d">=</span> <span class="w">note</span>: not covered: `Closed`
-  <span class="d">=</span> <span class="g">help</span>: add an arm for each, or a `_ =&gt; ...` arm</code></pre>
-        </div>
-        <div class="window">
-          <div class="bar"><i></i><i></i><i></i><span>brim run billing.brim</span></div>
-<pre><code><span class="e">error[R0001]</span>: integer overflow in `+`
- <span class="d">--&gt;</span> billing.brim:2:12
-  <span class="d">|</span>
-<span class="d">2 |</span>     return total + fee
-  <span class="d">|</span>            <span class="e">^^^^^^^^^^^</span>
-  <span class="d">|</span>
-  <span class="d">=</span> <span class="w">note</span>: call stack: main -&gt; charge</code></pre>
+<main>
+  <section class="band">
+    <div class="wrap two">
+      <div>
+        <h2>Build reliable backend services and tools</h2>
+        <p class="intro">Brim is an open source, statically typed programming language from Ordnary. It has no null and no exceptions, runs on an interpreter during development and compiles to native code with LLVM.</p>
+        <div class="actions">
+          <a class="btn primary" href="docs/getting-started.html">Get started</a>
+          <a class="btn outline" href="https://github.com/ordnary-com/brim/releases">Download</a>
         </div>
       </div>
-    </div>
-
-    <div class="split reverse">
-      <div class="stack">
-        <div class="window">
-          <div class="bar"><i></i><i></i><i></i><span>api.brim</span></div>
-<pre><code><span class="k">pub</span> <span class="k">struct</span> <span class="t">Task</span> {
-    id: <span class="t">i64</span>,
-    title: <span class="t">string</span>,
-    assignee: <span class="t">Option</span>[<span class="t">string</span>],
-}
-
-<span class="k">pub</span> <span class="k">enum</span> <span class="t">Priority</span> {
-    <span class="t">Low</span>,
-    <span class="t">High</span>,
-}</code></pre>
-        </div>
-        <div class="window">
-          <div class="bar"><i></i><i></i><i></i><span>brim gen ts &gt; api.ts</span></div>
-<pre><code><span class="k">export</span> <span class="k">interface</span> <span class="t">Task</span> {
-  id: <span class="t">number</span>;
-  title: <span class="t">string</span>;
-  assignee: <span class="t">string</span> | <span class="k">null</span>;
-}
-
-<span class="k">export</span> <span class="k">type</span> <span class="t">Priority</span> = <span class="s">"Low"</span> | <span class="s">"High"</span>;</code></pre>
-        </div>
-      </div>
-      <div class="copytext">
-        <p class="eyebrow">Backend and frontend</p>
-        <h2>Declare API types once.</h2>
-        <p>A Brim backend shares its API types with a TypeScript frontend. Every <code>pub</code> struct and enum becomes a TypeScript declaration, so a breaking change is a compile error on both sides.</p>
-        <ul>
-          <li><code>Option[T]</code> maps to <code>T | null</code></li>
-          <li>Plain enums become string unions</li>
-          <li>Run it in CI to keep both sides in step</li>
-        </ul>
+      <div class="install">
+        <p>macOS and Linux</p>
+        <code>curl -fsSL https://brimlang.com/install.sh | sh</code>
+        <p>Windows (PowerShell)</p>
+        <code>irm https://brimlang.com/install.ps1 | iex</code>
+        <p>Homebrew</p>
+        <code>brew install ordnary-com/tap/brim</code>
       </div>
     </div>
-  </div>
-</section>
+  </section>
 
-<section class="alt" id="tools">
-  <div class="wrap">
-    <p class="eyebrow">Batteries included</p>
-    <h2>One command for everything.</h2>
-    <p class="intro">Running, testing, formatting, dependencies and editor support all live in the <code>brim</code> command. Programs run on an interpreter while you work and compile to native executables when you ship.</p>
-    <div class="commands">
-      <div class="cmd"><code>brim run</code><p>Check a program and run it right away</p></div>
-      <div class="cmd"><code>brim build</code><p>Compile a native executable with LLVM</p></div>
-      <div class="cmd"><code>brim test</code><p>Run the tests, optionally filtered</p></div>
-      <div class="cmd"><code>brim fmt</code><p>One style, no options, for every program</p></div>
-      <div class="cmd"><code>brim new</code><p>Create a project with <code>brim.toml</code></p></div>
-      <div class="cmd"><code>brim update</code><p>Update git dependencies in <code>brim.lock</code></p></div>
-      <div class="cmd"><code>brim gen ts</code><p>Write TypeScript types for your API</p></div>
-      <div class="cmd"><code>brim lsp</code><p>Errors, hover and go to definition in your editor</p></div>
-      <div class="cmd"><code>brim check</code><p>Report errors without running anything</p></div>
+  <section class="band gray" id="use">
+    <div class="wrap">
+      <h2>What you can build with Brim</h2>
+      <p class="intro">Brim is designed for the programs that run a business: services that answer requests, tools that run in a terminal or a pipeline, and the API between a backend and its web frontend.</p>
+      <div class="grid3">
+        <div>
+          <h3>Backend services</h3>
+          <p>An HTTP server and client, a PostgreSQL client, JSON and logging are part of the standard library. Programs compile to a single native executable that fits in a small container image.</p>
+          <p class="links"><a href="docs/stdlib.html#http-stdhttp">std.http</a><a href="docs/stdlib.html#databases-stdpostgres">std.postgres</a></p>
+        </div>
+        <div>
+          <h3>Command-line tools</h3>
+          <p>Read files and directories, run other programs and parse arguments. Ship one executable for Linux, macOS or Windows, with no runtime to install.</p>
+          <p class="links"><a href="docs/stdlib.html#directories-and-more-stdfs">std.fs</a><a href="docs/stdlib.html#running-programs-stdprocess">std.process</a></p>
+        </div>
+        <div>
+          <h3>Typed web APIs</h3>
+          <p>Write an API as plain functions and serve them with <code>serve_api</code>. <code>brim gen ts --angular</code> generates the TypeScript types and an Angular client from the same code.</p>
+          <p class="links"><a href="docs/tools.html#an-angular-client">Generated clients</a></p>
+        </div>
+      </div>
     </div>
-  </div>
-</section>
+  </section>
 
-<section class="cta" id="start">
-  <div class="wrap">
-    <p class="eyebrow">Start building</p>
-    <h2>Write your first Brim program in a minute.</h2>
-    <p class="intro">Brim is young (0.2, edition 2026) and moving fast. The roadmap lists exactly what works today and what comes next.</p>
-    <div class="actions">
-      <a class="btn primary" href="docs/getting-started.html">Get started</a>
-      <a class="btn secondary" href="https://github.com/ordnary-com/brim">View on GitHub</a>
+  <section class="band" id="why">
+    <div class="wrap">
+      <h2>Why Brim</h2>
+      <p class="intro">Brim keeps the small, readable syntax of languages like Go and adds the checks that catch common bugs at compile time instead of in production.</p>
+      <div class="grid3">
+        <div>
+          <h3>No null values</h3>
+          <p>A value that may be absent has the type <code>Option[T]</code>. The compiler does not allow it to be used as a plain value.</p>
+          <p class="links"><a href="docs/tour.html#errors-option-result-and-">Option and Result</a></p>
+        </div>
+        <div>
+          <h3>Exhaustive matching</h3>
+          <p>Enums carry data, and every <code>match</code> must handle every case. Adding a variant shows each place that needs an update.</p>
+          <p class="links"><a href="docs/tour.html#enums-and-match">Enums and match</a></p>
+        </div>
+        <div>
+          <h3>Errors as values</h3>
+          <p>Functions that can fail return a <code>Result</code>. The <code>?</code> operator passes an error to the caller; it cannot be ignored silently.</p>
+          <p class="links"><a href="docs/tour.html#errors-option-result-and-">Errors and ?</a></p>
+        </div>
+        <div>
+          <h3>Checked arithmetic</h3>
+          <p>Integer overflow stops the program with an error that points to the expression and shows the call stack.</p>
+          <p class="links"><a href="docs/tour.html#numbers">Numbers</a></p>
+        </div>
+        <div>
+          <h3>Clear compiler messages</h3>
+          <p>Every diagnostic has a code, points to the source and explains how to fix the problem. Editors show the same messages through the language server.</p>
+          <p class="links"><a href="docs/docs/error-handling.html">Diagnostic codes</a></p>
+        </div>
+        <div>
+          <h3>One tool</h3>
+          <p>The <code>brim</code> command runs, builds, tests, formats and documents programs, manages dependencies and publishes packages.</p>
+          <p class="links"><a href="docs/tools.html">Tools and editors</a></p>
+        </div>
+      </div>
     </div>
-    <div class="paths">
-      <a class="path" href="docs/tour.html"><span class="arrow">&rarr;</span><strong>A tour of Brim</strong><span>The language in one page</span></a>
-      <a class="path" href="docs/stdlib.html"><span class="arrow">&rarr;</span><strong>Standard library</strong><span>http, json, net, time, log</span></a>
-      <a class="path" href="docs/docs/language-spec.html"><span class="arrow">&rarr;</span><strong>Specification</strong><span>Every rule, precisely</span></a>
-      <a class="path" href="docs/docs/roadmap.html"><span class="arrow">&rarr;</span><strong>Roadmap</strong><span>What is done and what is next</span></a>
+  </section>
+
+  <section class="band gray start">
+    <div class="wrap">
+      <h2>Get started with Brim</h2>
+      <p class="intro">Install Brim, follow the tour and explore the standard library and packages.</p>
+      <div class="grid3">
+        <a class="card" href="docs/getting-started.html"><h3>Install Brim</h3><p>Install the compiler on macOS, Linux or Windows and write your first program.</p></a>
+        <a class="card" href="docs/tour.html"><h3>Take the tour</h3><p>Learn the language in one page, from variables to generics and traits.</p></a>
+        <a class="card" href="docs/stdlib.html"><h3>Standard library</h3><p>A guide to every module, from std.http and std.json to std.postgres.</p></a>
+      </div>
     </div>
-  </div>
-</section>
+  </section>
 </main>
 
-<footer>
-  <div class="wrap">
-    <span>Brim is built by Ordnary and released under the Apache 2.0 license.</span>
-    <nav>
-      <a href="docs/">Docs</a>
-      <a href="https://github.com/ordnary-com/brim/releases">Releases</a>
-      <a href="https://github.com/ordnary-com/brim/blob/main/CHANGELOG.md">Changelog</a>
-      <a href="https://github.com/ordnary-com/brim">GitHub</a>
-    </nav>
+<footer class="foot">
+  <div class="wrap cols">
+    <div>
+      <h4>Learn</h4>
+      <ul>
+        <li><a href="docs/getting-started.html">Getting started</a></li>
+        <li><a href="docs/tour.html">Tour</a></li>
+        <li><a href="docs/projects.html">Projects and dependencies</a></li>
+        <li><a href="docs/stdlib.html">Standard library guide</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Reference</h4>
+      <ul>
+        <li><a href="docs/docs/language-spec.html">Language specification</a></li>
+        <li><a href="docs/std/">Standard library reference</a></li>
+        <li><a href="docs/docs/error-handling.html">Diagnostic codes</a></li>
+        <li><a href="docs/tools.html">Tools</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Ecosystem</h4>
+      <ul>
+        <li><a href="https://registry.brimlang.com">Packages</a></li>
+        <li><a href="docs/tools.html#editors">Editor support</a></li>
+        <li><a href="https://github.com/ordnary-com/brim/releases">Releases</a></li>
+        <li><a href="https://github.com/ordnary-com/brim">Source code</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Project</h4>
+      <ul>
+        <li><a href="docs/docs/roadmap.html">Roadmap</a></li>
+        <li><a href="https://github.com/ordnary-com/brim/blob/main/CONTRIBUTING.md">Contributing</a></li>
+        <li><a href="https://github.com/ordnary-com/brim/blob/main/SECURITY.md">Security</a></li>
+        <li><a href="https://ordnary.com">Ordnary</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="wrap base">
+    <span>Copyright 2026 Ordnary.</span>
+    <span>Brim is open source under the <a href="https://github.com/ordnary-com/brim/blob/main/LICENSE">Apache License 2.0</a>.</span>
   </div>
 </footer>
-
-<script>
-(function () {
-  var cmd = document.getElementById("install-cmd");
-  var copy = document.getElementById("copy");
-  var tabs = document.querySelectorAll(".install-tabs button");
-  tabs.forEach(function (tab) {
-    tab.addEventListener("click", function () {
-      tabs.forEach(function (t) { t.setAttribute("aria-selected", t === tab ? "true" : "false"); });
-      cmd.textContent = tab.dataset.cmd;
-      cmd.parentElement.querySelector(".prompt").textContent = tab.textContent === "Windows" ? ">" : "$";
-    });
-  });
-  copy.addEventListener("click", function () {
-    if (!navigator.clipboard) return;
-    navigator.clipboard.writeText(cmd.textContent).then(function () {
-      copy.textContent = "Copied";
-      setTimeout(function () { copy.textContent = "Copy"; }, 1500);
-    });
-  });
-})();
-</script>
 </body>
 </html>

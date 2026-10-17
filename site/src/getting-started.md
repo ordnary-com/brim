@@ -5,13 +5,13 @@
 On macOS or Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ordnary-com/brim/main/install.sh | sh
+curl -fsSL https://brimlang.com/install.sh | sh
 ```
 
 On Windows, in PowerShell:
 
 ```sh
-irm https://raw.githubusercontent.com/ordnary-com/brim/main/install.ps1 | iex
+irm https://brimlang.com/install.ps1 | iex
 ```
 
 The script picks the build for your platform, checks its checksum and

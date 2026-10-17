@@ -1,5 +1,5 @@
-//! The Brim interpreter for the browser: the online playground runs
-//! programs with [`run`], compiled to WebAssembly (`wasm32-wasip1`).
+//! The Brim interpreter for the browser: runs programs with [`run`],
+//! compiled to WebAssembly (`wasm32-wasip1`).
 //!
 //! A program gets the text typed as its standard input, can import only
 //! `std` modules, and stops with the run-time error `R0009` after

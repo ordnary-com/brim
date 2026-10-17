@@ -1,6 +1,6 @@
 # Installs brim on Windows from the GitHub releases.
 #
-#   irm https://raw.githubusercontent.com/ordnary-com/brim/main/install.ps1 | iex
+#   irm https://brimlang.com/install.ps1 | iex
 #
 # $env:BRIM_VERSION picks a version (default: the latest release) and
 # $env:BRIM_INSTALL the directory (default: %LOCALAPPDATA%\Programs\brim).

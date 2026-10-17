@@ -108,10 +108,10 @@ scripts/bench.py --compare before.json
 The native test suite also runs them, so their output stays the same in
 the interpreter and native code.
 
-## Playground
+## WebAssembly
 
-The site's playground runs the interpreter as WebAssembly. Build and check
-it with:
+`crates/brim-playground` builds the interpreter as WebAssembly, for running
+Brim in a browser. Build and check it with:
 
 ```sh
 rustup target add wasm32-wasip1
@@ -119,8 +119,8 @@ cargo build --release --target wasm32-wasip1 -p brim-playground
 node crates/brim-playground/smoke.js target/wasm32-wasip1/release/brim_playground.wasm
 ```
 
-The page (`site/src/playground.md`, `site/src/playground/`) loads it from
-`docs/playground/brim.wasm`, which the site workflow copies there.
+`crates/brim-playground/brim-wasm.js` loads it, in Node or in a browser
+worker.
 
 ## Documentation site
 

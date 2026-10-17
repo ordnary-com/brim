@@ -1,0 +1,24 @@
+/* The docs match the landing page: white, with the blue of the Brim logo
+   and the system fonts. */
+:root {
+  --mono-font: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+html { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+.light {
+  --links: #015efe;
+  --sidebar-bg: #f6f7f9;
+  --sidebar-fg: #1f2328;
+  --sidebar-non-existant: #8c959f;
+  --sidebar-active: #015efe;
+  --sidebar-spacer: #e8ebef;
+  --fg: #1f2328;
+  --icons: #57606a;
+  --icons-hover: #015efe;
+  --quote-bg: #f6f8fa;
+  --quote-border: #015efe;
+  --inline-code-color: #1f2328;
+  --searchbar-border-color: #d8dee4;
+}
+.light .content a:hover { text-decoration: underline; }
+/* Only the white theme: hide the theme picker. */
+#theme-toggle { display: none; }

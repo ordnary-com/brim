@@ -146,10 +146,10 @@ The [roadmap](docs/roadmap.md) lists the milestones in order.
 Install the latest release on macOS or Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ordnary-com/brim/main/install.sh | sh
+curl -fsSL https://brimlang.com/install.sh | sh
 ```
 
-On Windows (PowerShell): `irm https://raw.githubusercontent.com/ordnary-com/brim/main/install.ps1 | iex`.
+On Windows (PowerShell): `irm https://brimlang.com/install.ps1 | iex`.
 
 To build from source, you need Rust 1.88 or newer, installed with [rustup](https://rustup.rs). LLVM is only needed for native builds (see below).
 
@@ -238,7 +238,7 @@ tests/              lexer, parser, diagnostics and integration fixtures
 
 ## Documentation
 
-- [Documentation site](https://ordnary-com.github.io/brim/): a tour of the language, guides and the reference (source in `site/`)
+- [Documentation site](https://brimlang.com/): a tour of the language, guides and the reference (source in `site/`)
 - [Language specification](docs/language-spec.md)
 - [Architecture](docs/architecture.md)
 - [Error handling and diagnostic codes](docs/error-handling.md)

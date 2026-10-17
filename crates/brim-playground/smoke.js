@@ -1,12 +1,12 @@
-// Runs programs through the playground's WebAssembly in Node, the way the
-// page does:
+// Runs programs through the interpreter's WebAssembly in Node, the way a
+// browser page would:
 //
 //   cargo build --release --target wasm32-wasip1 -p brim-playground
 //   node crates/brim-playground/smoke.js target/wasm32-wasip1/release/brim_playground.wasm
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
-const { loadBrim } = require(path.join(__dirname, '../../site/src/playground/brim-wasm.js'));
+const { loadBrim } = require(path.join(__dirname, 'brim-wasm.js'));
 
 (async () => {
   const run = await loadBrim(fs.readFileSync(process.argv[2]));

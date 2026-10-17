@@ -1,0 +1,125 @@
+/* The landing page of brimlang.com: white, with the blue of the Brim
+   logo as the accent. */
+:root {
+  --blue: #015efe;
+  --blue-dark: #004bd0;
+  --bg: #ffffff;
+  --bg-2: #f6f7f9;
+  --text: #1f2328;
+  --text-2: #57606a;
+  --border: #d8dee4;
+  --border-2: #e8ebef;
+  --code-bg: #f6f8fa;
+  --t-type: #0a7d6b;
+  --mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 var(--sans); }
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font-family: var(--mono); font-size: .92em; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+
+/* ---- header ---------------------------------------------------------- */
+.top { border-bottom: 1px solid var(--border-2); background: var(--bg); }
+.top .wrap { display: flex; align-items: center; gap: 32px; height: 60px; }
+.top .logo img { height: 22px; display: block; }
+.top nav { display: flex; gap: 24px; font-size: 15px; }
+.top nav a { color: var(--text); }
+.top nav a:hover, .top nav a[aria-current="page"] { color: var(--blue); text-decoration: none; }
+.top .right { margin-left: auto; display: flex; gap: 20px; font-size: 15px; }
+.top .right a { color: var(--text-2); }
+
+/* ---- announcement banner, above the blue hero ------------------------ */
+.banner { background: #dce9ff; color: #0b2a66; font-size: 15px; }
+.banner .wrap { padding-top: 11px; padding-bottom: 11px; text-align: center; }
+.banner strong { font-weight: 600; margin-right: 6px; }
+.banner a { color: var(--blue); font-weight: 600; margin-left: 6px; white-space: nowrap; }
+
+/* ---- buttons --------------------------------------------------------- */
+.btn {
+  display: inline-block; font: 500 15px var(--sans); border-radius: 6px; padding: 10px 20px;
+  border: 1px solid var(--blue); cursor: pointer; text-decoration: none;
+}
+.btn:hover { text-decoration: none; }
+.btn.primary { background: var(--blue); color: #fff; }
+.btn.primary:hover { background: var(--blue-dark); border-color: var(--blue-dark); }
+.btn.outline { background: transparent; color: var(--blue); }
+.btn.outline:hover { background: var(--bg-2); }
+
+/* ---- hero: the latest news, on blue --------------------------------- */
+.hero { background: var(--blue); color: #fff; padding: 64px 0 72px; }
+.hero .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: center; }
+.hero a { color: #fff; }
+.hero .label { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: rgba(255, 255, 255, .8); text-transform: uppercase; letter-spacing: .04em; }
+.hero h1 { font-size: 40px; line-height: 1.2; font-weight: 600; margin: 0 0 18px; }
+.hero .lead { font-size: 18px; line-height: 1.6; color: rgba(255, 255, 255, .92); margin: 0 0 28px; }
+.hero code { background: rgba(255, 255, 255, .16); padding: 1px 5px; border-radius: 4px; }
+.hero .btn.primary { background: #fff; border-color: #fff; color: var(--blue); }
+.hero .btn.primary:hover { background: #e8f0ff; border-color: #e8f0ff; }
+.hero .btn.outline { border-color: rgba(255, 255, 255, .7); color: #fff; }
+.hero .btn.outline:hover { background: rgba(255, 255, 255, .1); }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; }
+
+.term { background: #fff; color: var(--text); border-radius: 8px; overflow: hidden; box-shadow: 0 8px 28px rgba(0, 20, 70, .28); }
+.term-bar { font-size: 13px; color: var(--text-2); padding: 8px 16px; background: var(--bg-2); border-bottom: 1px solid var(--border-2); }
+.term pre { margin: 0; padding: 14px 16px; font: 14px/1.6 var(--mono); overflow-x: auto; }
+.term pre + .term-bar { border-top: 1px solid var(--border-2); }
+.term .c { color: var(--t-type); }
+.term .p { color: var(--text-2); user-select: none; }
+.term .o { color: var(--text-2); }
+
+/* ---- sections -------------------------------------------------------- */
+.band { padding: 64px 0; }
+.band.gray { background: var(--bg-2); }
+.band h2 { font-size: 28px; font-weight: 600; margin: 0 0 8px; }
+.band .intro { color: var(--text-2); font-size: 17px; margin: 0 0 32px; max-width: 70ch; }
+.band h3 { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
+.band p { margin: 0 0 10px; color: var(--text-2); }
+.two { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 56px; align-items: center; }
+.two .intro { margin-bottom: 24px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 36px 40px; }
+.links { font-size: 15px; }
+.links a { margin-right: 16px; }
+.install p { margin: 0 0 6px; font-size: 14px; }
+.install code {
+  display: block; margin: 0 0 16px; padding: 9px 12px; color: var(--text); background: var(--code-bg);
+  border: 1px solid var(--border-2); border-radius: 6px; overflow-x: auto; white-space: nowrap;
+}
+.start a.card { display: block; border: 1px solid var(--border); border-radius: 8px; padding: 20px; background: var(--bg); color: var(--text); }
+.start a.card:hover { border-color: var(--blue); text-decoration: none; }
+.start a.card h3 { color: var(--blue); }
+
+@media (max-width: 960px) {
+  .hero .wrap, .two { grid-template-columns: 1fr; gap: 36px; }
+  .grid3 { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px) {
+  .hero { padding: 40px 0 48px; }
+  .hero h1 { font-size: 30px; }
+  .band { padding: 48px 0; }
+}
+
+/* ---- footer ---------------------------------------------------------- */
+.foot { background: var(--bg-2); border-top: 1px solid var(--border-2); font-size: 14px; }
+.foot .cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; padding: 40px 24px 28px; }
+.foot h4 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+.foot ul { list-style: none; margin: 0; padding: 0; }
+.foot li { margin: 6px 0; }
+.foot a { color: var(--text-2); }
+.foot .base {
+  border-top: 1px solid var(--border-2); padding: 16px 24px 28px; color: var(--text-2);
+  display: flex; flex-wrap: wrap; gap: 8px 24px;
+}
+
+@media (max-width: 760px) {
+  .wrap { padding: 0 16px; }
+  .top .wrap { gap: 18px; }
+  .top nav { gap: 16px; font-size: 14px; }
+  .top nav .opt, .top .right .opt { display: none; }
+  .foot .cols { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 32px 16px 20px; }
+  .foot .base { padding: 16px; }
+}

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs brim from the GitHub releases.
 #
-#   curl -fsSL https://raw.githubusercontent.com/ordnary-com/brim/main/install.sh | sh
+#   curl -fsSL https://brimlang.com/install.sh | sh
 #
 # Options (as environment variables):
 #   BRIM_VERSION   a version such as 0.1.1 (default: the latest release)

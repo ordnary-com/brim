@@ -1,13 +1,14 @@
 name: Site
 
-# Builds the site on every change: the landing page (site/landing/) at the
-# root and the documentation (site/, with mdBook) under /docs/. It
+# Builds brimlang.com on every change: the landing page (site/landing/) at
+# the root, the documentation (site/, with mdBook) under /docs/ and the
+# install scripts. It
 # publishes them to GitHub Pages when the repository variable SITE_DEPLOY is
 # "true" (Pages must use "GitHub Actions" as its source).
 on:
   push:
     branches: [main]
-    paths: ["site/**", "docs/**", "crates/**", ".cargo/**", ".github/workflows/site.yml"]
+    paths: ["site/**", "docs/**", "crates/**", ".cargo/**", "install.sh", "install.ps1", ".github/workflows/site.yml"]
   pull_request:
     paths: ["site/**", "docs/**", "crates/**", ".cargo/**"]
   workflow_dispatch:
@@ -36,21 +37,16 @@ jobs:
           echo "$HOME/bin" >> "$GITHUB_PATH"
       - run: mdbook build site
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-wasip1
       - uses: Swatinem/rust-cache@v2
       - name: Add the standard library reference (brim doc --std)
         run: cargo run -q --locked -p brim-cli -- doc --std -o site/book/docs/std
-      - name: Add the playground's interpreter (WebAssembly)
+      - name: Add the landing page and the install scripts
         run: |
-          cargo build -q --locked --release --target wasm32-wasip1 -p brim-playground
-          node crates/brim-playground/smoke.js target/wasm32-wasip1/release/brim_playground.wasm
-          cp target/wasm32-wasip1/release/brim_playground.wasm site/book/docs/playground/brim.wasm
-      - name: Add the landing page
-        run: |
-          cp site/landing/* site/book/
+          cp -R site/landing/. site/book/
+          # `curl -fsSL https://brimlang.com/install.sh | sh`
+          cp install.sh install.ps1 site/book/
           # The guide pages used to live at the root; send old links on.
-          for page in introduction getting-started tour projects tools stdlib print; do
+          for page in introduction getting-started playground tour projects tools stdlib print; do
             printf '<!doctype html><meta charset="utf-8"><title>Moved</title><meta http-equiv="refresh" content="0; url=docs/%s.html"><link rel="canonical" href="docs/%s.html"><a href="docs/%s.html">Moved to docs/%s.html</a>\n' \
               "$page" "$page" "$page" "$page" > "site/book/$page.html"
           done
