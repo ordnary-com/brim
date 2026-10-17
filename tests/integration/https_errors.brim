@@ -1,4 +1,4 @@
-// https:// requests go through libcurl; these fail without needing the
+// https:// requests go through libcurl (WinHTTP on Windows); these fail without needing the
 // internet, and must fail the same way in the interpreter and natively.
 import std.http
 

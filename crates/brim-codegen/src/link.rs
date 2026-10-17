@@ -18,7 +18,8 @@ use crate::{BuildOptions, BuildOutput, CodegenError, OptLevel};
 /// The C source of the Brim runtime.
 pub(crate) const RUNTIME_SOURCE: &str = include_str!("../runtime/brim_rt.c");
 
-/// HTTPS through libcurl; linked only into programs that use it.
+/// HTTPS through libcurl (WinHTTP on Windows); linked only into programs
+/// that use it.
 const HTTPS_SOURCE: &str = include_str!("../runtime/brim_rt_https.c");
 
 pub(crate) fn link(
@@ -49,10 +50,7 @@ pub(crate) fn link(
     {
         let https = runtime_object(&linker, opt, "brim_rt_https", HTTPS_SOURCE, &dir, options)?;
         command.arg(&https);
-        // Windows builds have no libcurl (HTTPS fails there with a message).
-        if !cfg!(windows) {
-            command.arg("-lcurl");
-        }
+        command.arg(if cfg!(windows) { "-lwinhttp" } else { "-lcurl" });
     }
     if cfg!(windows) {
         // Winsock, the random source and the UTF-8 command line.

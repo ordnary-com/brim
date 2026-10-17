@@ -20,8 +20,7 @@ an archive from the [releases](https://github.com/ordnary-com/brim/releases)
 yourself and put `brim` on your `PATH`. The `-native` archives can also compile native executables
 with `brim build`; they need a C compiler to link: `cc` on Linux and
 macOS, and on Windows `clang` (from LLVM) with the Visual Studio C++ build
-tools. Native Windows programs cannot make HTTPS requests yet; `brim run`
-can.
+tools.
 
 Or build it from source with Rust 1.88 or newer:
 

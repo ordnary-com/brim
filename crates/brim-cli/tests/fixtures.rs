@@ -273,9 +273,7 @@ fn native_suite(release: bool) {
         .into_iter()
         .chain(programs("examples"))
         .chain(programs("benches"))
-        .chain(modules)
-        // Native Windows builds have no HTTPS yet (the interpreter has).
-        .filter(|p| !(cfg!(windows) && p.ends_with("https_errors.brim")));
+        .chain(modules);
     for program in programs {
         let interpreted = brim(&["run", &program]);
         let native = match run_native(&program, release) {
