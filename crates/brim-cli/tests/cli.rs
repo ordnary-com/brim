@@ -163,7 +163,7 @@ fn build_project_into_target() {
     let dir = scratch("build_project");
     fs::create_dir_all(dir.join("src")).unwrap();
     fs::write(
-        dir.join("brim.toml"),
+        dir.join(".brimproj"),
         "[package]\nname = \"greeter\"\nversion = \"0.1.0\"\nedition = \"2026\"\n",
     )
     .unwrap();
@@ -216,7 +216,7 @@ fn projects_with_manifests() {
     let dir = scratch("project_ok");
     fs::create_dir_all(dir.join("src")).unwrap();
     fs::write(
-        dir.join("brim.toml"),
+        dir.join(".brimproj"),
         "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2026\"\n",
     )
     .unwrap();
@@ -226,7 +226,7 @@ fn projects_with_manifests() {
     assert_eq!(stdout(&brim_in(&dir, &["run"])), "demo\n");
     assert_eq!(stdout(&brim_in(&dir.join("src"), &["run"])), "demo\n");
     assert_eq!(stdout(&brim_in(&dir, &["run", "."])), "demo\n");
-    assert_eq!(stdout(&brim_in(&dir, &["run", "brim.toml"])), "demo\n");
+    assert_eq!(stdout(&brim_in(&dir, &["run", ".brimproj"])), "demo\n");
 
     let out = brim_in(&dir, &["check"]);
     assert_eq!(stderr(&out), "ok: no errors found in src/main.brim\n");
@@ -236,7 +236,7 @@ fn projects_with_manifests() {
 fn manifest_errors() {
     let dir = scratch("project_bad");
     fs::write(
-        dir.join("brim.toml"),
+        dir.join(".brimproj"),
         "[package]\nname = \"Bad Name\"\nversion = \"1.0\"\nedition = \"2026\"\n",
     )
     .unwrap();
@@ -247,7 +247,7 @@ fn manifest_errors() {
         err.contains("error[M0002]: invalid package name `Bad Name`"),
         "{err}"
     );
-    assert!(err.contains(" --> brim.toml:2:8"), "{err}");
+    assert!(err.contains(" --> .brimproj:2:8"), "{err}");
     assert!(
         err.contains("error[M0003]: invalid package version `1.0`"),
         "{err}"
@@ -255,7 +255,7 @@ fn manifest_errors() {
 
     let dir = scratch("project_missing_entry");
     fs::write(
-        dir.join("brim.toml"),
+        dir.join(".brimproj"),
         "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2026\"\n",
     )
     .unwrap();
@@ -267,7 +267,7 @@ fn manifest_errors() {
     let dir = scratch("no_project");
     let out = brim_in(&dir, &["run"]);
     assert_eq!(out.status.code(), Some(2));
-    assert!(stderr(&out).contains("no brim.toml found"));
+    assert!(stderr(&out).contains("no .brimproj found"));
 }
 
 /// A program that uses its arguments, standard input and a file.
@@ -355,7 +355,7 @@ fn new_creates_a_project_that_builds_and_tests() {
     assert_eq!(stderr(&out), "created project `hello` in hello\n");
     let project = dir.join("hello");
     assert!(project.join(".gitignore").is_file());
-    let manifest = fs::read_to_string(project.join("brim.toml")).unwrap();
+    let manifest = fs::read_to_string(project.join(".brimproj")).unwrap();
     assert!(manifest.contains("name = \"hello\""), "{manifest}");
 
     let out = brim_in(&project, &["run"]);
@@ -447,7 +447,7 @@ fn fmt_formats_files_in_place() {
     fs::create_dir_all(dir.join("src/util")).unwrap();
     fs::create_dir_all(dir.join("target")).unwrap();
     fs::write(
-        dir.join("brim.toml"),
+        dir.join(".brimproj"),
         "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2026\"\n",
     )
     .unwrap();
@@ -519,7 +519,7 @@ fn path_dependencies() {
     fs::create_dir_all(dir.join("app/src")).unwrap();
     fs::create_dir_all(dir.join("geometry/src")).unwrap();
     fs::write(
-        dir.join("app/brim.toml"),
+        dir.join("app/.brimproj"),
         manifest("app", "geometry = { path = \"../geometry\" }\n"),
     )
     .unwrap();
@@ -528,7 +528,7 @@ fn path_dependencies() {
         "import geometry\nimport geometry.shapes.{square}\n\nfn main() {\n    print(geometry.area(square(3)))\n}\n\nfn test_app() {\n    assert(true)\n}\n",
     )
     .unwrap();
-    fs::write(dir.join("geometry/brim.toml"), manifest("geometry", "")).unwrap();
+    fs::write(dir.join("geometry/.brimproj"), manifest("geometry", "")).unwrap();
     fs::write(
         dir.join("geometry/src/lib.brim"),
         "import shapes.{Square}\n\npub fn area(s: Square) -> i64 {\n    return s.side * s.side\n}\n\nfn test_area() {\n    assert(false)\n}\n",
@@ -543,8 +543,8 @@ fn path_dependencies() {
     let app = dir.join("app");
     let out = brim_with_home(&app, &home, &["run"]);
     assert_eq!(stdout(&out), "9\n", "{}", stderr(&out));
-    assert_eq!(stderr(&out), "updated brim.lock\n");
-    let lock = fs::read_to_string(app.join("brim.lock")).unwrap();
+    assert_eq!(stderr(&out), "updated .brimlock\n");
+    let lock = fs::read_to_string(app.join(".brimlock")).unwrap();
     assert!(lock.contains("source = \"path+../geometry\""), "{lock}");
     let out = brim_with_home(&app, &home, &["run"]);
     assert_eq!(stderr(&out), "");
@@ -568,7 +568,7 @@ fn path_dependencies() {
     assert_eq!(stdout(&out), "1\n", "{}", stderr(&out));
 
     fs::write(
-        dir.join("app/brim.toml"),
+        dir.join("app/.brimproj"),
         manifest("app", "geometry = { path = \"../nowhere\" }\n"),
     )
     .unwrap();
@@ -605,7 +605,7 @@ fn git_dependencies_and_update() {
     let home = dir.join("home");
     let repo = dir.join("greet");
     fs::create_dir_all(repo.join("src")).unwrap();
-    fs::write(repo.join("brim.toml"), manifest("greet", "")).unwrap();
+    fs::write(repo.join(".brimproj"), manifest("greet", "")).unwrap();
     let publish = |text: &str| {
         fs::write(
             repo.join("src/lib.brim"),
@@ -627,7 +627,7 @@ fn git_dependencies_and_update() {
     let app = dir.join("app");
     fs::create_dir_all(app.join("src")).unwrap();
     fs::write(
-        app.join("brim.toml"),
+        app.join(".brimproj"),
         manifest("app", &format!("greet = {{ git = \"{url}\" }}\n")),
     )
     .unwrap();
@@ -639,9 +639,9 @@ fn git_dependencies_and_update() {
 
     let out = brim_with_home(&app, &home, &["run"]);
     assert_eq!(stdout(&out), "hello v1\n", "{}", stderr(&out));
-    assert_eq!(stderr(&out), format!("fetched {url}\nupdated brim.lock\n"));
+    assert_eq!(stderr(&out), format!("fetched {url}\nupdated .brimlock\n"));
     assert!(
-        fs::read_to_string(app.join("brim.lock"))
+        fs::read_to_string(app.join(".brimlock"))
             .unwrap()
             .contains("commit = \"")
     );
@@ -825,12 +825,12 @@ fn workspaces() {
     fs::create_dir_all(ws.join("apps/tool/src")).unwrap();
     fs::create_dir_all(ws.join("shared/src")).unwrap();
     fs::write(
-        ws.join("brim.toml"),
+        ws.join(".brimproj"),
         "[workspace]\nmembers = [\"apps/*\", \"shared\"]\n",
     )
     .unwrap();
     fs::write(
-        ws.join("apps/api/brim.toml"),
+        ws.join("apps/api/.brimproj"),
         manifest(
             "api",
             "shared = { path = \"../../shared\", version = \"0.1\" }\n",
@@ -842,14 +842,14 @@ fn workspaces() {
         "import shared\n\nfn main() {\n    print(shared.banner(\"api\"))\n}\n",
     )
     .unwrap();
-    fs::write(ws.join("apps/tool/brim.toml"), manifest("tool", "")).unwrap();
+    fs::write(ws.join("apps/tool/.brimproj"), manifest("tool", "")).unwrap();
     fs::write(
         ws.join("apps/tool/src/main.brim"),
         "fn main() {\n    print(\"tool\")\n}\n\nfn test_tool() {\n    assert(true)\n}\n",
     )
     .unwrap();
     fs::write(
-        ws.join("shared/brim.toml"),
+        ws.join("shared/.brimproj"),
         manifest("shared", "").replace(
             "edition = \"2026\"",
             "edition = \"2026\"\ndescription = \"Shared\"\nlicense = \"MIT\"",
@@ -868,11 +868,11 @@ fn workspaces() {
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     assert_eq!(
         stderr(&out),
-        "updated brim.lock\nok: no errors found in apps/api/src/main.brim\n\
+        "updated .brimlock\nok: no errors found in apps/api/src/main.brim\n\
          ok: no errors found in apps/tool/src/main.brim\n\
          ok: no errors found in shared/src/lib.brim\n"
     );
-    assert!(ws.join("brim.lock").is_file());
+    assert!(ws.join(".brimlock").is_file());
     let out = brim_with_home(&ws, &home, &["test"]);
     assert_eq!(out.status.code(), Some(0), "{}", stdout(&out));
     assert_eq!(stdout(&out).matches("test result: ok").count(), 3);
@@ -890,7 +890,7 @@ fn workspaces() {
     // In a member's directory: that member, with the root's lock file.
     let out = brim_with_home(&ws.join("apps/tool"), &home, &["run"]);
     assert_eq!(stdout(&out), "tool\n", "{}", stderr(&out));
-    assert!(!ws.join("apps/tool/brim.lock").exists());
+    assert!(!ws.join("apps/tool/.brimlock").exists());
     let out = brim_with_home(&ws, &home, &["check", "-p", "nope"]);
     assert_eq!(out.status.code(), Some(2));
     assert!(stderr(&out).contains("the workspace has no package `nope`"));
@@ -898,7 +898,7 @@ fn workspaces() {
     // Publishing packs the files and keeps the version of a path dependency.
     let out = brim_with_home(&ws, &home, &["publish", "-p", "shared", "--dry-run"]);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
-    assert_eq!(stdout(&out), "README.md\nbrim.toml\nsrc/lib.brim\n");
+    assert_eq!(stdout(&out), ".brimproj\nREADME.md\nsrc/lib.brim\n");
     assert!(ws.join("target/package/shared-0.1.0.tar.gz").is_file());
     let out = brim_with_home(&ws, &home, &["publish", "-p", "api", "--dry-run"]);
     assert_eq!(out.status.code(), Some(3));
@@ -929,7 +929,7 @@ fn extern_functions_call_c() {
         ""
     };
     fs::write(
-        dir.join("brim.toml"),
+        dir.join(".brimproj"),
         format!(
             "[package]\nname = \"cmath\"\nversion = \"0.1.0\"\nedition = \"2026\"\n\n\
              [build]\nc-sources = [\"c/glue.c\"]\n{link}"
@@ -986,4 +986,41 @@ fn extern_functions_call_c() {
         stdout(&out),
         stderr(&out)
     );
+}
+
+#[test]
+fn projects_with_the_old_file_names() {
+    let dir = scratch("old_names");
+    let home = dir.join("home");
+    fs::create_dir_all(dir.join("app/src")).unwrap();
+    fs::create_dir_all(dir.join("lib/src")).unwrap();
+    fs::write(
+        dir.join("app/brim.toml"),
+        manifest("app", "lib = { path = \"../lib\" }\n"),
+    )
+    .unwrap();
+    fs::write(
+        dir.join("app/src/main.brim"),
+        "import lib\n\nfn main() {\n    print(lib.answer())\n}\n",
+    )
+    .unwrap();
+    fs::write(dir.join("lib/brim.toml"), manifest("lib", "")).unwrap();
+    fs::write(
+        dir.join("lib/src/lib.brim"),
+        "pub fn answer() -> i64 {\n    return 42\n}\n",
+    )
+    .unwrap();
+    let app = dir.join("app");
+    fs::write(
+        app.join("brim.lock"),
+        "# This file is written by brim.\nversion = 1\n\n[[package]]\nname = \"lib\"\nversion = \"0.1.0\"\nsource = \"path+../lib\"\n",
+    )
+    .unwrap();
+
+    // Both old names still work; the lock file moves to its new name.
+    let out = brim_with_home(&app, &home, &["run"]);
+    assert_eq!(stdout(&out), "42\n", "{}", stderr(&out));
+    assert!(stderr(&out).contains("brim.toml is the old name of the project file"));
+    assert!(app.join(".brimlock").is_file());
+    assert!(!app.join("brim.lock").exists());
 }

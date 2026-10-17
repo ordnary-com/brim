@@ -1024,9 +1024,9 @@ These are not part of the language. The reserved words `async`, `await`, `type` 
 
 `docs/roadmap.md` says what comes after 1.0.
 
-## Appendix A. The `brim.toml` manifest
+## Appendix A. The `.brimproj` manifest
 
-Brim projects are described by a `brim.toml` file. Its format is part of the stable interface (see `docs/releasing.md`).
+Brim projects are described by a `.brimproj` file, in TOML. Its format is part of the stable interface (see `docs/releasing.md`). The lock file next to it is `.brimlock`. Before 1.0 the two were called `brim.toml` and `brim.lock`: a project with a `brim.toml` and no `.brimproj` still works, with a warning to rename it, and a `brim.lock` is read and replaced by a `.brimlock` the next time the lock file is written.
 
 ```toml
 [package]
@@ -1054,14 +1054,14 @@ members = ["apps/*", "shared"]
 ```
 
 - Unknown tables and keys are errors, to catch typos.
-- A dependency comes from the package registry (a version requirement: `router = "1.2"` or `router = { version = "1.2" }`; see `docs/registry.md` for the forms), from a directory with a `brim.toml` (`path`, relative to this manifest), or from a git repository (`git`, with at most one of `tag`, `branch` and `rev`; without them, the default branch). A `path` dependency may also have a `version`, which `brim publish` keeps; `version` cannot be combined with `git` (`M0006`).
+- A dependency comes from the package registry (a version requirement: `router = "1.2"` or `router = { version = "1.2" }`; see `docs/registry.md` for the forms), from a directory with a `.brimproj` (`path`, relative to this manifest), or from a git repository (`git`, with at most one of `tag`, `branch` and `rev`; without them, the default branch). A `path` dependency may also have a `version`, which `brim publish` keeps; `version` cannot be combined with `git` (`M0006`).
 - Every registry package has one version in a project: the newest non-yanked version that meets every requirement on it (`M0014` when none does; `M0013` for a package the registry does not have).
 - A dependency's name is the name of its package, and is used in `import`, so it contains no `-` (`M0007`). All packages of a project have different names (`M0009`).
 - A package is used as a library through its library root: `import geometry` is the module in `src/lib.brim` of the package `geometry`, and `import geometry.shapes` the module in `src/shapes.brim` next to it. Inside the package, its modules import each other as usual (`import shapes`). The project's own modules cannot have the name of a dependency.
 - A package without `src/main.brim` but with a library root is a library: `brim check` and `brim test` work on its library root.
 - `brim test` runs only the tests of the project's own modules.
-- **`brim.lock`.** The first build writes the commit of every git dependency and the version and checksum of every registry dependency to `brim.lock`, next to `brim.toml` (at the root of a workspace); later builds use those, without the network when they are cached. `brim update` picks the newest commits and versions. Commit `brim.lock` for programs, so every build uses the same versions. Git repositories are cached in `$BRIM_HOME/git` (by default `~/.brim/git`) and only fetched when a commit is missing.
-- **Workspaces.** `[workspace] members` lists member directories relative to the manifest; a last component `*` stands for every subdirectory with a `brim.toml` (`M0012` for invalid members). The manifest may also have a `[package]`, which is then a member too. Members share the root's `brim.lock`. At the root, `check`, `test`, `build` and `doc` work on every member; `-p NAME` picks one, as does running in a member's directory.
-- `brim run`, `brim check`, `brim build` and `brim test` without a path use the nearest `brim.toml` in the current directory or its parents.
+- **`.brimlock`.** The first build writes the commit of every git dependency and the version and checksum of every registry dependency to `.brimlock`, next to `.brimproj` (at the root of a workspace); later builds use those, without the network when they are cached. `brim update` picks the newest commits and versions. Commit `.brimlock` for programs, so every build uses the same versions. Git repositories are cached in `$BRIM_HOME/git` (by default `~/.brim/git`) and only fetched when a commit is missing.
+- **Workspaces.** `[workspace] members` lists member directories relative to the manifest; a last component `*` stands for every subdirectory with a `.brimproj` (`M0012` for invalid members). The manifest may also have a `[package]`, which is then a member too. Members share the root's `.brimlock`. At the root, `check`, `test`, `build` and `doc` work on every member; `-p NAME` picks one, as does running in a member's directory.
+- `brim run`, `brim check`, `brim build` and `brim test` without a path use the nearest `.brimproj` in the current directory or its parents.
 - `brim fmt` formats the project's source files (all `.brim` files under the manifest's directory, except in `target`).
-- `brim new PATH` creates a project: a `brim.toml`, a `src/main.brim` with a test, and a `.gitignore`.
+- `brim new PATH` creates a project: a `.brimproj`, a `src/main.brim` with a test, and a `.gitignore`.

@@ -31,7 +31,7 @@ jobs:
         run: |
           mkdir -p fuzz/corpus/${{ matrix.target }}
           if [ "${{ matrix.target }}" = manifest ]; then
-            find examples tests -name 'brim.toml' -exec cp --backup=numbered {} fuzz/corpus/manifest/ \;
+            find examples tests -name '.brimproj' -exec cp --backup=numbered {} fuzz/corpus/manifest/ \;
           else
             find examples tests -name '*.brim' -exec cp --backup=numbered {} fuzz/corpus/${{ matrix.target }}/ \;
           fi

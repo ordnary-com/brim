@@ -25,7 +25,7 @@ pub(crate) struct Analysis {
 }
 
 /// Analyses the program `path` belongs to: the project of the nearest
-/// `brim.toml`, starting at its entry file, or the file alone. `open` holds
+/// `.brimproj`, starting at its entry file, or the file alone. `open` holds
 /// the texts of the files open in the editor.
 pub(crate) fn analyze(path: &Path, open: &HashMap<PathBuf, String>) -> Analysis {
     let mut read = |shown: &str| -> std::io::Result<Vec<u8>> {

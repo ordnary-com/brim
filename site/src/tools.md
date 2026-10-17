@@ -8,7 +8,7 @@
 | `brim test [PATH] [FILTER]` | Run the tests |
 | `brim fmt [PATH...]` | Format source files (`--check` to only report) |
 | `brim new PATH` | Create a project |
-| `brim update [PATH]` | Update git dependencies in `brim.lock` |
+| `brim update [PATH]` | Update git dependencies in `.brimlock` |
 | `brim gen ts [PATH]` | Write TypeScript types for the program's API |
 | `brim lsp` | Run the language server |
 

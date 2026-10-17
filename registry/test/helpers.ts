@@ -97,7 +97,7 @@ export function packageArchive(
   return gzip(
     tar([
       { path: `${root}/`, type: "5" },
-      { path: `${root}/brim.toml`, data: `[package]\nname = "${name}"\nversion = "${version}"\nedition = "2026"\n${depText}` },
+      { path: `${root}/.brimproj`, data: `[package]\nname = "${name}"\nversion = "${version}"\nedition = "2026"\n${depText}` },
       { path: `${root}/src/`, type: "5" },
       { path: `${root}/src/lib.brim`, data: "pub fn hello() -> Int { 42 }\n" },
       ...extra,

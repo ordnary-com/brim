@@ -1,4 +1,4 @@
-//! The lock file, `brim.lock`.
+//! The lock file, `.brimlock`.
 //!
 //! ```toml
 //! # This file is written by brim. Do not edit it.
@@ -25,7 +25,11 @@ use serde::Deserialize;
 
 use crate::{Failure, Graph};
 
-pub const LOCK_FILE: &str = "brim.lock";
+pub const LOCK_FILE: &str = ".brimlock";
+
+/// The lock file's name before 1.0: read when there is no `.brimlock`, and
+/// replaced by one when the lock file is written.
+pub const OLD_LOCK_FILE: &str = "brim.lock";
 
 const FORMAT_VERSION: u32 = 1;
 
@@ -84,7 +88,13 @@ pub(crate) fn git_source(url: &str, reference: &GitRef) -> String {
 
 /// Reads the lock file, if there is one.
 pub(crate) fn read(full: &Path, shown: &Path) -> Result<LockFile, Failure> {
-    let Ok(text) = std::fs::read_to_string(full) else {
+    let old = full.with_file_name(OLD_LOCK_FILE);
+    let (full, shown) = if !full.is_file() && old.is_file() {
+        (old, shown.with_file_name(OLD_LOCK_FILE))
+    } else {
+        (full.to_path_buf(), shown.to_path_buf())
+    };
+    let Ok(text) = std::fs::read_to_string(&full) else {
         return Ok(LockFile::default());
     };
     let shown = shown.display().to_string().replace('\\', "/");

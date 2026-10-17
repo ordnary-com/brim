@@ -1,6 +1,7 @@
 // Checks a package archive: a gzip-compressed tar file whose entries are all
 // regular files or directories under `{name}-{version}/`, with the manifest at
-// `{name}-{version}/brim.toml`.
+// `{name}-{version}/.brimproj` (or `brim.toml`, its name before 1.0, which
+// clients up to 1.0.0-rc.1 write).
 
 /** How much a valid archive may unpack to. Guards against gzip bombs. */
 export const MAX_UNPACKED_BYTES = 128 * 1024 * 1024;
@@ -123,7 +124,7 @@ class Reader {
  * Checks the archive for `{name}-{version}`. Throws an [`ArchiveError`] whose
  * message is a sentence for the user when it is not acceptable.
  */
-/** The most a package's `brim.toml` may hold. */
+/** The most a package's `.brimproj` may hold. */
 const MAX_MANIFEST_BYTES = 64 * 1024;
 
 export async function checkArchive(archive: Uint8Array, name: string, version: string): Promise<string> {
@@ -169,14 +170,15 @@ export async function checkArchive(archive: Uint8Array, name: string, version: s
       const size = octal(header, 124, 12, "size");
       if (isDir && size !== 0) throw new ArchiveError(`The archive is not a valid tar file: the directory ${JSON.stringify(path)} has a size.`);
       const padded = Math.ceil(size / BLOCK) * BLOCK;
-      if (isFile && path === `${root}/brim.toml`) {
-        if (size > MAX_MANIFEST_BYTES) throw new ArchiveError("The archive's brim.toml is larger than 64 KiB.");
+      if (isFile && (path === `${root}/.brimproj` || path === `${root}/brim.toml`)) {
+        if (manifest !== null) throw new ArchiveError("The archive has two manifests.");
+        if (size > MAX_MANIFEST_BYTES) throw new ArchiveError("The archive's .brimproj is larger than 64 KiB.");
         const bytes = await reader.read(padded);
         if (bytes === null) throw new ArchiveError("The archive is truncated.");
         try {
           manifest = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes.subarray(0, size));
         } catch {
-          throw new ArchiveError("The archive's brim.toml is not UTF-8.");
+          throw new ArchiveError("The archive's .brimproj is not UTF-8.");
         }
       } else if (!(await reader.skip(padded))) {
         throw new ArchiveError("The archive is truncated.");
@@ -188,13 +190,13 @@ export async function checkArchive(archive: Uint8Array, name: string, version: s
     throw new ArchiveError("The archive is not a valid gzip file.");
   }
   await reader.cancel();
-  if (manifest === null) throw new ArchiveError(`The archive has no \`${root}/brim.toml\`.`);
+  if (manifest === null) throw new ArchiveError(`The archive has no \`${root}/.brimproj\`.`);
   return manifest;
 }
 
-/** The `brim.toml` that `brim publish` writes: its sections as key-value maps. */
+/** The `.brimproj` that `brim publish` writes: its sections as key-value maps. */
 export function parsePublishedManifest(text: string): Map<string, Map<string, string>> {
-  const bad = (why: string) => new ArchiveError(`The archive's brim.toml is not as \`brim publish\` writes it: ${why}.`);
+  const bad = (why: string) => new ArchiveError(`The archive's .brimproj is not as \`brim publish\` writes it: ${why}.`);
   const sections = new Map<string, Map<string, string>>();
   let current: Map<string, string> | null = null;
   for (const raw of text.split("\n")) {

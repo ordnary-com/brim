@@ -143,12 +143,12 @@ Guidelines for writing diagnostics:
 | M0007 | Dependency name that cannot be imported (it contains `-`) |
 | M0008 | Dependency not found, or its git repository cannot be fetched |
 | M0009 | A dependency's package has another name, or two packages have the same name |
-| M0010 | Invalid `brim.lock` |
+| M0010 | Invalid `.brimlock` |
 | M0011 | A workspace manifest without `[package]` where a package is needed |
 | M0012 | Invalid workspace member |
 | M0013 | A registry package that does not exist, or whose archive does not match |
 | M0014 | No version of a registry package meets every requirement |
-| M0015 | The registry's checksum of a locked version differs from `brim.lock`: a published version never changes, so the registry, a mirror or the network may be compromised (`brim update` records the new archive if it is trusted) |
+| M0015 | The registry's checksum of a locked version differs from `.brimlock`: a published version never changes, so the registry, a mirror or the network may be compromised (`brim update` records the new archive if it is trusted) |
 
 ### Run-time errors (`brim-runtime`)
 
@@ -194,7 +194,7 @@ error[R0001]: integer overflow in `*`
 | 0    | Success (warnings may have been printed) |
 | 1    | The program has syntax or semantic errors; for `brim fmt --check`, a file is not formatted |
 | 2    | Invalid command line (unknown command or option, missing input) |
-| 3    | Input problem: file missing or unreadable, not UTF-8, wrong extension, invalid `brim.toml` |
+| 3    | Input problem: file missing or unreadable, not UTF-8, wrong extension, invalid `.brimproj` |
 | 4    | Requested feature unavailable: `brim build` in a `brim` compiled without the `llvm` feature, or no C compiler to link with |
 | 70   | Internal compiler error (a bug in Brim) |
 | 101  | The Brim program stopped with a run-time error; for `brim test`, a test failed |

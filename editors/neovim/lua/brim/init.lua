@@ -37,7 +37,7 @@ function M.setup(opts)
     vim.lsp.config("brim", {
       cmd = cmd,
       filetypes = { "brim" },
-      root_markers = { "brim.toml", ".git" },
+      root_markers = { ".brimproj", "brim.toml", ".git" },
     })
     vim.lsp.enable("brim")
   else
@@ -47,7 +47,7 @@ function M.setup(opts)
         vim.lsp.start({
           name = "brim",
           cmd = cmd,
-          root_dir = vim.fs.root(args.buf, { "brim.toml", ".git" }),
+          root_dir = vim.fs.root(args.buf, { ".brimproj", "brim.toml", ".git" }),
         })
       end,
     })

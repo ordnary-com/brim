@@ -11,7 +11,7 @@ User Server Settings**:
   "servers": {
     "brim": {
       "command": ["brim", "lsp"],
-      "rootIndicationFileNames": ["brim.toml"],
+      "rootIndicationFileNames": [".brimproj", "brim.toml"],
       "highlightingModeRegex": "^Brim$"
     }
   }

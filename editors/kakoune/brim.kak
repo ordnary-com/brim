@@ -32,6 +32,6 @@ provide-module brim %§
 #
 #   [language_server.brim]
 #   filetypes = ["brim"]
-#   roots = ["brim.toml", ".git"]
+#   roots = [".brimproj", "brim.toml", ".git"]
 #   command = "brim"
 #   args = ["lsp"]

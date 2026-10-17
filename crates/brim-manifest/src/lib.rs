@@ -1,4 +1,4 @@
-//! The `brim.toml` project manifest.
+//! The `.brimproj` project manifest.
 //!
 //! ```toml
 //! [package]
@@ -40,7 +40,31 @@ use toml::Spanned;
 pub use semver::{Version, VersionReq};
 
 /// The file name of a Brim project manifest.
-pub const MANIFEST_FILE: &str = "brim.toml";
+pub const MANIFEST_FILE: &str = ".brimproj";
+
+/// The manifest's name before 1.0. Projects that still use it work, with a
+/// warning to rename it.
+pub const OLD_MANIFEST_FILE: &str = "brim.toml";
+
+/// Whether a file name is a manifest's, under either name.
+pub fn is_manifest_name(name: &std::ffi::OsStr) -> bool {
+    name == MANIFEST_FILE || name == OLD_MANIFEST_FILE
+}
+
+/// The manifest in `dir`: its `.brimproj`, else an old `brim.toml`, else
+/// where a `.brimproj` would be.
+pub fn manifest_path(dir: &Path) -> PathBuf {
+    dir.join(manifest_name(dir))
+}
+
+/// The name of the manifest in `dir` (see [`manifest_path`]).
+pub fn manifest_name(dir: &Path) -> &'static str {
+    if !dir.join(MANIFEST_FILE).is_file() && dir.join(OLD_MANIFEST_FILE).is_file() {
+        OLD_MANIFEST_FILE
+    } else {
+        MANIFEST_FILE
+    }
+}
 
 /// The entry point used when `[build] entry` is not given.
 pub const DEFAULT_ENTRY: &str = "src/main.brim";
@@ -81,7 +105,7 @@ pub struct Dependency {
 pub enum Source {
     /// The package registry, with a version requirement.
     Registry(VersionReq),
-    /// A directory with a `brim.toml`, relative to the depending manifest
+    /// A directory with a `.brimproj`, relative to the depending manifest
     /// (or absolute).
     Path(PathBuf),
     Git {
@@ -146,7 +170,7 @@ pub struct Root {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Workspace {
     /// Member directories relative to the workspace root, as written; a
-    /// last component `*` stands for every directory with a `brim.toml`
+    /// last component `*` stands for every directory with a `.brimproj`
     /// in its parent.
     pub members: Vec<(PathBuf, Span)>,
 }
@@ -431,7 +455,7 @@ pub fn parse_root(src: &str) -> Result<Root, Vec<Diagnostic>> {
 fn check_member(member: &str) -> Result<(), &'static str> {
     let path = Path::new(member);
     if member.is_empty() || path.is_absolute() || member.starts_with(['/', '\\']) {
-        return Err("members are directories relative to this brim.toml");
+        return Err("members are directories relative to this .brimproj");
     }
     let components: Vec<Component<'_>> = path.components().collect();
     for (i, component) in components.iter().enumerate() {
@@ -556,7 +580,7 @@ fn valid_version(version: &str) -> bool {
 fn check_c_source(source: &str) -> Result<(), &'static str> {
     let path = Path::new(source);
     if path.is_absolute() || source.starts_with(['/', '\\']) {
-        return Err("the path must be relative to brim.toml");
+        return Err("the path must be relative to .brimproj");
     }
     if path
         .components()
@@ -573,7 +597,7 @@ fn check_c_source(source: &str) -> Result<(), &'static str> {
 fn check_entry(entry: &str) -> Result<(), &'static str> {
     let path = Path::new(entry);
     if path.is_absolute() || entry.starts_with('/') || entry.starts_with('\\') {
-        return Err("the path must be relative to brim.toml");
+        return Err("the path must be relative to .brimproj");
     }
     if path
         .components()
@@ -587,11 +611,11 @@ fn check_entry(entry: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// Searches `start` and its ancestors for a `brim.toml`.
+/// Searches `start` and its ancestors for a manifest.
 pub fn find(start: &Path) -> Option<PathBuf> {
     start
         .ancestors()
-        .map(|dir| dir.join(MANIFEST_FILE))
+        .map(manifest_path)
         .find(|candidate| candidate.is_file())
 }
 

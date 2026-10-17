@@ -13,7 +13,7 @@ cargo +nightly fuzz run frontend fuzz/corpus/frontend -- -max_total_time=300
 | `frontend` | lexing, parsing, semantic analysis and lowering never panic; checked programs lower to valid IR |
 | `fmt`      | the formatter accepts exactly the programs that parse and is idempotent |
 | `run`      | checked programs run in the interpreter without panicking, within a step limit |
-| `manifest` | `brim.toml` parsing never panics |
+| `manifest` | `.brimproj` parsing never panics |
 
 Seed a corpus with the example and test programs:
 

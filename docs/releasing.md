@@ -18,7 +18,7 @@ These are stable from 1.0, for every 1.x release:
   with existing code.
 - **The command line**: the commands and options of `brim` and their
   meaning, and its exit codes (see `error-handling.md`).
-- **`brim.toml`** and **`brim.lock`**: newer compilers read every earlier
+- **`.brimproj`** and **`.brimlock`**: newer compilers read every earlier
   manifest and lock file.
 - **Diagnostic codes** (`E0201`, `W0003`, `R0001`, `M0014`, ...) keep their
   meaning; new codes are added, old ones are not reused.
@@ -40,7 +40,7 @@ warns in an earlier release first.
 
 ## Editions
 
-A package declares its edition in `brim.toml` (`edition = "2026"`). 1.0
+A package declares its edition in `.brimproj` (`edition = "2026"`). 1.0
 has one edition, `2026`.
 
 - Within an edition, a program that compiles keeps compiling and keeps its

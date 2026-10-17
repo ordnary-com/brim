@@ -231,14 +231,14 @@ export async function publish(request: Request, env: Env): Promise<Response> {
     const pkg = manifest.get("package") ?? new Map<string, string>();
     for (const [key, want] of [["name", name], ["version", version], ["edition", edition]] as const) {
       if (pkg.get(key) !== want) {
-        throw new ArchiveError(`The archive's brim.toml has ${key} ${JSON.stringify(pkg.get(key) ?? null)}, not ${JSON.stringify(want)}.`);
+        throw new ArchiveError(`The archive's .brimproj has ${key} ${JSON.stringify(pkg.get(key) ?? null)}, not ${JSON.stringify(want)}.`);
       }
     }
     const listed = manifest.get("dependencies") ?? new Map<string, string>();
     const same =
       listed.size === Object.keys(meta.dependencies).length &&
       [...listed].every(([dep, req]) => meta.dependencies[dep] === req);
-    if (!same) throw new ArchiveError("The archive's brim.toml has other dependencies than the metadata.");
+    if (!same) throw new ArchiveError("The archive's .brimproj has other dependencies than the metadata.");
   } catch (e) {
     if (e instanceof ArchiveError) throw new HttpError(400, e.message);
     throw e;

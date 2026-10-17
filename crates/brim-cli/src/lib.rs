@@ -723,7 +723,7 @@ fn update(target: &Target<'_>, ctx: &mut Context<'_>) -> CmdResult {
         let _ = writeln!(
             ctx.stderr,
             "error: `brim update` works on a project, not a single file\n  \
-             = help: pass the project's directory or brim.toml"
+             = help: pass the project's directory or .brimproj"
         );
         return Err(exit::USAGE);
     }
@@ -1273,10 +1273,12 @@ fn locate(path: Option<&Path>, ctx: &mut Context<'_>) -> Result<Located, i32> {
         Some(path) => {
             let full = ctx.cwd.join(path);
             if full.is_dir() {
-                Ok(Located::Manifest(path.join(brim_manifest::MANIFEST_FILE)))
+                Ok(Located::Manifest(
+                    path.join(brim_manifest::manifest_name(&full)),
+                ))
             } else if path
                 .file_name()
-                .is_some_and(|n| n == brim_manifest::MANIFEST_FILE)
+                .is_some_and(brim_manifest::is_manifest_name)
             {
                 Ok(Located::Manifest(path.to_path_buf()))
             } else if path.extension().is_some_and(|e| e == "brim") {
@@ -1300,7 +1302,7 @@ fn locate(path: Option<&Path>, ctx: &mut Context<'_>) -> Result<Located, i32> {
                     &shown,
                     Diagnostic::error("not a Brim source file")
                         .with_help("Brim source files use the `.brim` extension")
-                        .with_help("to build a project, pass its directory or brim.toml"),
+                        .with_help("to build a project, pass its directory or .brimproj"),
                 ))
             }
         }
@@ -1314,6 +1316,18 @@ fn read_manifest(
     ctx: &mut Context<'_>,
 ) -> Result<(SourceFile, brim_manifest::Root), i32> {
     let file = read_text(path, ctx)?;
+    if path
+        .file_name()
+        .is_some_and(|n| n == brim_manifest::OLD_MANIFEST_FILE)
+    {
+        let _ = writeln!(
+            ctx.stderr,
+            "warning: {} is the old name of the project file\n  \
+             = help: rename it to {}",
+            path.display(),
+            brim_manifest::MANIFEST_FILE
+        );
+    }
     match brim_manifest::parse_root(file.text()) {
         Ok(root) => Ok((file, root)),
         Err(diags) => {
@@ -1418,8 +1432,10 @@ fn load_inputs(
         if members.iter().any(|m| same_dir(&ctx.cwd, &m.dir, &dir)) {
             continue;
         }
-        let (manifest_file, member_root) =
-            read_manifest(&dir.join(brim_manifest::MANIFEST_FILE), ctx)?;
+        let (manifest_file, member_root) = read_manifest(
+            &dir.join(brim_manifest::manifest_name(&ctx.cwd.join(&dir))),
+            ctx,
+        )?;
         let Some(manifest) = member_root.package else {
             let _ = writeln!(
                 ctx.stderr,
@@ -1477,7 +1493,9 @@ fn load_inputs(
     let mut inputs = Vec::new();
     for i in selected {
         let member = &members[i];
-        let manifest_path = member.dir.join(brim_manifest::MANIFEST_FILE);
+        let manifest_path = member
+            .dir
+            .join(brim_manifest::manifest_name(&ctx.cwd.join(&member.dir)));
         inputs.push(package_input(
             &member.dir,
             &manifest_path,

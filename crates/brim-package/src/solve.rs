@@ -131,7 +131,7 @@ fn from_lock(
         if crate::registry::cached_checksum(&dir).as_deref() != Some(checksum.as_str()) {
             return None;
         }
-        let text = std::fs::read_to_string(dir.join(brim_manifest::MANIFEST_FILE)).ok()?;
+        let text = std::fs::read_to_string(brim_manifest::manifest_path(&dir)).ok()?;
         let manifest = brim_manifest::parse(&text).ok()?;
         let mut dependencies = Vec::new();
         for dep in manifest.dependencies {
@@ -251,10 +251,10 @@ fn pick(
     {
         if !checksum.is_empty() && v.checksum != *checksum {
             let diag = Diagnostic::error(format!(
-                "the registry changed `{name}` {version} since brim.lock recorded it"
+                "the registry changed `{name}` {version} since .brimlock recorded it"
             ))
             .with_code("M0015")
-            .with_note(format!("brim.lock has the checksum {checksum}"))
+            .with_note(format!(".brimlock has the checksum {checksum}"))
             .with_note(format!("the registry now says {}", v.checksum))
             .with_note("a published version never changes: the registry, a mirror or the network may be compromised")
             .with_help("if you trust the new archive, run `brim update` to record it");

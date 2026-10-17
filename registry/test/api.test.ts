@@ -196,20 +196,20 @@ describe("publish", () => {
     expect(await errorOf(res)).toMatch(/not a regular file or a directory/);
   });
 
-  it("requires brim.toml", async () => {
+  it("requires .brimproj", async () => {
     const token = await createToken("erin");
     const name = uniqueName("nomanifest");
     const root = `${name}-1.0.0`;
     const archive = await gzip(tar([{ path: `${root}/src/lib.brim`, data: "x" }]));
     const res = await publish(token, name, "1.0.0", { archive });
     expect(res.status).toBe(400);
-    expect(await errorOf(res)).toBe(`The archive has no \`${root}/brim.toml\`.`);
+    expect(await errorOf(res)).toBe(`The archive has no \`${root}/.brimproj\`.`);
   });
 
   it("rejects an archive that is not gzip", async () => {
     const token = await createToken("erin");
     const name = uniqueName("raw");
-    const archive = tar([{ path: `${name}-1.0.0/brim.toml`, data: "x" }]);
+    const archive = tar([{ path: `${name}-1.0.0/.brimproj`, data: "x" }]);
     const res = await publish(token, name, "1.0.0", { archive });
     expect(res.status).toBe(400);
     expect(await errorOf(res)).toMatch(/gzip/);
@@ -464,5 +464,22 @@ describe("hardening", () => {
     const archive = await packageArchive(name, "1.0.0", [{ path: `${name}-1.0.0/SRC/LIB.brim`, data: "x" }, { path: `${name}-1.0.0/src/lib.BRIM`, data: "y" }]);
     const res = await publish(token, name, "1.0.0", { archive });
     expect(await errorOf(res)).toMatch(/twice/);
+  });
+});
+
+describe("manifest names", () => {
+  it("accepts brim.toml from clients before 1.0", async () => {
+    const token = await createToken("frank");
+    const name = uniqueName("oldname");
+    const root = `${name}-1.0.0`;
+    const archive = await gzip(
+      tar([
+        { path: `${root}/`, type: "5" },
+        { path: `${root}/brim.toml`, data: `[package]\nname = "${name}"\nversion = "1.0.0"\nedition = "2026"\n` },
+        { path: `${root}/src/lib.brim`, data: "pub fn x() -> i64 { return 1 }\n" },
+      ]),
+    );
+    const res = await publish(token, name, "1.0.0", { archive });
+    expect(res.status).toBe(200);
   });
 });

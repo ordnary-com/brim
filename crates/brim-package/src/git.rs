@@ -31,7 +31,7 @@ pub(crate) fn checkout(
     let well_formed =
         |c: &str| (c.len() == 40 || c.len() == 64) && c.bytes().all(|b| b.is_ascii_hexdigit());
     if locked.is_some_and(|c| !well_formed(c)) {
-        return Err("brim.lock has a malformed commit; run `brim update`".into());
+        return Err(".brimlock has a malformed commit; run `brim update`".into());
     }
     let key = format!("{name}-{:016x}", fnv1a(url.as_bytes()));
     let db = home.join("git").join("db").join(&key);

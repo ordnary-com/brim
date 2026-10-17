@@ -1,9 +1,9 @@
 //! Workspaces: packages developed together, with one lock file.
 //!
-//! The workspace root's `brim.toml` has `[workspace] members = [...]`, and
+//! The workspace root's `.brimproj` has `[workspace] members = [...]`, and
 //! may be a package itself. [`resolve_workspace`] resolves all members at
 //! once, as if one package depended on all of them, so they share
-//! `brim.lock` in the root and every dependency has one version in the
+//! `.brimlock` in the root and every dependency has one version in the
 //! whole workspace. Each member then gets its own [`Graph`].
 
 use std::path::{Path, PathBuf};
@@ -43,7 +43,7 @@ pub fn member_dirs(
                     entries
                         .filter_map(Result::ok)
                         .map(|e| e.path())
-                        .filter(|p| p.join(brim_manifest::MANIFEST_FILE).is_file())
+                        .filter(|p| brim_manifest::manifest_path(p).is_file())
                         .filter_map(|p| p.file_name().map(|n| parent.join(n)))
                         .collect()
                 })
@@ -52,10 +52,10 @@ pub fn member_dirs(
             out.extend(found.into_iter().map(|dir| (shown(&dir), *span)));
         } else {
             let dir = shown(&root.join(member));
-            if !cwd.join(&dir).join(brim_manifest::MANIFEST_FILE).is_file() {
+            if !brim_manifest::manifest_path(&cwd.join(&dir)).is_file() {
                 return Err(Failure::in_file(
                     Diagnostic::error(format!(
-                        "the workspace member `{}` has no brim.toml",
+                        "the workspace member `{}` has no .brimproj",
                         slash(member)
                     ))
                     .with_code("M0012")
@@ -76,13 +76,13 @@ fn shown(dir: &Path) -> PathBuf {
 }
 
 /// Finds the workspace a package in `dir` (relative to `cwd`) belongs to:
-/// the nearest ancestor whose `brim.toml` has a `[workspace]` listing it.
+/// the nearest ancestor whose `.brimproj` has a `[workspace]` listing it.
 /// Returns the root's directory and manifest file.
 pub fn find_root(cwd: &Path, dir: &Path) -> Option<(PathBuf, SourceFile)> {
     let full = cwd.join(dir);
     let canonical = full.canonicalize().ok()?;
     for ancestor in canonical.ancestors().skip(1) {
-        let manifest = ancestor.join(brim_manifest::MANIFEST_FILE);
+        let manifest = brim_manifest::manifest_path(ancestor);
         let Ok(text) = std::fs::read_to_string(&manifest) else {
             continue;
         };
@@ -98,7 +98,10 @@ pub fn find_root(cwd: &Path, dir: &Path) -> Option<(PathBuf, SourceFile)> {
             .strip_prefix(&cwd_full)
             .map(Path::to_path_buf)
             .unwrap_or_else(|_| ancestor.to_path_buf());
-        let file = SourceFile::new(slash(&shown_dir.join(brim_manifest::MANIFEST_FILE)), text);
+        let file = SourceFile::new(
+            slash(&shown_dir.join(brim_manifest::manifest_name(ancestor))),
+            text,
+        );
         let members = member_dirs(cwd, &shown_dir, workspace, &file).ok()?;
         let listed = members
             .iter()

@@ -61,6 +61,6 @@ brim run
 brim test
 ```
 
-`brim new` creates a `brim.toml`, a `src/main.brim` with a test, and a
-`.gitignore`. Inside a project, commands find the `brim.toml` themselves.
+`brim new` creates a `.brimproj`, a `src/main.brim` with a test, and a
+`.gitignore`. Inside a project, commands find the `.brimproj` themselves.
 Continue with [the tour](tour.md).

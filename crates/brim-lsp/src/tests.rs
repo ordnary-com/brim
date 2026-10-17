@@ -53,7 +53,7 @@ const SHAPES: &str = "pub struct Square {\n    pub side: i64,\n}\n\npub fn squar
 fn project(name: &str) -> (PathBuf, String) {
     let dir = scratch(name);
     fs::write(
-        dir.join("brim.toml"),
+        dir.join(".brimproj"),
         "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2026\"\n",
     )
     .unwrap();

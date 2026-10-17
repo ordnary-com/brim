@@ -59,7 +59,7 @@ never picks a beta.
 Every package of a project has one version (as before: a name is one
 package). `brim` picks, for every registry package, the newest non-yanked
 version that meets every requirement on it in the project, and keeps the
-version in `brim.lock` as long as it still meets them. `brim update` forgets
+version in `.brimlock` as long as it still meets them. `brim update` forgets
 the lock file and picks the newest versions again.
 
 ## The API
@@ -95,7 +95,7 @@ for 60 seconds.
 
 The archive, `content-type: application/gzip`: a gzip-compressed tar file
 whose entries are all under `{name}-{version}/`, with the package's
-`brim.toml` at `{name}-{version}/brim.toml`. Only regular files and
+`.brimproj` at `{name}-{version}/.brimproj`. Only regular files and
 directories. Archives are immutable and may be cached forever.
 
 ### `PUT /api/v1/publish`
@@ -138,7 +138,7 @@ Without a valid token the registry answers `401`. It checks, and answers
   every system can unpack (no `..`, `:`, `<>"|?*`, control characters,
   trailing dots or spaces, Windows device names such as `CON`, or two paths
   that differ only in case);
-- that its `brim.toml` is as `brim publish` writes it, with the same name,
+- that its `.brimproj` is as `brim publish` writes it, with the same name,
   version, edition and dependencies as the metadata;
 - that every dependency name exists on the registry and every requirement
   is well-formed;

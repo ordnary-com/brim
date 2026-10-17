@@ -115,7 +115,7 @@ export async function homePage(env: Env, url: URL): Promise<Response> {
   const items = hits.length ? hits.map(hitItem).join("") : `<li class="empty">No packages found.</li>`;
   const body = `
 <h1>Packages</h1>
-<p class="lead">Libraries for the Brim programming language. Add one to the <code>[dependencies]</code> of your <code>brim.toml</code>.</p>
+<p class="lead">Libraries for the Brim programming language. Add one to the <code>[dependencies]</code> of your <code>.brimproj</code>.</p>
 <form action="/" method="get" role="search">
   <input id="q" type="search" name="q" value="${e(q)}" placeholder="Search packages" aria-label="Search packages" autocomplete="off">
 </form>
@@ -149,7 +149,7 @@ export async function packagePage(env: Env, name: string): Promise<Response | nu
 
   const depend = newest
     ? `<h2>Use it</h2>
-<p>Add this to the <code>[dependencies]</code> of your <code>brim.toml</code>:</p>
+<p>Add this to the <code>[dependencies]</code> of your <code>.brimproj</code>:</p>
 <pre>[dependencies]
 ${e(pkg.name)} = "${e(suggestedRequirement(newest))}"</pre>`
     : `<h2>Use it</h2><p>Every version of this package is yanked, so new projects cannot depend on it.</p>`;

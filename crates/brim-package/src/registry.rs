@@ -167,7 +167,7 @@ impl Registry {
     ) -> Result<(PathBuf, bool), String> {
         let dir = self.source_dir(home, name, version);
         // The cache is used only for an archive with this very checksum.
-        if dir.join(brim_manifest::MANIFEST_FILE).is_file()
+        if brim_manifest::manifest_path(&dir).is_file()
             && cached_checksum(&dir).as_deref() == Some(checksum)
         {
             return Ok((dir, false));

@@ -73,10 +73,10 @@ Still open from this phase: cross-compilation, and linking without a C compiler.
 - **Done:** multi-file programs: every file is a module, `import` with aliases and item lists, `pub` visibility, diagnostics across files.
 - **Done:** `brim new`, and `brim test` with `assert` and `assert_eq`.
 - **Done:** `brim fmt`, a token-based formatter that keeps comments and line breaks.
-- **Done:** `[dependencies]` from directories and git repositories, `brim.lock`, `brim update`.
-- **Done:** version requirements with semver resolution (one version per package in a project, conflicts explained), recorded with checksums in `brim.lock`.
+- **Done:** `[dependencies]` from directories and git repositories, `.brimlock`, `brim update`.
+- **Done:** version requirements with semver resolution (one version per package in a project, conflicts explained), recorded with checksums in `.brimlock`.
 - **Done:** a package registry (`registry/`, protocol in `docs/registry.md`) with `brim publish`, `brim login` and `brim yank`.
-- **Done:** workspaces: `[workspace] members`, one `brim.lock`, `-p NAME`.
+- **Done:** workspaces: `[workspace] members`, one `.brimlock`, `-p NAME`.
 - Open: accounts for publishers through Ordnary's identity service (tokens are issued by an administrator for now).
 - **Done:** API contracts for web frontends: `brim gen ts` writes TypeScript types for a program's `pub` types.
 - **Done:** `json.encode` and `json.decode` with the same mapping, `serve_api(module, request)` for a module's `pub fn`s, and `brim gen ts --angular` for the matching Angular client.

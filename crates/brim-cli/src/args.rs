@@ -477,7 +477,7 @@ Commands:
   test [PATH]    Run a program's tests
   new <PATH>     Create a new project
   fmt [PATH...]  Format source files
-  update [PATH]  Pick the newest dependency versions for brim.lock
+  update [PATH]  Pick the newest dependency versions for .brimlock
   publish [PATH] Publish the package to the registry
   login          Store a token for the registry
   yank NAME@VER  Stop new projects from picking a published version
@@ -487,8 +487,8 @@ Commands:
   help [COMMAND] Show help for a command
   version        Show the compiler version
 
-PATH is a `.brim` file, a `brim.toml` manifest, or a directory containing
-one. Without PATH, the nearest `brim.toml` in the current directory or its
+PATH is a `.brim` file, a `.brimproj` manifest, or a directory containing
+one. Without PATH, the nearest `.brimproj` in the current directory or its
 parents is used. In a workspace, `-p NAME` picks a member; at the root,
 check, build, test and doc work on every member.
 
@@ -573,7 +573,7 @@ Options:
             "\
 Create a new project
 
-Creates the directory PATH with a `brim.toml` manifest, `src/main.brim`
+Creates the directory PATH with a `.brimproj` manifest, `src/main.brim`
 and a `.gitignore`. The directory's name is the package name.
 
 Usage: brim new <PATH>
@@ -640,12 +640,12 @@ Options:
         }
         "update" => {
             "\
-Pick the newest dependency versions for brim.lock
+Pick the newest dependency versions for .brimlock
 
 Fetches every git dependency of the project and records the newest commit
-of its branch, tag or default branch in `brim.lock`, and picks the newest
+of its branch, tag or default branch in `.brimlock`, and picks the newest
 version of every registry dependency that meets its requirements. Other
-commands use what `brim.lock` says and fetch only what is missing.
+commands use what `.brimlock` says and fetch only what is missing.
 
 Usage: brim update [OPTIONS] [PATH]
 
@@ -658,7 +658,7 @@ Options:
             "\
 Publish the package to the registry
 
-Checks the package, packs `brim.toml`, `src/` and the README, LICENSE and
+Checks the package, packs `.brimproj`, `src/` and the README, LICENSE and
 CHANGELOG files at the top into an archive, and uploads it with the token
 from `brim login`. Every dependency needs a `version`; a `path` dependency
 may have one, which the published manifest keeps. A published version can
@@ -692,7 +692,7 @@ Options:
             "\
 Stop new projects from picking a published version
 
-A yanked version stays available to projects whose `brim.lock` names it,
+A yanked version stays available to projects whose `.brimlock` names it,
 but is not picked for new lock files. `--undo` takes the yank back.
 
 Usage: brim yank NAME@VERSION [--undo]
@@ -708,7 +708,7 @@ Format source files
 Formats each `.brim` file in place. A directory stands for the `.brim`
 files in it and its subdirectories (except `target` and hidden ones).
 Without PATH, the current project is formatted: the directory of the
-nearest `brim.toml`. `-` formats standard input to standard output.
+nearest `.brimproj`. `-` formats standard input to standard output.
 
 Formatting keeps comments, blank lines (at most one in a row) and line
 breaks, and sets indentation and the spaces between tokens. Files with

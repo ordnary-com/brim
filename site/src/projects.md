@@ -2,7 +2,7 @@
 
 ## Projects
 
-A project is a directory with a `brim.toml`:
+A project is a directory with a `.brimproj`:
 
 ```toml
 [package]
@@ -90,10 +90,10 @@ names one. Every package has one version in a project: the newest that
 meets all requirements on it, from the project and from other packages.
 When there is none, brim says who requires what.
 
-### brim.lock
+### .brimlock
 
 The picked versions and the commits of git dependencies are recorded in
-`brim.lock`, so every build uses the same versions, also without a network;
+`.brimlock`, so every build uses the same versions, also without a network;
 commit it with your program. `brim update` picks the newest versions and
 commits again. Downloads are cached in `~/.brim` (or `$BRIM_HOME`).
 
@@ -105,7 +105,7 @@ brim publish --dry-run
 brim publish
 ```
 
-`brim publish` checks the package, packs `brim.toml`, `src/` and the
+`brim publish` checks the package, packs `.brimproj`, `src/` and the
 README, LICENSE and CHANGELOG files, and uploads them. Give the package a
 `description` and a `license` in `[package]`. Every dependency needs a
 version; a path dependency can have one too, which is what the published
@@ -117,21 +117,21 @@ shared = { path = "../shared", version = "0.1" }
 ```
 
 A published version never changes. `brim yank router@1.2.0` stops new
-projects from picking a broken version; projects whose `brim.lock` has it
+projects from picking a broken version; projects whose `.brimlock` has it
 keep working.
 
 ## Workspaces
 
 A workspace is a directory with packages that are developed together. Its
-`brim.toml` lists them:
+`.brimproj` lists them:
 
 ```toml
 [workspace]
 members = ["apps/*", "shared"]
 ```
 
-`apps/*` stands for every directory in `apps` with a `brim.toml`. The
-members share one `brim.lock`, at the root, and every dependency has one
+`apps/*` stands for every directory in `apps` with a `.brimproj`. The
+members share one `.brimlock`, at the root, and every dependency has one
 version in the whole workspace. At the root, `brim check`, `brim test`,
 `brim build` and `brim doc` work on every member; `-p NAME` picks one, as
 does running brim in a member's directory. Members depend on each other

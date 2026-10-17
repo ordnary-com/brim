@@ -41,8 +41,8 @@ Every stage reports problems as `brim_diagnostics::Diagnostic`s. A stage only ru
 | `brim-lower` | `CheckedProgram` to IR | ir, runtime, semantic |
 | `brim-interp` | Reference interpreter for IR | diagnostics, ir, runtime |
 | `brim-codegen` | `Backend` trait; `LlvmBackend` (IR to LLVM IR, object emission, linking with the C runtime in `runtime/brim_rt.c`). LLVM code is only compiled with the `llvm` feature | diagnostics, ir, runtime; `inkwell` (optional) |
-| `brim-manifest` | `brim.toml` parsing and validation (`M0xxx`) | diagnostics, serde, toml |
-| `brim-package` | Dependency graphs: path and git dependencies, the git cache, `brim.lock` | diagnostics, manifest, serde, toml |
+| `brim-manifest` | `.brimproj` parsing and validation (`M0xxx`) | diagnostics, serde, toml |
+| `brim-package` | Dependency graphs: path and git dependencies, the git cache, `.brimlock` | diagnostics, manifest, serde, toml |
 | `brim-playground` | The interpreter for the browser: `run(source, input)` and its WebAssembly exports | cli, diagnostics |
 | `brim-doc` | HTML documentation from doc comments (`brim doc`) | ast, diagnostics |
 | `brim-tsgen` | TypeScript declarations for a checked program's `pub` types (`brim gen ts`) | diagnostics, semantic |

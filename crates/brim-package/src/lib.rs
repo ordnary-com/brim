@@ -9,7 +9,7 @@
 //! `$BRIM_HOME/registry`.
 //!
 //! The commits and versions are recorded in the project's lock file,
-//! `brim.lock`, so later builds use exactly the same versions until
+//! `.brimlock`, so later builds use exactly the same versions until
 //! `brim update` asks for the newest ones. Path dependencies are listed in
 //! the lock file too, but always used as they are.
 //!
@@ -28,13 +28,13 @@ use std::path::{Component, Path, PathBuf};
 use brim_diagnostics::{Diagnostic, SourceFile};
 use brim_manifest::{Dependency, Manifest, Source, Version};
 
-pub use lock::LOCK_FILE;
+pub use lock::{LOCK_FILE, OLD_LOCK_FILE};
 pub use workspace::{Member, find_root, member_dirs, resolve_workspace};
 
 /// A package of a project.
 #[derive(Clone, Debug)]
 pub struct Package {
-    /// The directory with the package's `brim.toml`: relative to the
+    /// The directory with the package's `.brimproj`: relative to the
     /// working directory for the project and its path dependencies, absolute
     /// for git checkouts.
     pub dir: PathBuf,
@@ -223,6 +223,8 @@ pub fn resolve(
             })?;
             report.lock_written = true;
         }
+        // The lock file had another name before 1.0.
+        let _ = std::fs::remove_file(full.with_file_name(lock::OLD_LOCK_FILE));
     }
     Ok((graph, report))
 }
@@ -304,7 +306,7 @@ impl Resolver<'_> {
             ));
         }
 
-        let manifest_path = dir.join(brim_manifest::MANIFEST_FILE);
+        let manifest_path = dir.join(brim_manifest::manifest_name(&self.options.cwd.join(&dir)));
         let shown = slash(&manifest_path);
         let text =
             std::fs::read_to_string(self.options.cwd.join(&manifest_path)).map_err(|_| {
@@ -392,7 +394,7 @@ impl Resolver<'_> {
             if downloaded {
                 self.report.fetched.push(format!("{name} {}", pick.version));
             }
-            let manifest_path = dir.join(brim_manifest::MANIFEST_FILE);
+            let manifest_path = brim_manifest::manifest_path(&dir);
             let shown = slash(&manifest_path);
             let text = std::fs::read_to_string(&manifest_path).map_err(|e| {
                 Failure::new(Diagnostic::error(format!("cannot read {shown}: {e}")))

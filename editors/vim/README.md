@@ -26,7 +26,7 @@ With [coc.nvim](https://github.com/neoclide/coc.nvim), in `coc-settings.json`:
       "command": "brim",
       "args": ["lsp"],
       "filetypes": ["brim"],
-      "rootPatterns": ["brim.toml"]
+      "rootPatterns": [".brimproj", "brim.toml"]
     }
   }
 }

@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- The project file is `.brimproj` and the lock file `.brimlock`, instead of `brim.toml` and `brim.lock`. Projects with the old names keep working: `brim.toml` gives a warning to rename it, and `brim.lock` is replaced by `.brimlock` the next time the lock file is written. The registry accepts archives with either name, and editors find a project's root by either.
+
 ## [1.0.0-rc.1] - 2026-10-17
 
 The first release candidate for 1.0. From 1.0, what `docs/releasing.md`

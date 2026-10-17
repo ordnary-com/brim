@@ -29,12 +29,12 @@ was compared with the native one where they must agree.
 
 | Finding | Severity | Outcome |
 |---------|----------|---------|
-| The checksum in `brim.lock` was not enforced: with an empty cache, a registry or mirror could serve other contents for a locked version and brim rewrote the lock file | high | Fixed: a locked version must have the locked checksum (`M0015`); only `brim update` records a new one. Cached versions carry the checksum they were unpacked from and are used only for that checksum |
+| The checksum in `.brimlock` was not enforced: with an empty cache, a registry or mirror could serve other contents for a locked version and brim rewrote the lock file | high | Fixed: a locked version must have the locked checksum (`M0015`); only `brim update` records a new one. Cached versions carry the checksum they were unpacked from and are used only for that checksum |
 | `brim publish` followed symbolic links, so a link in `src/` could publish files from anywhere | medium | Fixed: links are refused |
-| The language server resolved dependencies when a file was opened: an untrusted repository could make the editor clone, download and write `brim.lock` | medium | Fixed: the language server resolves offline, from the lock file and the cache only |
+| The language server resolved dependencies when a file was opened: an untrusted repository could make the editor clone, download and write `.brimlock` | medium | Fixed: the language server resolves offline, from the lock file and the cache only |
 | Registry responses had no size limit | low | Fixed: 32 MiB |
 | Git URLs and references were not checked, and could be read as options | low | Fixed: URLs that start with `-` or use helper transports (`ext::`) are refused, `--` separates options from arguments, and git may only use `https`, `http`, `ssh`, `git` and `file` |
-| A malformed commit in `brim.lock` could point a checkout anywhere | low | Fixed: commits must be 40 or 64 hex digits |
+| A malformed commit in `.brimlock` could point a checkout anywhere | low | Fixed: commits must be 40 or 64 hex digits |
 | `credentials.toml` was readable by others for a moment while it was written | low | Fixed: it is created with mode 600 |
 | A token could be sent over plain `http://` | low | Fixed: tokens only go over https, or http to `localhost` |
 | A lock file written for another registry is resolved again without a warning | low | Open |
@@ -45,7 +45,7 @@ was compared with the native one where they must agree.
 |---------|----------|---------|
 | Package metadata had no size limits, so a publisher could make the home page and search slow | medium | Fixed: limits on description, license, repository and dependencies; `repository` must be an http(s) URL |
 | Tokens could not be revoked, and a typo when issuing one gave someone's packages to another person | medium | Fixed: `DELETE /api/v1/admin/tokens`, `DELETE /api/v1/me/token`, and `"existing": true` to add a token for a user who has one |
-| The manifest inside an archive was not compared with the metadata, so a package's real dependencies could differ from the index | low | Fixed: the archive's `brim.toml` must have the metadata's name, version, edition and dependencies |
+| The manifest inside an archive was not compared with the metadata, so a package's real dependencies could differ from the index | low | Fixed: the archive's `.brimproj` must have the metadata's name, version, edition and dependencies |
 | A failed or repeated upload could write over a stored archive | low | Fixed: an archive is never written twice, and a write that landed despite an error keeps the version |
 | Names such as `std` and `brim` could be claimed | low | Fixed: reserved |
 | Archive paths that Windows reads differently (`CON`, `a:b`, names differing in case) were accepted | low | Fixed: refused |

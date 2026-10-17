@@ -1,7 +1,7 @@
 # Brim package registry
 
 The service behind `brim publish` and registry dependencies (`http_router = "1.2"`
-in `brim.toml`). It implements the protocol in [`docs/registry.md`](../docs/registry.md):
+in `.brimproj`). It implements the protocol in [`docs/registry.md`](../docs/registry.md):
 the JSON API under `/api/v1/`, plus two small HTML pages (`/` lists and searches
 packages, `/packages/{name}` shows one).
 
@@ -16,7 +16,7 @@ It is a Cloudflare Worker written in TypeScript:
 |------|------|
 | `src/index.ts` | Routing and error handling |
 | `src/api.ts` | The API endpoints |
-| `src/archive.ts` | Archive checks (gzip, ustar entries, paths, `brim.toml`) |
+| `src/archive.ts` | Archive checks (gzip, ustar entries, paths, `.brimproj`) |
 | `src/semver.ts` | Versions, requirements and precedence |
 | `src/auth.ts` | API and admin tokens |
 | `src/pages.ts` | The HTML pages |

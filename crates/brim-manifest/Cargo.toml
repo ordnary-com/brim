@@ -1,6 +1,6 @@
 [package]
 name = "brim-manifest"
-description = "Parser and validator for Brim's brim.toml project manifest"
+description = "Parser and validator for Brim's .brimproj project manifest"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

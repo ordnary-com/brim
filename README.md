@@ -119,7 +119,7 @@ Brim is heading for **1.0**: the language and its standard library are complete 
 - **Language:** structs, enums with exhaustive `match`, generics, traits, closures, tuples, `Option` and `Result` with `?`, lists, maps and sets with copy-on-write value semantics, `i64`, `i32`, `u8`, `u64`, `f64`, checked arithmetic, f-strings, modules with `pub`. The [specification](docs/language-spec.md) describes all of it.
 - **Concurrency:** tasks on threads with channels (`std.task`), without shared changeable memory.
 - **Standard library:** files, processes, time, logging, random numbers, TCP, an HTTP/1.1 server and client (HTTPS through the system), JSON with typed `encode`/`decode`, PostgreSQL, hashes and base64.
-- **Tools:** one `brim` command to run, check, build, test, format, document (`brim doc`), generate TypeScript and Angular clients (`brim gen ts`), and manage packages (`brim publish`, workspaces, `brim.lock`); a language server and packages for 13 editors (see `editors/`).
+- **Tools:** one `brim` command to run, check, build, test, format, document (`brim doc`), generate TypeScript and Angular clients (`brim gen ts`), and manage packages (`brim publish`, workspaces, `.brimlock`); a language server and packages for 13 editors (see `editors/`).
 - **Backends:** a reference interpreter, and native executables through LLVM 22 on Linux, macOS and Windows, with debug information for lldb and gdb. Both behave the same; the tests compare them on every program.
 - **Packages:** a registry at [registry.brimlang.com](https://registry.brimlang.com), and dependencies from directories and git.
 
@@ -150,7 +150,7 @@ brim run examples/hello.brim          # check and run a program
 brim run examples/control_flow.brim   # FizzBuzz and primes
 brim check examples/variables.brim    # report errors without running
 brim check --emit ir examples/functions.brim   # show the intermediate representation
-brim run examples/project             # run a project described by brim.toml
+brim run examples/project             # run a project described by .brimproj
 brim new hello && cd hello && brim test   # create a project and run its tests
 brim fmt                              # format the project's source files
 brim --help
@@ -165,7 +165,7 @@ brim build examples/control_flow.brim && ./examples/control_flow
 brim build --release examples/project   # writes examples/project/target/hello
 ```
 
-A project is a directory with a `brim.toml`:
+A project is a directory with a `.brimproj`:
 
 ```toml
 [package]
@@ -203,9 +203,9 @@ crates/
   brim-codegen      LLVM backend and native runtime (`llvm` feature)
   brim-runtime      runtime ABI and runtime functions
   brim-stdlib       builtin function catalogue
-  brim-manifest     brim.toml parsing and validation
+  brim-manifest     .brimproj parsing and validation
   brim-fmt          the formatter
-  brim-package      dependencies and brim.lock
+  brim-package      dependencies and .brimlock
   brim-tsgen        TypeScript types for API contracts
   brim-driver       loads a program's modules (shared by the command and the language server)
   brim-lsp          the language server

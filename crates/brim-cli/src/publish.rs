@@ -277,7 +277,7 @@ fn collect(base: &Path, dir: &Path, files: &mut Vec<String>, links: &mut Vec<Str
 fn published_manifest(manifest: &Manifest, dependencies: &[(String, String)]) -> String {
     let p = &manifest.package;
     let mut out = String::from(
-        "# Written by `brim publish` from the package's own brim.toml.\n\n[package]\n",
+        "# Written by `brim publish` from the package's own .brimproj.\n\n[package]\n",
     );
     out.push_str(&format!("name = {}\n", quote(&p.name)));
     out.push_str(&format!("version = {}\n", quote(&p.version)));

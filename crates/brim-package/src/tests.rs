@@ -15,7 +15,7 @@ fn scratch(name: &str) -> PathBuf {
 fn write_package(dir: &Path, name: &str, deps: &str) {
     fs::create_dir_all(dir.join("src")).unwrap();
     fs::write(
-        dir.join("brim.toml"),
+        dir.join(".brimproj"),
         format!(
             "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2026\"\n\n[dependencies]\n{deps}"
         ),
@@ -24,7 +24,7 @@ fn write_package(dir: &Path, name: &str, deps: &str) {
 }
 
 fn resolve_in(cwd: &Path, dir: &str, update: bool) -> Result<(Graph, Report), Failure> {
-    let path = Path::new(dir).join("brim.toml");
+    let path = Path::new(dir).join(".brimproj");
     let text = fs::read_to_string(cwd.join(&path)).unwrap();
     let file = SourceFile::new(path.display().to_string(), text);
     let manifest = brim_manifest::parse(file.text()).unwrap();
@@ -67,7 +67,7 @@ fn path_dependencies() {
         PathBuf::from("libs/geometry/src")
     );
     assert!(report.lock_written);
-    let lock = fs::read_to_string(cwd.join("app/brim.lock")).unwrap();
+    let lock = fs::read_to_string(cwd.join("app/.brimlock")).unwrap();
     assert_eq!(
         lock,
         "# This file is written by brim. Do not edit it.\nversion = 1\n\n\
@@ -90,7 +90,7 @@ fn dependency_problems() {
     assert_eq!(failure.diagnostic.message, "cannot find package `missing`");
     assert_eq!(
         failure.file.unwrap().name().replace('\\', "/"),
-        "app/brim.toml"
+        "app/.brimproj"
     );
 
     write_package(&cwd.join("app"), "app", "other = { path = \"../lib\" }\n");
@@ -169,7 +169,7 @@ fn git_dependencies_are_locked() {
             .contains("return 1")
     );
     assert_eq!(report.fetched, std::slice::from_ref(&url));
-    let lock = fs::read_to_string(cwd.join("app/brim.lock")).unwrap();
+    let lock = fs::read_to_string(cwd.join("app/.brimlock")).unwrap();
     assert!(lock.contains(&format!("commit = \"{first}\"")), "{lock}");
 
     // A new commit is not used until `brim update`.
@@ -242,7 +242,7 @@ impl TestRegistry {
             Path::new("."),
             &[],
             &[
-                ("brim.toml".into(), manifest.into_bytes()),
+                (".brimproj".into(), manifest.into_bytes()),
                 ("src/lib.brim".into(), lib.into_bytes()),
             ],
             &format!("{name}-{version}"),
@@ -297,7 +297,7 @@ impl TestRegistry {
 }
 
 fn resolve_with(cwd: &Path, registry: &str, update: bool) -> Result<(Graph, Report), Failure> {
-    let path = Path::new("app").join("brim.toml");
+    let path = Path::new("app").join(".brimproj");
     let text = fs::read_to_string(cwd.join(&path)).unwrap();
     let file = SourceFile::new(path.display().to_string(), text);
     let manifest = brim_manifest::parse(file.text()).unwrap();
@@ -351,7 +351,7 @@ fn registry_dependencies() {
     let json = graph.packages[router].dependency("json_extra").unwrap();
     assert_eq!(graph.packages[json].name(), "json_extra");
     assert!(graph.packages[router].lib_file().is_file());
-    let lock = fs::read_to_string(cwd.join("app/brim.lock")).unwrap();
+    let lock = fs::read_to_string(cwd.join("app/.brimlock")).unwrap();
     // As a TOML string (Windows paths have `\`).
     let source = format!("registry+{}", reg.url()).replace('\\', "\\\\");
     assert!(lock.contains(&format!(
@@ -460,19 +460,19 @@ fn archives_stay_inside() {
     let good = registry::pack(
         Path::new("."),
         &[],
-        &[("brim.toml".into(), b"x".to_vec())],
+        &[(".brimproj".into(), b"x".to_vec())],
         "a-1.0.0",
     )
     .unwrap();
     registry::unpack(&good, "a-1.0.0", &cwd.join("good")).unwrap();
-    assert_eq!(fs::read(cwd.join("good/brim.toml")).unwrap(), b"x");
+    assert_eq!(fs::read(cwd.join("good/.brimproj")).unwrap(), b"x");
     let err = registry::unpack(&good, "b-1.0.0", &cwd.join("bad")).unwrap_err();
     assert!(err.contains("outside `b-1.0.0/`"), "{err}");
     // The same archive twice is the same bytes.
     let again = registry::pack(
         Path::new("."),
         &[],
-        &[("brim.toml".into(), b"x".to_vec())],
+        &[(".brimproj".into(), b"x".to_vec())],
         "a-1.0.0",
     )
     .unwrap();
@@ -480,7 +480,7 @@ fn archives_stay_inside() {
 }
 
 fn read_member(cwd: &Path, dir: &Path, span: Option<brim_diagnostics::Span>) -> Member {
-    let path = dir.join("brim.toml");
+    let path = dir.join(".brimproj");
     let text = fs::read_to_string(cwd.join(&path)).unwrap();
     let file = SourceFile::new(slash(&path), text);
     Member {
@@ -498,7 +498,7 @@ fn workspaces() {
     reg.add("router", "1.0.0", &[]).add("router", "1.1.0", &[]);
     fs::create_dir_all(cwd.join("ws")).unwrap();
     fs::write(
-        cwd.join("ws/brim.toml"),
+        cwd.join("ws/.brimproj"),
         "[workspace]\nmembers = [\"apps/*\", \"lib\"]\n",
     )
     .unwrap();
@@ -514,8 +514,8 @@ fn workspaces() {
     );
     write_package(&cwd.join("ws/lib"), "lib", "router = \"~1.0\"\n");
 
-    let root_text = fs::read_to_string(cwd.join("ws/brim.toml")).unwrap();
-    let root_file = SourceFile::new("ws/brim.toml", root_text);
+    let root_text = fs::read_to_string(cwd.join("ws/.brimproj")).unwrap();
+    let root_file = SourceFile::new("ws/.brimproj", root_text);
     let root = brim_manifest::parse_root(root_file.text()).unwrap();
     let dirs = member_dirs(
         &cwd,
@@ -553,18 +553,18 @@ fn workspaces() {
         api.packages[api.packages[0].dependency("lib").unwrap()].name(),
         "lib"
     );
-    let lock = fs::read_to_string(cwd.join("ws/brim.lock")).unwrap();
+    let lock = fs::read_to_string(cwd.join("ws/.brimlock")).unwrap();
     assert!(lock.contains("source = \"path+apps/api\""), "{lock}");
     assert!(
         lock.contains("name = \"router\"\nversion = \"1.0.0\""),
         "{lock}"
     );
-    assert!(!cwd.join("ws/apps/api/brim.lock").exists());
+    assert!(!cwd.join("ws/apps/api/.brimlock").exists());
 
     // A member finds its workspace; a package outside does not.
     let (found, file) = find_root(&cwd, Path::new("ws/apps/cli")).unwrap();
     assert_eq!(found, PathBuf::from("ws"));
-    assert_eq!(file.name(), "ws/brim.toml");
+    assert_eq!(file.name(), "ws/.brimproj");
     write_package(&cwd.join("ws/other"), "other", "");
     assert!(find_root(&cwd, Path::new("ws/other")).is_none());
 
@@ -575,8 +575,8 @@ fn workspaces() {
         .map(|(d, span)| read_member(&cwd, d, Some(*span)))
         .collect();
     let root_file = SourceFile::new(
-        "ws/brim.toml",
-        fs::read_to_string(cwd.join("ws/brim.toml")).unwrap(),
+        "ws/.brimproj",
+        fs::read_to_string(cwd.join("ws/.brimproj")).unwrap(),
     );
     let failure = resolve_workspace(Path::new("ws"), root_file, &members, &options).unwrap_err();
     assert_eq!(
@@ -593,7 +593,7 @@ fn a_changed_version_is_not_believed() {
         .add("json_extra", "0.3.1", &[]);
     write_package(&cwd.join("app"), "app", "router = \"1.0\"\n");
     resolve_with(&cwd, &reg.url(), false).unwrap();
-    let lock = fs::read_to_string(cwd.join("app/brim.lock")).unwrap();
+    let lock = fs::read_to_string(cwd.join("app/.brimlock")).unwrap();
 
     // The registry swaps 1.0.0 for other contents, and the cache is empty
     // (a new machine, CI).
@@ -602,11 +602,11 @@ fn a_changed_version_is_not_believed() {
     fs::remove_dir_all(cwd.join("home")).unwrap();
     let failure = resolve_with(&cwd, &reg.url(), false).unwrap_err();
     assert_eq!(failure.diagnostic.code.map(|c| c.0), Some("M0015"));
-    assert_eq!(fs::read_to_string(cwd.join("app/brim.lock")).unwrap(), lock);
+    assert_eq!(fs::read_to_string(cwd.join("app/.brimlock")).unwrap(), lock);
 
     // `brim update` records the new archive.
     resolve_with(&cwd, &reg.url(), true).unwrap();
-    assert_ne!(fs::read_to_string(cwd.join("app/brim.lock")).unwrap(), lock);
+    assert_ne!(fs::read_to_string(cwd.join("app/.brimlock")).unwrap(), lock);
 }
 
 #[test]
@@ -615,7 +615,7 @@ fn offline_resolution_fetches_nothing() {
     let mut reg = TestRegistry::new(cwd.join("registry"));
     reg.add("router", "1.0.0", &[]);
     write_package(&cwd.join("app"), "app", "router = \"1.0\"\n");
-    let path = Path::new("app").join("brim.toml");
+    let path = Path::new("app").join(".brimproj");
     let file = SourceFile::new(
         path.display().to_string(),
         fs::read_to_string(cwd.join(&path)).unwrap(),
@@ -638,5 +638,5 @@ fn offline_resolution_fetches_nothing() {
         "{failure:?}"
     );
     assert!(!cwd.join("home").exists());
-    assert!(!cwd.join("app/brim.lock").exists());
+    assert!(!cwd.join("app/.brimlock").exists());
 }
