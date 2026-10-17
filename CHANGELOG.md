@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.0-rc.1] - 2026-10-17
+
+The first release candidate for 1.0. From 1.0, what `docs/releasing.md`
+calls stable does not break within 1.x.
+
+### Added
+
+- The specification describes the whole language, and its open design questions are decided (`docs/language-spec.md`, sections 11 and 12). `docs/releasing.md` defines what is stable from 1.0 and the edition policy.
+- A security review of the runtime, the package client and the registry, with its findings and their fixes in `docs/design/security-review.md`.
+- `M0015`: a locked registry version whose checksum on the registry differs from `brim.lock` is refused; `brim update` records a new one.
+- The registry revokes tokens (`DELETE /api/v1/me/token`, and `DELETE /api/v1/admin/tokens` for all of a user's tokens).
+
+### Changed
+
+- `set_timeout` on a connection bounds a whole read, not each wait for data, so a client sending a byte now and then cannot hold a server.
+- The language server resolves dependencies offline, from `brim.lock` and the cache: opening a file never clones, downloads or writes.
+- `brim publish` refuses symbolic links in a package. Tokens are only sent over https (or http to `localhost`), and `credentials.toml` is created readable by its owner only.
+- Git dependencies: URLs that git would read as options or helper programs are refused, and git may only use the `https`, `http`, `ssh`, `git` and `file` transports.
+- The registry limits package metadata, compares the archive's `brim.toml` with the metadata, reserves names such as `std`, refuses paths that unpack differently on Windows, and needs `"existing": true` to give an existing user another token.
+- Text from outside a program (arguments, file names, HTTPS headers) that is not UTF-8 has its invalid bytes replaced by U+FFFD in native code, as in the interpreter.
+
+### Fixed
+
+- Native code: HTTPS requests from tasks at the same time could mix up their headers; a connection closed by one task while another used it could crash the program; child processes inherited the program's sockets; on Windows, batch files could run commands hidden in arguments and programs were looked up in the current directory; a string with a NUL character could name a different file; `remove_all` could follow a link out of the directory it removed.
+- `crypto.equal` takes the same time wherever two values differ.
+
 ## [0.5.0] - 2026-10-17
 
 ### Added
