@@ -136,3 +136,30 @@ version in the whole workspace. At the root, `brim check`, `brim test`,
 `brim build` and `brim doc` work on every member; `-p NAME` picks one, as
 does running brim in a member's directory. Members depend on each other
 with `path`.
+
+## Calling C
+
+An `extern fn` is a C function, declared without a body:
+
+```brim
+extern fn crc32(data: string, len: i64) -> u64
+
+fn main() {
+    print(crc32("hello", 5))
+}
+```
+
+The C code comes from your package, the libraries it names, or the C
+library:
+
+```toml
+[build]
+c-sources = ["c/checksum.c"]
+link = ["z"]
+```
+
+`extern fn`s take and return `i64`, `i32`, `u8`, `u64`, `f64`, `bool` and
+`string` (passed as a `const char *`), and may return nothing. They run in
+native executables: `brim build`, and `brim run`, which builds such a
+program for you. The interpreter cannot call C, so `brim test` stops at a
+call with `R0011`.

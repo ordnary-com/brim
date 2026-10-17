@@ -155,6 +155,8 @@ pub fn resolve_workspace(
         build: Build {
             entry: brim_manifest::DEFAULT_ENTRY.into(),
             lib: brim_manifest::DEFAULT_LIB.into(),
+            c_sources: Vec::new(),
+            link: Vec::new(),
         },
         dependencies,
     };

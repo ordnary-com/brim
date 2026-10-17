@@ -54,6 +54,7 @@ pub enum TokenKind {
     Import,
     Pub,
     As,
+    Extern,
     /// A keyword reserved for a future language feature (`if`, `struct`, ...).
     Reserved(&'static str),
 
@@ -135,6 +136,7 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("import", TokenKind::Import),
     ("pub", TokenKind::Pub),
     ("as", TokenKind::As),
+    ("extern", TokenKind::Extern),
 ];
 
 /// Words reserved for planned features. They cannot be used as identifiers,
@@ -195,6 +197,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Import => "import",
             TokenKind::Pub => "pub",
             TokenKind::As => "as",
+            TokenKind::Extern => "extern",
             TokenKind::Reserved(word) => word,
             TokenKind::LParen => "(",
             TokenKind::RParen => ")",

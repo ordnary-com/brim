@@ -9,6 +9,8 @@
 //! [build]
 //! entry = "src/main.brim"   # optional; this is the default
 //! lib = "src/lib.brim"      # optional; this is the default
+//! c-sources = ["c/zlib_glue.c"]  # C code for `extern fn`s, in native builds
+//! link = ["z"]              # libraries to link, in native builds
 //!
 //! [dependencies]
 //! router = "1.2"                                      # from the registry
@@ -155,6 +157,11 @@ pub struct Build {
     pub entry: PathBuf,
     /// Path of the library root, relative to the manifest's directory.
     pub lib: PathBuf,
+    /// C files compiled into native builds, relative to the manifest's
+    /// directory.
+    pub c_sources: Vec<PathBuf>,
+    /// Libraries native builds link with (`-l<name>`).
+    pub link: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -185,9 +192,12 @@ struct RawWorkspace {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 struct RawBuild {
     entry: Option<Spanned<String>>,
     lib: Option<Spanned<String>>,
+    c_sources: Option<Vec<Spanned<String>>>,
+    link: Option<Vec<Spanned<String>>>,
 }
 
 /// Parses and validates the manifest of a package. Diagnostics point into
@@ -311,10 +321,40 @@ pub fn parse_root(src: &str) -> Result<Root, Vec<Diagnostic>> {
         );
     }
 
-    let (entry, lib) = match raw.build {
-        None => (None, None),
-        Some(build) => (build.entry, build.lib),
+    let (entry, lib, c_sources, link) = match raw.build {
+        None => (None, None, None, None),
+        Some(build) => (build.entry, build.lib, build.c_sources, build.link),
     };
+    let mut c_source_paths = Vec::new();
+    for source in c_sources.unwrap_or_default() {
+        match check_c_source(source.get_ref()) {
+            Ok(()) => c_source_paths.push(PathBuf::from(source.get_ref())),
+            Err(problem) => diags.push(
+                Diagnostic::error(format!("invalid C source `{}`", source.get_ref()))
+                    .with_code("M0005")
+                    .with_primary(span(&source), problem),
+            ),
+        }
+    }
+    let mut libraries = Vec::new();
+    for library in link.unwrap_or_default() {
+        let name = library.get_ref();
+        let ok = !name.is_empty()
+            && !name.starts_with('-')
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '+'));
+        if ok {
+            libraries.push(name.clone());
+        } else {
+            diags.push(
+                Diagnostic::error(format!("invalid library name `{name}`"))
+                    .with_code("M0005")
+                    .with_primary(span(&library), "")
+                    .with_help("write the name without `-l` or `lib`, e.g. `\"z\"` for libz"),
+            );
+        }
+    }
     let mut source_path = |path: Option<Spanned<String>>, default: &str| match path {
         None => PathBuf::from(default),
         Some(path) => {
@@ -376,7 +416,12 @@ pub fn parse_root(src: &str) -> Result<Root, Vec<Diagnostic>> {
                 license: package.license,
                 repository: package.repository,
             },
-            build: Build { entry, lib },
+            build: Build {
+                entry,
+                lib,
+                c_sources: c_source_paths,
+                link: libraries,
+            },
             dependencies,
         }),
         workspace,
@@ -506,6 +551,23 @@ pub fn valid_name(name: &str) -> bool {
 #[cfg(test)]
 fn valid_version(version: &str) -> bool {
     Version::parse(version).is_some()
+}
+
+fn check_c_source(source: &str) -> Result<(), &'static str> {
+    let path = Path::new(source);
+    if path.is_absolute() || source.starts_with(['/', '\\']) {
+        return Err("the path must be relative to brim.toml");
+    }
+    if path
+        .components()
+        .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_)))
+    {
+        return Err("the path must stay inside the package directory");
+    }
+    if path.extension().is_none_or(|ext| ext != "c") {
+        return Err("C sources have the `.c` extension");
+    }
+    Ok(())
 }
 
 fn check_entry(entry: &str) -> Result<(), &'static str> {
@@ -719,6 +781,21 @@ entry = "src/app.brim"
                 ("shapes", "path ../shapes".into(), Some("0.3".into())),
             ]
         );
+    }
+
+    #[test]
+    fn c_build_settings() {
+        let m = parse(&format!(
+            "{VALID}c-sources = [\"c/glue.c\"]\nlink = [\"z\", \"sqlite3\"]\n"
+        ))
+        .unwrap();
+        assert_eq!(m.build.c_sources, vec![PathBuf::from("c/glue.c")]);
+        assert_eq!(m.build.link, vec!["z".to_string(), "sqlite3".to_string()]);
+        assert_eq!(
+            codes(&format!("{VALID}c-sources = [\"../x.c\", \"a.h\"]\n")),
+            vec!["M0005", "M0005"]
+        );
+        assert_eq!(codes(&format!("{VALID}link = [\"-lz\"]\n")), vec!["M0005"]);
     }
 
     #[test]

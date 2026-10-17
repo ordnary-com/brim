@@ -44,6 +44,36 @@ pub(crate) fn link(
     if options.opt_level == OptLevel::Debug {
         command.arg("-g");
     }
+    // The C code of the program's `extern fn`s, compiled where it is so
+    // its `#include "..."`s work.
+    for (i, source) in options.c_sources.iter().enumerate() {
+        let object = dir.path.join(format!("c{i}.o"));
+        let mut c = Command::new(&linker);
+        c.arg("-std=c11")
+            .arg(opt)
+            .arg("-c")
+            .arg(source)
+            .arg("-o")
+            .arg(&object);
+        if options.opt_level == OptLevel::Debug {
+            c.arg("-g");
+        }
+        let shown = format!("{c:?}").replace('"', "");
+        let output = c.output().map_err(|e| CodegenError::LinkerNotFound {
+            linker: linker.clone(),
+            message: e.to_string(),
+        })?;
+        if !output.status.success() {
+            return Err(CodegenError::LinkFailed {
+                command: shown,
+                output: String::from_utf8_lossy(&output.stderr).into_owned(),
+            });
+        }
+        command.arg(&object);
+    }
+    for library in &options.link {
+        command.arg(format!("-l{library}"));
+    }
     if module
         .get_function(brim_runtime::RuntimeFn::HttpRequest.symbol())
         .is_some()

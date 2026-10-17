@@ -581,3 +581,18 @@ fn struct_expression_errors() {
     assert_eq!(check("    print(Point)")[0].0, "E0214");
     assert_eq!(check("    let p: Point = Point(1, 2)")[0].0, "E0201");
 }
+
+#[test]
+fn extern_functions() {
+    let program = ok(
+        "extern fn cos(x: f64) -> f64\nextern fn put(s: string, n: i32, b: bool, c: u8, u: u64)\n\nfn main() {\n    put(\"a\", 1, true, 2, 3)\n    print(cos(0.0))\n}\n",
+    );
+    let cos = program.functions.iter().find(|f| f.name == "cos").unwrap();
+    assert_eq!(cos.external.as_deref(), Some("cos"));
+    assert!(cos.body.is_empty());
+    assert_eq!(
+        codes("extern fn f(xs: List[i64]) -> Option[i64]\nextern fn g[T](x: T)\nfn main() {}\n"),
+        vec!["E0260", "E0260", "E0260", "E0260"]
+    );
+    assert_eq!(codes("extern fn main()\n"), vec!["E0260"]);
+}

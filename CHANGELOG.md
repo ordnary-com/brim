@@ -9,6 +9,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - Version requirements and a package registry: `router = "1.2"` in `[dependencies]` picks the newest version that meets every requirement on the package in the project (`^`, `~`, `=`, comparisons and `*`, as in `docs/registry.md`), records it with its checksum in `brim.lock` and works offline from there. Conflicts say who requires what (`M0014`). `brim update` picks the newest versions again.
 - `brim publish` (with `--dry-run`), `brim login` and `brim yank NAME@VERSION [--undo]`. A path dependency can carry a `version` for publishing: `shared = { path = "../shared", version = "0.1" }`. `[package]` takes `description`, `license` and `repository`.
 - The registry service itself, in `registry/`: index, downloads, publishing with API tokens, yanking, search and package pages.
+- Calling C: `extern fn cos(x: f64) -> f64` declares a C function, with `i64`, `i32`, `u8`, `u64`, `f64`, `bool` and `string` (`const char *`) parameters and results. `[build] c-sources` compiles C files into native builds and `[build] link` links libraries. `brim run` builds and runs programs that call C; the interpreter stops at such a call with `R0011`.
 - Workspaces: `[workspace] members = ["apps/*", "shared"]` in a root `brim.toml`, with one `brim.lock` for all members. At the root, `check`, `test`, `build` and `doc` work on every member; `-p NAME` (`--package`) picks one.
 
 ### Changed

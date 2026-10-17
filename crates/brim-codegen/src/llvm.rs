@@ -559,6 +559,11 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                             args.iter().map(|a| get(*a)).collect();
                         self.call_runtime(*rt, &args, inst.span)?
                     }
+                    InstKind::CallC(c, args) => {
+                        let args: Vec<BasicValueEnum<'ctx>> =
+                            args.iter().map(|a| get(*a)).collect();
+                        self.call_c(c, &args)?
+                    }
                     InstKind::MakeStruct(id, args) => {
                         let mut value = self.struct_types[id.index()].get_undef().into();
                         for (index, arg) in args.iter().enumerate() {
@@ -1151,6 +1156,196 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             Type::Void => self.context.void_type().fn_type(&params, false),
             ty => self.basic_type(ty).fn_type(&params, false),
         }
+    }
+
+    /// A call of a C function (`extern fn`): the arguments converted to C
+    /// types, and the result back to Brim's.
+    fn call_c(
+        &mut self,
+        c: &brim_ir::CFunction,
+        args: &[BasicValueEnum<'ctx>],
+    ) -> Result<Option<BasicValueEnum<'ctx>>, BuilderError> {
+        use brim_ir::CType;
+        let ptr = self.context.ptr_type(AddressSpace::default());
+        let i8 = self.context.i8_type();
+        let i32 = self.context.i32_type();
+        let i64 = self.context.i64_type();
+        let c_type = |ty: CType| -> BasicTypeEnum<'ctx> {
+            match ty {
+                CType::I64 | CType::U64 => i64.into(),
+                CType::I32 => i32.into(),
+                CType::U8 | CType::Bool => i8.into(),
+                CType::F64 => self.context.f64_type().into(),
+                CType::Str => ptr.into(),
+                CType::Void => unreachable!("validated IR: no void parameters"),
+            }
+        };
+        let params: Vec<BasicMetadataTypeEnum<'ctx>> =
+            c.params.iter().map(|t| c_type(*t).into()).collect();
+        let fn_type = match c.ret {
+            CType::Void => self.context.void_type().fn_type(&params, false),
+            ty => c_type(ty).fn_type(&params, false),
+        };
+        // The same C function may be declared by several `extern fn`s.
+        let function = match self.module.get_function(&c.symbol) {
+            Some(f) => f,
+            None => {
+                let f = self
+                    .module
+                    .add_function(&c.symbol, fn_type, Some(Linkage::External));
+                // Small integers and `bool` are extended as C expects.
+                let ext = |name: &str| {
+                    self.context
+                        .create_enum_attribute(Attribute::get_named_enum_kind_id(name), 0)
+                };
+                for (i, t) in c.params.iter().enumerate() {
+                    match t {
+                        CType::I32 => {
+                            f.add_attribute(AttributeLoc::Param(i as u32), ext("signext"))
+                        }
+                        CType::U8 | CType::Bool => {
+                            f.add_attribute(AttributeLoc::Param(i as u32), ext("zeroext"));
+                        }
+                        _ => {}
+                    }
+                }
+                f
+            }
+        };
+        let c_string = self.c_helper(
+            "brim_rt_internal_c_string",
+            ptr.fn_type(&[ptr.into()], false),
+        );
+        let mut call_args: Vec<BasicMetadataValueEnum<'ctx>> = Vec::with_capacity(args.len());
+        let mut copies = Vec::new();
+        for (arg, ty) in args.iter().zip(&c.params) {
+            let value: BasicValueEnum<'ctx> = match ty {
+                CType::I32 => self
+                    .builder
+                    .build_int_truncate(arg.into_int_value(), i32, "")?
+                    .into(),
+                CType::U8 => self
+                    .builder
+                    .build_int_truncate(arg.into_int_value(), i8, "")?
+                    .into(),
+                CType::Bool => self
+                    .builder
+                    .build_int_z_extend(arg.into_int_value(), i8, "")?
+                    .into(),
+                CType::Str => {
+                    // A NUL-terminated copy, freed after the call.
+                    let copy = self
+                        .builder
+                        .build_call(c_string, &[(*arg).into()], "")?
+                        .try_as_basic_value()
+                        .basic()
+                        .expect("returns a pointer");
+                    copies.push(copy);
+                    copy
+                }
+                _ => *arg,
+            };
+            call_args.push(value.into());
+        }
+        let result = self
+            .builder
+            .build_indirect_call(
+                fn_type,
+                function.as_global_value().as_pointer_value(),
+                &call_args,
+                "",
+            )?
+            .try_as_basic_value()
+            .basic();
+        if !copies.is_empty() {
+            let free = self.c_helper(
+                "free",
+                self.context.void_type().fn_type(&[ptr.into()], false),
+            );
+            for copy in copies {
+                self.builder.build_call(free, &[copy.into()], "")?;
+            }
+        }
+        let Some(result) = result else {
+            return Ok(None);
+        };
+        Ok(Some(match c.ret {
+            CType::I32 => self
+                .builder
+                .build_int_s_extend(result.into_int_value(), i64, "")?
+                .into(),
+            CType::U8 => self
+                .builder
+                .build_int_z_extend(result.into_int_value(), i64, "")?
+                .into(),
+            CType::Bool => self
+                .builder
+                .build_int_compare(
+                    IntPredicate::NE,
+                    result.into_int_value(),
+                    i8.const_zero(),
+                    "",
+                )?
+                .into(),
+            CType::Str => {
+                // A copy of the C string; NULL is the empty string.
+                let text = result.into_pointer_value();
+                let strlen = self.c_helper("strlen", i64.fn_type(&[ptr.into()], false));
+                let make = self.c_helper(
+                    "brim_rt_internal_str",
+                    ptr.fn_type(&[ptr.into(), i64.into()], false),
+                );
+                let function = self
+                    .builder
+                    .get_insert_block()
+                    .and_then(|b| b.get_parent())
+                    .expect("inside a function");
+                let is_null = self.builder.build_is_null(text, "")?;
+                let null_block = self.context.append_basic_block(function, "c.null");
+                let text_block = self.context.append_basic_block(function, "c.text");
+                let join = self.context.append_basic_block(function, "c.join");
+                self.builder
+                    .build_conditional_branch(is_null, null_block, text_block)?;
+                self.builder.position_at_end(null_block);
+                let empty = self
+                    .builder
+                    .build_call(
+                        make,
+                        &[ptr.const_null().into(), i64.const_zero().into()],
+                        "",
+                    )?
+                    .try_as_basic_value()
+                    .basic()
+                    .expect("returns a string");
+                self.builder.build_unconditional_branch(join)?;
+                self.builder.position_at_end(text_block);
+                let len = self
+                    .builder
+                    .build_call(strlen, &[text.into()], "")?
+                    .try_as_basic_value()
+                    .basic()
+                    .expect("returns a length");
+                let copied = self
+                    .builder
+                    .build_call(make, &[text.into(), len.into()], "")?
+                    .try_as_basic_value()
+                    .basic()
+                    .expect("returns a string");
+                self.builder.build_unconditional_branch(join)?;
+                self.builder.position_at_end(join);
+                let phi = self.builder.build_phi(ptr, "")?;
+                phi.add_incoming(&[(&empty, null_block), (&copied, text_block)]);
+                phi.as_basic_value()
+            }
+            _ => result,
+        }))
+    }
+
+    /// A C function of the runtime or the C library, declared once.
+    fn c_helper(&mut self, name: &str, ty: FunctionType<'ctx>) -> FunctionValue<'ctx> {
+        self.module
+            .get_function(name)
+            .unwrap_or_else(|| self.module.add_function(name, ty, Some(Linkage::External)))
     }
 
     /// The external declaration of a runtime function, in ABI types.

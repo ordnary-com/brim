@@ -57,8 +57,8 @@ fn site_examples_run() {
                 continue;
             }
             let name = path.file_name().unwrap().to_string_lossy();
-            // Programs that use the network are checked, not run.
-            if code.contains("import std.") {
+            // Programs that use the network or call C are checked, not run.
+            if code.contains("import std.") || code.contains("extern fn") {
                 let file = dir.join(format!("example{ran}.brim"));
                 fs::write(&file, code).unwrap();
                 ran += 1;

@@ -718,3 +718,16 @@ fn a_line_starting_with_a_dot_continues_the_expression() {
     let stmts = body("    let n = xs\n        .filter(f)\n        .len()\n    print(n)");
     assert_eq!(stmts.len(), 2);
 }
+
+#[test]
+fn extern_functions() {
+    let program = parse_ok("pub extern fn cos(x: f64) -> f64\nextern fn put(s: string)\n");
+    assert_eq!(program.functions.len(), 2);
+    assert!(program.functions[0].public && program.functions[0].external.is_some());
+    assert!(program.functions[1].body.stmts.is_empty());
+    assert_eq!(
+        codes("extern fn f() -> i64 {\n    return 1\n}\n"),
+        vec!["E0100"]
+    );
+    assert_eq!(codes("extern struct S {}\n"), vec!["E0100"]);
+}

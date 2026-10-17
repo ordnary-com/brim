@@ -899,6 +899,23 @@ impl<'a> Checker<'a> {
         }
         let param_count = ctx.locals.len();
 
+        if let Some(extern_span) = f.external {
+            self.check_extern(f, extern_span, &ctx);
+            let type_params = std::mem::take(&mut self.type_params);
+            return CheckedFn {
+                name: self.sigs[id.0].name.clone(),
+                mut_self,
+                span: f.span,
+                type_params,
+                param_count,
+                ret: ctx.ret,
+                locals: ctx.locals,
+                body: Vec::new(),
+                captures: None,
+                external: Some(f.name.name.clone()),
+            };
+        }
+
         // The body shares its scope with the parameters, so `let a` in the
         // body conflicts with a parameter `a`.
         let (body, diverges) = self.check_stmts(&f.body.stmts, &mut ctx);
@@ -944,6 +961,70 @@ impl<'a> Checker<'a> {
             locals: ctx.locals,
             body,
             captures: None,
+            external: None,
+        }
+    }
+
+    /// An `extern fn` takes and returns only what C has a type for.
+    fn check_extern(&mut self, f: &ast::FnDecl, extern_span: Span, ctx: &FnCtx) {
+        let c_type = |ty: Type| match ty {
+            Type::I64 => Some("int64_t"),
+            Type::I32 => Some("int32_t"),
+            Type::U8 => Some("uint8_t"),
+            Type::U64 => Some("uint64_t"),
+            Type::F64 => Some("double"),
+            Type::Bool => Some("bool"),
+            Type::String => Some("const char *"),
+            Type::Error => Some(""),
+            _ => None,
+        };
+        let not_c = |this: &Self, what: &str, ty: Type, span: Span| {
+            Diagnostic::error(format!(
+                "{what} of an `extern fn` cannot be `{}`",
+                this.show(ty)
+            ))
+            .with_code("E0260")
+            .with_primary(span, "")
+            .with_note(
+                "C functions take and return `i64`, `i32`, `u8`, `u64`, `f64`, `bool` and                  `string` (a `const char *`), and may return nothing",
+            )
+        };
+        if let Some(param) = f.type_params.first() {
+            self.diags.push(
+                Diagnostic::error("an `extern fn` cannot be generic")
+                    .with_code("E0260")
+                    .with_primary(param.span, ""),
+            );
+        }
+        if let Some(receiver) = &f.receiver {
+            self.diags.push(
+                Diagnostic::error("an `extern fn` cannot take `self`")
+                    .with_code("E0260")
+                    .with_primary(receiver.span, ""),
+            );
+        }
+        if f.name.name == "main" {
+            self.diags.push(
+                Diagnostic::error("`main` cannot be an `extern fn`")
+                    .with_code("E0260")
+                    .with_primary(extern_span, ""),
+            );
+        }
+        for local in &ctx.locals {
+            if c_type(local.ty).is_none() {
+                let diag = not_c(
+                    self,
+                    &format!("parameter `{}`", local.name),
+                    local.ty,
+                    local.span,
+                );
+                self.diags.push(diag);
+            }
+        }
+        if ctx.ret != Type::Void && c_type(ctx.ret).is_none() {
+            let span = ctx.ret_span.unwrap_or(f.name.span);
+            let diag = not_c(self, "the result", ctx.ret, span);
+            self.diags.push(diag);
         }
     }
 

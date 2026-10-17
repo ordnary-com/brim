@@ -49,6 +49,10 @@ pub struct BuildOptions {
     /// Where compiled parts of the runtime are kept between builds (for
     /// example `~/.brim/cache`); `None` compiles them every time.
     pub cache_dir: Option<PathBuf>,
+    /// C files compiled and linked into the executable, for `extern fn`s.
+    pub c_sources: Vec<PathBuf>,
+    /// Libraries to link with (`-l<name>`).
+    pub link: Vec<String>,
 }
 
 /// What a successful build produced.
@@ -188,6 +192,8 @@ mod tests {
 
     fn options() -> BuildOptions {
         BuildOptions {
+            c_sources: Vec::new(),
+            link: Vec::new(),
             output: PathBuf::from("out"),
             opt_level: OptLevel::Debug,
             source: {

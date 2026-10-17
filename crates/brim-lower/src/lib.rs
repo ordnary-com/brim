@@ -608,6 +608,10 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 lowerer.emit(InstKind::Store(slot, value), None, f.span);
             }
         }
+        if let Some(symbol) = &f.external {
+            lowerer.call_c(f, symbol);
+            return lowerer.func;
+        }
         lowerer.stmts(&f.body);
         if !lowerer.terminated {
             // Semantic analysis guarantees non-void functions always return.
@@ -618,6 +622,48 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             }
         }
         lowerer.func
+    }
+
+    /// The body of an `extern fn`: a call of the C function with the
+    /// parameters, returning its result.
+    fn call_c(&mut self, f: &CheckedFn, symbol: &str) {
+        let c_type = |ty: Type| match ty {
+            Type::I64 => brim_ir::CType::I64,
+            Type::I32 => brim_ir::CType::I32,
+            Type::U8 => brim_ir::CType::U8,
+            Type::U64 => brim_ir::CType::U64,
+            Type::F64 => brim_ir::CType::F64,
+            Type::Bool => brim_ir::CType::Bool,
+            Type::String => brim_ir::CType::Str,
+            // The checker allows nothing else.
+            _ => brim_ir::CType::Void,
+        };
+        let params: Vec<brim_ir::CType> = f.locals[..f.param_count]
+            .iter()
+            .map(|l| c_type(l.ty))
+            .collect();
+        let args: Vec<ValueId> = (0..f.param_count)
+            .map(|i| {
+                let ty = self.func.slots[i].ty;
+                self.emit_value(InstKind::Load(SlotId(i as u32)), ty, f.span)
+            })
+            .collect();
+        let ret = c_type(f.ret);
+        let call = InstKind::CallC(
+            Box::new(brim_ir::CFunction {
+                symbol: symbol.to_string(),
+                params,
+                ret,
+            }),
+            args,
+        );
+        let result = if ret == brim_ir::CType::Void {
+            self.emit(call, None, f.span);
+            None
+        } else {
+            Some(self.emit_value(call, ret.ir(), f.span))
+        };
+        self.return_value(result, f.span);
     }
 
     /// Returns `value`; a `mut self` method also returns `self`.

@@ -68,6 +68,8 @@ pub enum RuntimeError {
     StepLimit { limit: u64 },
     /// `to_int` of NaN or of a number outside the `i64` range.
     FloatToInt,
+    /// A call to an `extern fn` in the interpreter, which cannot call C.
+    CCall { name: String },
 }
 
 impl RuntimeError {
@@ -84,6 +86,7 @@ impl RuntimeError {
             RuntimeError::AssertionFailed { .. } => "R0008",
             RuntimeError::StepLimit { .. } => "R0009",
             RuntimeError::FloatToInt => "R0010",
+            RuntimeError::CCall { .. } => "R0011",
         }
     }
 }
@@ -124,6 +127,9 @@ impl fmt::Display for RuntimeError {
             RuntimeError::StepLimit { limit } => {
                 write!(f, "step limit exceeded: more than {limit} instructions")
             }
+            RuntimeError::CCall { name } => {
+                write!(f, "cannot call the C function `{name}` in the interpreter")
+            }
         }
     }
 }
@@ -137,6 +143,10 @@ impl RuntimeError {
             RuntimeError::AssertionFailed {
                 values: Some((left, right)),
             } => vec![format!("left:  {left}"), format!("right: {right}")],
+            RuntimeError::CCall { .. } => vec![
+                "`extern fn`s run in native executables: build the program with `brim build`"
+                    .into(),
+            ],
             _ => Vec::new(),
         }
     }

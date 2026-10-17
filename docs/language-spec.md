@@ -56,17 +56,17 @@ Identifiers are ASCII-only in 0.1. Identifiers are case-sensitive. A word that i
 
 ### 3.3 Keywords
 
-Keywords with meaning in 0.1:
+Keywords:
 
 ```
 fn  let  mut  return  if  else  while  break  continue  true  false  struct
-enum  match  for  in  impl  self  import  pub  as
+enum  match  for  in  impl  trait  const  loop  self  import  pub  as  extern
 ```
 
 Reserved words for planned features. They cannot be used as identifiers, and using one produces error `E0101`:
 
 ```
-async  await  const  loop  trait  type  use
+async  await  type  use
 ```
 
 The type names `i64`, `bool`, `string` and `void` are **not** keywords. They are predeclared type names, resolved during semantic analysis.
@@ -131,7 +131,8 @@ The grammar below uses EBNF. `NEWLINE` is a newline token; `EOF` is the end of i
 ```ebnf
 program     = { separator } { ( import | item ) { separator } } EOF ;
 import      = [ "pub" ] "import" identifier { "." identifier } [ "." "{" identifier { "," identifier } [ "," ] "}" | "as" identifier ] ;
-item        = [ "pub" ] ( function | struct | enum | trait | const ) | impl ;
+item        = [ "pub" ] ( function | extern_fn | struct | enum | trait | const ) | impl ;
+extern_fn   = "extern" "fn" identifier "(" [ param { "," param } [ "," ] ] ")" [ "->" type ] ;
 impl        = "impl" [ path "for" ] identifier [ type_params ] "{" { separator } { [ "pub" ] function { separator } } "}" ;
 trait       = "trait" identifier "{" { separator } { trait_fn { separator } } "}" ;
 trait_fn    = "fn" identifier "(" "self" { "," param } [ "," ] ")" [ "->" type ] ;
@@ -838,6 +839,27 @@ API functions share no state: they keep it in files or a database. `http.new_req
 
 `brim gen ts --angular` adds an Angular service per module served with `serve_api`: `notes_api` becomes `NotesApiClient`, `@Injectable({ providedIn: 'root' })`, with a method per API function in camel case. `add_note(text: string) -> Result[Note, NoteError]` becomes `addNote(text: string): Observable<Note>`, which posts `{ text }`; a 422 response arrives as an `HttpErrorResponse` whose `error` is the `NoteError`. The injection token `API_BASE_URL` (default `""`, the page's own origin) says where the server is. Without a module served with `serve_api`, `--angular` is an error (`G0002`). `examples/http/api` shows a service and its generated `client.ts`.
 
+### 9.6 Calling C
+
+An `extern fn` declares a C function, without a body; calls to it call the C function of that name:
+
+```brim
+extern fn cos(x: f64) -> f64
+extern fn crc32(data: string, len: i64) -> u64
+```
+
+Parameters and the result have types C has too, and are passed as C expects (`E0260` for others, for generics, for `self` and for an `extern fn main`):
+
+| Brim | C |
+|------|---|
+| `i64`, `i32`, `u8`, `u64` | `int64_t`, `int32_t`, `uint8_t`, `uint64_t` |
+| `f64` | `double` |
+| `bool` | `bool` |
+| `string` | `const char *`: a NUL-terminated copy for the call (text after a NUL inside the string is not seen); a returned string is copied, and `NULL` is `""`. The C side keeps what it returns. |
+| no result | `void` |
+
+The C code comes from the files in `[build] c-sources` (compiled with the C compiler that links the program, where they are, so `#include "..."` works) and the libraries in `[build] link` (`-l<name>`), for every package of the program, or from the C library. Native builds only: the interpreter stops at a call with `R0011`. `brim run` therefore builds a program that has `extern fn`s and runs the executable, when the native backend is available. `brim test` runs in the interpreter, so tests cannot call C yet.
+
 ## 10. Builtins
 
 Builtins are always in scope and cannot be redefined.
@@ -970,6 +992,8 @@ repository = "https://..." # optional; for the registry
 [build]                 # optional
 entry = "src/main.brim" # optional; default "src/main.brim"; relative, inside the package
 lib = "src/lib.brim"    # optional; default "src/lib.brim": the library root
+c-sources = ["c/glue.c"] # optional; C files for `extern fn`s (see 9.6)
+link = ["z"]            # optional; libraries for `extern fn`s: -lz
 
 [dependencies]          # optional
 router = "1.2"          # from the registry

@@ -228,8 +228,13 @@ pub struct FnDecl {
     pub params: Vec<Param>,
     /// `None` when the `-> type` clause is omitted (the function returns `void`).
     pub ret: Option<TypeExpr>,
+    /// Empty for an `extern fn`.
     pub body: Block,
-    /// From `fn` to the closing `}`.
+    /// `extern fn name(...) -> T`: a C function, without a body. The span
+    /// of `extern`.
+    pub external: Option<Span>,
+    /// From `fn` to the closing `}` (to the end of the signature for an
+    /// `extern fn`).
     pub span: Span,
 }
 

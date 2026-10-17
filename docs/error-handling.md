@@ -119,6 +119,7 @@ Guidelines for writing diagnostics:
 | E0250 | An `if` used as a value without `else`, or a block used as a value that does not end with one |
 | E0251 | A `let` pattern that does not match every value |
 | E0255 | An API function (a `pub fn` of a module served with `serve_api`) that is generic, or whose parameters or result do not implement `Data` |
+| E0260 | An `extern fn` with a type C does not have, type parameters or `self`, or an `extern fn main` |
 
 ### Warnings
 
@@ -162,6 +163,7 @@ Guidelines for writing diagnostics:
 | R0008 | Failed `assert` or `assert_eq` (with the two values as notes) |
 | R0009 | Step limit exceeded; only for embedders that set `brim_interp::Limits::max_steps`, never in `brim run` or native executables |
 | R0010 | `to_int` of NaN or of a number outside the `i64` range |
+| R0011 | A call to an `extern fn` in the interpreter (`brim test`, or `brim run` without a native backend) |
 
 Run-time errors are reported like compile-time diagnostics, with the source location of the failing operation and the call stack:
 

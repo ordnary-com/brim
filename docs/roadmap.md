@@ -45,9 +45,12 @@ Status legend: **done**, **in progress**, **planned**. Only items marked done ex
 - Differential testing: every integration program and example, debug and release, must match the interpreter exactly.
 - A CI job with LLVM 22 on Linux and macOS; the frontend-only jobs stay LLVM-free.
 
-Still open from this phase: debug information, Windows, cross-compilation, and linking without a C compiler.
+- **Done:** debug information (DWARF line tables, functions and simple variables for lldb and gdb) and native builds on Windows (the runtime through Winsock, Win32 and WinHTTP; linking with `clang`).
+- **Done:** calling C: `extern fn` declarations, `[build] c-sources` and `[build] link`.
 
-**Current milestone: runtime and standard library (Phase 5).**
+Still open from this phase: cross-compilation, and linking without a C compiler.
+
+**Current milestone: concurrency (designed first) and the road to 1.0.**
 
 ## Phase 5: Runtime and standard library (in progress)
 
@@ -70,7 +73,10 @@ Still open from this phase: debug information, Windows, cross-compilation, and l
 - **Done:** `brim new`, and `brim test` with `assert` and `assert_eq`.
 - **Done:** `brim fmt`, a token-based formatter that keeps comments and line breaks.
 - **Done:** `[dependencies]` from directories and git repositories, `brim.lock`, `brim update`.
-- A package registry with version requirements.
+- **Done:** version requirements with semver resolution (one version per package in a project, conflicts explained), recorded with checksums in `brim.lock`.
+- **Done:** a package registry (`registry/`, protocol in `docs/registry.md`) with `brim publish`, `brim login` and `brim yank`.
+- **Done:** workspaces: `[workspace] members`, one `brim.lock`, `-p NAME`.
+- Open: accounts for publishers through Ordnary's identity service (tokens are issued by an administrator for now).
 - **Done:** API contracts for web frontends: `brim gen ts` writes TypeScript types for a program's `pub` types.
 - **Done:** `json.encode` and `json.decode` with the same mapping, `serve_api(module, request)` for a module's `pub fn`s, and `brim gen ts --angular` for the matching Angular client.
 
@@ -81,7 +87,7 @@ Still open from this phase: debug information, Windows, cross-compilation, and l
 - **Done:** stability rules per edition, a release process and release binaries for Linux, macOS and Windows (`docs/releasing.md`).
 - **Done:** fuzzing: a mutation fuzzer in the test suite (frontend, formatter, interpreter) and cargo-fuzz targets run weekly.
 - **Done:** a documentation site (`site/`, built with mdBook): introduction, getting started, a tour, projects and tools, and the reference documents. Its examples run in the tests.
-- Performance work, and completion in the language server.
+- **Done:** benchmarks and performance work (`benches/`), incremental builds with a cache, `brim doc`, and an online playground.
 
 ## Phase 8: Self-hosting (optional)
 

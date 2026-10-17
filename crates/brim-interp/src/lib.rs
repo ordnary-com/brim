@@ -641,6 +641,11 @@ fn execute(
                 // Exit codes are the low 8 bits, as on POSIX systems.
                 return Ok((frame.get(args[0]).i64() & 0xff) as i32);
             }
+            InstKind::CallC(c, _) => {
+                return Err(fail(RuntimeError::CCall {
+                    name: c.symbol.clone(),
+                }));
+            }
             InstKind::CallRuntime(rt, args) => {
                 let args: Vec<&Value> = args.iter().map(|a| frame.get(*a)).collect();
                 match call_runtime(*rt, &args, state).map_err(fail)? {

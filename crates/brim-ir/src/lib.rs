@@ -233,6 +233,63 @@ pub struct Block {
     pub term: Terminator,
 }
 
+/// The type of a C value, for calls to `extern fn`s.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CType {
+    /// `int64_t`, an IR `i64`.
+    I64,
+    /// `int32_t`, an IR `i64` in its range.
+    I32,
+    /// `uint8_t`, an IR `i64` in its range.
+    U8,
+    /// `uint64_t`, the bits of an IR `i64`.
+    U64,
+    /// `double`.
+    F64,
+    /// `bool`.
+    Bool,
+    /// `const char *`: a NUL-terminated copy of a `str` for the call, and
+    /// a copy of the C string as the result (the C side keeps its own).
+    Str,
+    /// Only as a result: `void`.
+    Void,
+}
+
+impl CType {
+    /// The IR type of the value.
+    pub fn ir(self) -> Type {
+        match self {
+            CType::I64 | CType::I32 | CType::U8 | CType::U64 => Type::I64,
+            CType::F64 => Type::F64,
+            CType::Bool => Type::Bool,
+            CType::Str => Type::Str,
+            CType::Void => Type::Void,
+        }
+    }
+
+    /// As written in C.
+    pub fn c_name(self) -> &'static str {
+        match self {
+            CType::I64 => "int64_t",
+            CType::I32 => "int32_t",
+            CType::U8 => "uint8_t",
+            CType::U64 => "uint64_t",
+            CType::F64 => "double",
+            CType::Bool => "bool",
+            CType::Str => "const char *",
+            CType::Void => "void",
+        }
+    }
+}
+
+/// A C function an `extern fn` calls.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CFunction {
+    pub symbol: String,
+    pub params: Vec<CType>,
+    pub ret: CType,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Inst {
     /// The value defined by this instruction, if it produces one.
@@ -256,6 +313,9 @@ pub enum InstKind {
     CallMut(FuncId, Vec<ValueId>),
     /// A call into the runtime library.
     CallRuntime(RuntimeFn, Vec<ValueId>),
+    /// A call to a C function (`extern fn`). The arguments are borrowed.
+    /// Native code only: the interpreter stops with a run-time error.
+    CallC(Box<CFunction>, Vec<ValueId>),
     /// A struct value from one value per field, in field order.
     MakeStruct(StructId, Vec<ValueId>),
     /// Field `index` of a struct value.
@@ -372,6 +432,7 @@ impl InstKind {
             InstKind::Call(_, args)
             | InstKind::CallMut(_, args)
             | InstKind::CallRuntime(_, args)
+            | InstKind::CallC(_, args)
             | InstKind::MakeStruct(_, args)
             | InstKind::ListNew(_, args) => args.clone(),
         }

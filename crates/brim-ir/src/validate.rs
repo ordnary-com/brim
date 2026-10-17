@@ -372,6 +372,15 @@ impl FnValidator<'_> {
                 self.check_args(&format!("`{}`", callee.name), args, &params, local);
                 (callee.ret != Type::Void).then_some(callee.ret)
             }
+            InstKind::CallC(c, args) => {
+                if c.params.contains(&crate::CType::Void) {
+                    self.error(format!("C function `{}` takes a void", c.symbol));
+                    return;
+                }
+                let params: Vec<Type> = c.params.iter().map(|p| p.ir()).collect();
+                self.check_args(&format!("C function `{}`", c.symbol), args, &params, local);
+                (c.ret != crate::CType::Void).then_some(c.ret.ir())
+            }
             InstKind::MakeClosure(func, env) => {
                 let Some(callee) = self.module.functions.get(func.index()) else {
                     self.error(format!("closure of nonexistent {func}"));
@@ -586,7 +595,10 @@ impl FnValidator<'_> {
             (Some(_), None)
                 if matches!(
                     kind,
-                    InstKind::Call(..) | InstKind::CallMut(..) | InstKind::CallRuntime(..)
+                    InstKind::Call(..)
+                        | InstKind::CallMut(..)
+                        | InstKind::CallRuntime(..)
+                        | InstKind::CallC(..)
                 ) =>
             {
                 // Discarding a call's result is allowed.

@@ -223,6 +223,17 @@ pub fn run_source(name: &str, text: &str, max_steps: Option<u64>, ctx: &mut Cont
 fn run_program(target: &Target<'_>, args: Vec<String>, ctx: &mut Context<'_>) -> CmdResult {
     let input = load_input(target, ctx)?;
     let (module, map, _) = compile(&input, None, false, ctx)?;
+    // The interpreter cannot call C: build programs with `extern fn`s and
+    // run the executable instead.
+    let calls_c = module
+        .functions
+        .iter()
+        .flat_map(|f| &f.blocks)
+        .flat_map(|b| &b.insts)
+        .any(|i| matches!(i.kind, brim_ir::InstKind::CallC(..)));
+    if calls_c && brim_codegen::LlvmBackend::AVAILABLE {
+        return run_native(input, module, map, args, ctx);
+    }
     let mut host = brim_interp::Host {
         out: ctx.stdout,
         err: ctx.stderr,
@@ -239,6 +250,57 @@ fn run_program(target: &Target<'_>, args: Vec<String>, ctx: &mut Context<'_>) ->
             report(&[diag], &map, ctx);
             Err(exit::RUNTIME_ERROR)
         }
+    }
+}
+
+/// `brim run` of a program that calls C: builds it like `brim build` and
+/// runs the executable, with the program's arguments.
+fn run_native(
+    input: Input,
+    module: Module,
+    map: SourceMap,
+    args: Vec<String>,
+    ctx: &mut Context<'_>,
+) -> CmdResult {
+    let shown = input.default_output.clone();
+    built_executable(input, module, map, None, false, ctx)?;
+    let mut child = match std::process::Command::new(ctx.cwd.join(&shown))
+        .args(&args)
+        .current_dir(&ctx.cwd)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(e) => {
+            let _ = writeln!(ctx.stderr, "error: cannot run {}: {e}", shown.display());
+            return Err(exit::INPUT);
+        }
+    };
+    // Standard error on a thread, standard output as it comes.
+    let mut stderr = child.stderr.take().expect("piped");
+    let errors = std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = io::Read::read_to_end(&mut stderr, &mut buffer);
+        buffer
+    });
+    if let Some(mut stdout) = child.stdout.take() {
+        let mut chunk = [0u8; 8192];
+        while let Ok(n) = io::Read::read(&mut stdout, &mut chunk) {
+            if n == 0 {
+                break;
+            }
+            let _ = ctx.stdout.write_all(&chunk[..n]);
+            let _ = ctx.stdout.flush();
+        }
+    }
+    let status = child.wait();
+    let _ = ctx.stderr.write_all(&errors.join().unwrap_or_default());
+    match status.ok().and_then(|s| s.code()) {
+        Some(0) => Ok(()),
+        Some(code) => Err(code),
+        None => Err(exit::RUNTIME_ERROR),
     }
 }
 
@@ -456,8 +518,16 @@ fn build_cache_dir() -> Option<PathBuf> {
 
 /// The file that records what an output was last built from, and what it
 /// would be built from now: the compiler (path and time, so a rebuilt
-/// compiler counts), the options, the C compiler and every source file.
-fn build_stamp(cache: &Path, output: &Path, map: &SourceMap, release: bool) -> (PathBuf, String) {
+/// compiler counts), the options, the C compiler, every source file, and
+/// the C code (with the other files in its directories, such as headers)
+/// and libraries of `extern fn`s.
+fn build_stamp(
+    cache: &Path,
+    output: &Path,
+    map: &SourceMap,
+    release: bool,
+    native: &NativeInputs,
+) -> (PathBuf, String) {
     let hex = |bytes: &[u8]| -> String {
         brim_runtime::crypto::sha256(bytes)[..16]
             .iter()
@@ -482,6 +552,21 @@ fn build_stamp(cache: &Path, output: &Path, map: &SourceMap, release: bool) -> (
         key.push_str(&hex(file.text().as_bytes()));
         key.push('\n');
     }
+    let mut dirs: Vec<&Path> = native.c_sources.iter().filter_map(|p| p.parent()).collect();
+    dirs.sort();
+    dirs.dedup();
+    for dir in dirs {
+        let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+            .map(|e| e.filter_map(Result::ok).map(|e| e.path()).collect())
+            .unwrap_or_default();
+        files.sort();
+        for file in files.iter().filter(|f| f.is_file()) {
+            key.push_str(&format!("{}\n", file.display()));
+            key.push_str(&hex(&std::fs::read(file).unwrap_or_default()));
+            key.push('\n');
+        }
+    }
+    key.push_str(&native.link.join(","));
     let path = cache
         .join("builds")
         .join(hex(output.display().to_string().as_bytes()));
@@ -835,6 +920,19 @@ fn build_one(
     ctx: &mut Context<'_>,
 ) -> CmdResult {
     let (module, map, _) = compile(&input, None, false, ctx)?;
+    built_executable(input, module, map, output, release, ctx)
+}
+
+/// Builds the executable of a compiled program, unless it is up to date.
+fn built_executable(
+    input: Input,
+    module: Module,
+    map: SourceMap,
+    output: Option<&Path>,
+    release: bool,
+    ctx: &mut Context<'_>,
+) -> CmdResult {
+    let native = native_inputs(&input, &ctx.cwd);
     let Input {
         file,
         default_output,
@@ -856,7 +954,7 @@ fn build_one(
     // Nothing changed since the last build of this output: keep it.
     let stamp = cache_dir
         .as_ref()
-        .map(|dir| build_stamp(dir, &output, &map, release));
+        .map(|dir| build_stamp(dir, &output, &map, release, &native));
     if let Some((path, key)) = &stamp
         && output.is_file()
         && std::fs::read_to_string(path).is_ok_and(|k| k == *key)
@@ -873,6 +971,8 @@ fn build_one(
         },
         source: map,
         cache_dir,
+        c_sources: native.c_sources,
+        link: native.link,
     };
     match brim_codegen::native_backend().build(&module, &options) {
         Ok(_) => {
@@ -918,6 +1018,32 @@ fn build_one(
             Err(exit::INTERNAL)
         }
     }
+}
+
+/// The C code and libraries of a program's packages, for native builds.
+#[derive(Debug, Default)]
+struct NativeInputs {
+    c_sources: Vec<PathBuf>,
+    link: Vec<String>,
+}
+
+fn native_inputs(input: &Input, cwd: &Path) -> NativeInputs {
+    let mut native = NativeInputs::default();
+    for package in input.packages.iter().flat_map(|g| &g.packages) {
+        let build = &package.manifest.build;
+        native.c_sources.extend(
+            build
+                .c_sources
+                .iter()
+                .map(|source| cwd.join(&package.dir).join(source)),
+        );
+        for library in &build.link {
+            if !native.link.contains(library) {
+                native.link.push(library.clone());
+            }
+        }
+    }
+    native
 }
 
 // ---- pipeline ---------------------------------------------------------
@@ -1378,9 +1504,9 @@ fn package_input(
     ctx: &mut Context<'_>,
 ) -> Result<Input, i32> {
     let manifest = &graph.packages[0].manifest;
-    let mut entry = dir.join(&manifest.build.entry);
+    let mut entry = shown_join(dir, &manifest.build.entry);
     // A library without a program: check and test its library root.
-    let lib = dir.join(&manifest.build.lib);
+    let lib = shown_join(dir, &manifest.build.lib);
     let is_lib = !ctx.cwd.join(&entry).exists() && ctx.cwd.join(&lib).is_file();
     if is_lib {
         entry = lib;
@@ -1399,6 +1525,16 @@ fn package_input(
         packages: Some(graph),
         lib: is_lib,
     })
+}
+
+/// `dir/path` as paths are shown: with `/` on every platform.
+fn shown_join(dir: &Path, path: &Path) -> PathBuf {
+    let slash = |p: &Path| p.display().to_string().replace('\\', "/");
+    let dir = slash(dir);
+    if dir.is_empty() || dir == "." {
+        return PathBuf::from(slash(path));
+    }
+    PathBuf::from(format!("{}/{}", dir.trim_end_matches('/'), slash(path)))
 }
 
 /// How to resolve dependencies here.

@@ -287,6 +287,7 @@ impl Parser {
         while !matches!(
             self.peek_kind(),
             TokenKind::Fn
+                | TokenKind::Extern
                 | TokenKind::Struct
                 | TokenKind::Enum
                 | TokenKind::Impl
@@ -346,6 +347,13 @@ impl Parser {
                 TokenKind::Pub => {
                     self.bump();
                     match self.peek_kind() {
+                        TokenKind::Extern => match self.extern_function() {
+                            Ok(mut f) => {
+                                f.public = true;
+                                functions.push(f);
+                            }
+                            Err(Reported) => self.recover_item(),
+                        },
                         TokenKind::Fn => match self.function() {
                             Ok(mut f) => {
                                 f.public = true;
@@ -406,6 +414,10 @@ impl Parser {
                     }
                 }
                 TokenKind::Fn => match self.function() {
+                    Ok(f) => functions.push(f),
+                    Err(Reported) => self.recover_item(),
+                },
+                TokenKind::Extern => match self.extern_function() {
                     Ok(f) => functions.push(f),
                     Err(Reported) => self.recover_item(),
                 },
@@ -783,6 +795,47 @@ impl Parser {
             params,
             ret,
             body,
+            external: None,
+        })
+    }
+
+    /// `extern fn name(params) -> ret`: a C function, without a body.
+    fn extern_function(&mut self) -> PResult<FnDecl> {
+        let extern_token = self.expect(&TokenKind::Extern)?;
+        if !self.at(&TokenKind::Fn) {
+            return Err(self.error_unexpected("`fn` after `extern`"));
+        }
+        let FnHeader {
+            name,
+            type_params,
+            bounds,
+            receiver,
+            params,
+            ret,
+            end,
+            ..
+        } = self.fn_header()?;
+        if self.at(&TokenKind::LBrace) {
+            let diag = Diagnostic::error("an `extern fn` has no body")
+                .with_code("E0100")
+                .with_primary(self.peek().span, "")
+                .with_note("its body is C code, in a file of `[build] c-sources` or a library");
+            return Err(self.report(diag));
+        }
+        Ok(FnDecl {
+            public: false,
+            span: extern_token.span.to(end),
+            name,
+            type_params,
+            bounds,
+            receiver,
+            params,
+            ret,
+            body: Block {
+                stmts: Vec::new(),
+                span: end,
+            },
+            external: Some(extern_token.span),
         })
     }
 

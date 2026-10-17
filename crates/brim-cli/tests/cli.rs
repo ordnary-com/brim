@@ -915,3 +915,75 @@ fn workspaces() {
         stderr(&out)
     );
 }
+
+#[cfg(feature = "llvm")]
+#[test]
+fn extern_functions_call_c() {
+    let dir = scratch("extern_c");
+    fs::create_dir_all(dir.join("src")).unwrap();
+    fs::create_dir_all(dir.join("c")).unwrap();
+    // libm is part of the C library on Windows and macOS.
+    let link = if cfg!(target_os = "linux") {
+        "link = [\"m\"]\n"
+    } else {
+        ""
+    };
+    fs::write(
+        dir.join("brim.toml"),
+        format!(
+            "[package]\nname = \"cmath\"\nversion = \"0.1.0\"\nedition = \"2026\"\n\n\
+             [build]\nc-sources = [\"c/glue.c\"]\n{link}"
+        ),
+    )
+    .unwrap();
+    fs::write(dir.join("c/glue.h"), "#define SUFFIX \"!\"\n").unwrap();
+    fs::write(
+        dir.join("c/glue.c"),
+        "#include <stdint.h>\n#include <stdbool.h>\n#include <stdio.h>\n#include <string.h>\n\
+         #include \"glue.h\"\n\
+         int32_t add_i32(int32_t a, int32_t b) { return a + b; }\n\
+         uint8_t low_byte(uint64_t x) { return (uint8_t)(x & 0xff); }\n\
+         bool is_even(int64_t x) { return x % 2 == 0; }\n\
+         static char buf[64];\n\
+         const char *shout(const char *s) { snprintf(buf, sizeof buf, \"%s\" SUFFIX, s); return buf; }\n\
+         const char *nothing(void) { return 0; }\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("src/main.brim"),
+        "extern fn sqrt(x: f64) -> f64\nextern fn add_i32(a: i32, b: i32) -> i32\n\
+         extern fn low_byte(x: u64) -> u8\nextern fn is_even(x: i64) -> bool\n\
+         extern fn shout(s: string) -> string\nextern fn nothing() -> string\n\n\
+         fn main() {\n    print(sqrt(16.0))\n    print(add_i32(2000000000, 100000000))\n    \
+         print(low_byte(18446744073709551615))\n    print(is_even(4))\n    print(is_even(7))\n    \
+         print(shout(\"hi\"))\n    print(nothing() == \"\")\n}\n\n\
+         fn test_c() {\n    assert(is_even(2))\n}\n",
+    )
+    .unwrap();
+    let expected = "4.0\n2100000000\n255\ntrue\nfalse\nhi!\ntrue\n";
+    // `brim run` builds programs that call C.
+    let out = brim_in(&dir, &["run"]);
+    assert_eq!(stdout(&out), expected, "{}", stderr(&out));
+    let out = brim_in(&dir, &["build"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(stderr(&out).contains("(up to date)"), "{}", stderr(&out));
+    let exe = dir
+        .join("target")
+        .join(format!("cmath{}", std::env::consts::EXE_SUFFIX));
+    assert_eq!(stdout(&Command::new(&exe).output().unwrap()), expected);
+    // A changed header builds again.
+    fs::write(dir.join("c/glue.h"), "#define SUFFIX \"?\"\n").unwrap();
+    let out = brim_in(&dir, &["build"]);
+    assert!(!stderr(&out).contains("(up to date)"), "{}", stderr(&out));
+    assert!(stdout(&Command::new(&exe).output().unwrap()).contains("hi?\n"));
+    // The interpreter cannot call C.
+    let out = brim_in(&dir, &["test"]);
+    assert_eq!(out.status.code(), Some(101));
+    assert!(
+        stdout(&out).contains("error[R0011]: cannot call the C function `is_even`")
+            || stderr(&out).contains("error[R0011]: cannot call the C function `is_even`"),
+        "{}{}",
+        stdout(&out),
+        stderr(&out)
+    );
+}

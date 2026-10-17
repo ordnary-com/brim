@@ -2213,6 +2213,7 @@ impl<'a> Checker<'a> {
         let (outer, own): (Vec<LocalId>, Vec<LocalId>) = inner.captures.iter().copied().unzip();
         let enclosing = self.current_fn_name.clone();
         self.lambdas[id.0 - self.fn_decls.len()] = Some(CheckedFn {
+            external: None,
             name: format!("{enclosing}.<fn>"),
             mut_self: false,
             span,

@@ -108,6 +108,17 @@ impl Display for InstDisplay<'_> {
                 write!(f, "call {name}({})", list(args))
             }
             InstKind::CallRuntime(rt, args) => write!(f, "call @{rt}({})", list(args)),
+            InstKind::CallC(c, args) => {
+                let params: Vec<&str> = c.params.iter().map(|p| p.c_name()).collect();
+                write!(
+                    f,
+                    "call.c {} {}({}) ({})",
+                    c.ret.c_name(),
+                    c.symbol,
+                    params.join(", "),
+                    list(args)
+                )
+            }
             InstKind::CallMut(func, args) => {
                 let name = self
                     .module

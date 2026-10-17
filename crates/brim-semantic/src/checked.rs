@@ -180,6 +180,8 @@ pub struct CheckedFn {
     /// `param_count`, and these locals start with the captured values, in
     /// the order of [`CheckedExprKind::Closure::captures`].
     pub captures: Option<Vec<LocalId>>,
+    /// An `extern fn`: the C function's name. The body is empty.
+    pub external: Option<String>,
 }
 
 #[derive(Clone, Debug)]
