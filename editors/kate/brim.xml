@@ -7,7 +7,7 @@
       <item>fn</item><item>let</item><item>mut</item><item>return</item><item>if</item>
       <item>else</item><item>while</item><item>for</item><item>in</item><item>match</item>
       <item>break</item><item>continue</item><item>struct</item><item>enum</item><item>impl</item>
-      <item>pub</item><item>import</item><item>as</item>
+      <item>pub</item><item>extern</item><item>import</item><item>as</item>
     </list>
     <list name="reserved">
       <item>async</item><item>await</item><item>const</item><item>loop</item><item>trait</item>

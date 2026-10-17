@@ -1,6 +1,9 @@
 (function_declaration
   name: (identifier) @name) @definition.function
 
+(extern_function_declaration
+  name: (identifier) @name) @definition.function
+
 (struct_declaration
   name: (type_identifier) @name) @definition.struct
 

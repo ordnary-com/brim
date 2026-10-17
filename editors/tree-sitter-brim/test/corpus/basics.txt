@@ -503,3 +503,45 @@ pub struct User {
     (field_declaration
       (field_identifier)
       (primitive_type))))
+
+==================
+Extern functions
+==================
+
+extern fn cos(x: f64) -> f64
+pub extern fn say(s: string, loud: bool)
+
+fn main() {
+    say("hi", true)
+}
+
+---
+
+(source_file
+  (extern_function_declaration
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (primitive_type)))
+    (primitive_type))
+  (extern_function_declaration
+    (visibility)
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (primitive_type))
+      (parameter
+        (identifier)
+        (primitive_type))))
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (expression_statement
+        (call_expression
+          (identifier)
+          (arguments
+            (string)
+            (boolean)))))))

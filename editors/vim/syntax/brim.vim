@@ -4,7 +4,7 @@ if exists("b:current_syntax")
 endif
 
 syn keyword brimKeyword if else while for in match return break continue
-syn keyword brimStorage fn struct enum impl let mut pub
+syn keyword brimStorage fn struct enum impl let mut pub extern
 syn keyword brimInclude import as
 syn keyword brimBoolean true false
 syn keyword brimSelf self

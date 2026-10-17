@@ -75,7 +75,7 @@
           "match": "\\b(if|else|while|for|in|match|return|break|continue)\\b"
         },
         { "name": "storage.type.brim", "match": "\\b(fn|struct|enum|impl|let)\\b" },
-        { "name": "storage.modifier.brim", "match": "\\b(mut|pub)\\b" },
+        { "name": "storage.modifier.brim", "match": "\\b(mut|pub|extern)\\b" },
         { "name": "keyword.other.import.brim", "match": "\\b(import|as)\\b" },
         { "name": "constant.language.boolean.brim", "match": "\\b(true|false)\\b" },
         { "name": "variable.language.self.brim", "match": "\\bself\\b" },

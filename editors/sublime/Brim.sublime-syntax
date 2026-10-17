@@ -29,7 +29,7 @@ contexts:
       scope: keyword.control.brim
     - match: '\b(fn|struct|enum|impl|let)\b'
       scope: storage.type.brim
-    - match: '\b(mut|pub)\b'
+    - match: '\b(mut|pub|extern)\b'
       scope: storage.modifier.brim
     - match: '\b(import|as)\b'
       scope: keyword.control.import.brim

@@ -3,6 +3,12 @@
   "fn" @context
   name: (identifier) @name) @item
 
+(extern_function_declaration
+  (visibility)? @context
+  "extern" @context
+  "fn" @context
+  name: (identifier) @name) @item
+
 (struct_declaration
   (visibility)? @context
   "struct" @context

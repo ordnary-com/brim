@@ -31,7 +31,7 @@
 
 (defconst brim-keywords
   '("fn" "let" "mut" "return" "if" "else" "while" "for" "in" "match" "break"
-    "continue" "struct" "enum" "impl" "pub" "import" "as"))
+    "continue" "struct" "enum" "impl" "pub" "extern" "import" "as"))
 
 (defconst brim-reserved '("async" "await" "const" "loop" "trait" "type" "use"))
 
@@ -76,7 +76,7 @@
       (save-excursion (indent-line-to column)))))
 
 (defvar brim-imenu-generic-expression
-  '(("Functions" "^\\s-*\\(?:pub\\s-+\\)?fn\\s-+\\([A-Za-z_][A-Za-z0-9_]*\\)" 1)
+  '(("Functions" "^\\s-*\\(?:pub\\s-+\\)?\\(?:extern\\s-+\\)?fn\\s-+\\([A-Za-z_][A-Za-z0-9_]*\\)" 1)
     ("Structs" "^\\s-*\\(?:pub\\s-+\\)?struct\\s-+\\([A-Za-z_][A-Za-z0-9_]*\\)" 1)
     ("Enums" "^\\s-*\\(?:pub\\s-+\\)?enum\\s-+\\([A-Za-z_][A-Za-z0-9_]*\\)" 1)))
 

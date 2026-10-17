@@ -60,6 +60,7 @@ module.exports = grammar({
     _item: ($) =>
       choice(
         $.function_declaration,
+        $.extern_function_declaration,
         $.struct_declaration,
         $.enum_declaration,
         $.impl_declaration,
@@ -110,6 +111,19 @@ module.exports = grammar({
         $.parameters,
         optional(seq('->', field('return_type', $._type))),
         field('body', $.block),
+      ),
+
+    // `extern fn cos(x: f64) -> f64`: a C function, declared without a body.
+    extern_function_declaration: ($) =>
+      prec.right(
+        seq(
+          optional($.visibility),
+          'extern',
+          'fn',
+          field('name', $.identifier),
+          $.parameters,
+          optional(seq('->', field('return_type', $._type))),
+        ),
       ),
 
     parameters: ($) => seq('(', commaSep(choice($.self_parameter, $.parameter)), ')'),

@@ -24,6 +24,7 @@
 (scoped_type_identifier (identifier) @type)
 
 (function_declaration name: (identifier) @function)
+(extern_function_declaration name: (identifier) @function)
 (call_expression function: (identifier) @function)
 (value_call_expression function: (identifier) @function)
 ((call_expression function: (identifier) @function)
@@ -68,6 +69,7 @@
 
 (visibility) @keyword.modifier
 "mut" @keyword.modifier
+"extern" @keyword.modifier
 
 [
   "=" "+=" "-=" "*=" "/=" "%=" "+" "-" "*" "/" "%" "==" "!=" "<" "<=" ">" ">="

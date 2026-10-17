@@ -24,6 +24,7 @@
 (scoped_type_identifier (identifier) @namespace)
 
 (function_declaration name: (identifier) @function)
+(extern_function_declaration name: (identifier) @function)
 (call_expression function: (identifier) @function)
 (value_call_expression function: (identifier) @function)
 ((call_expression function: (identifier) @function.builtin)
@@ -68,6 +69,7 @@
 
 (visibility) @keyword.storage.modifier
 "mut" @keyword.storage.modifier
+"extern" @keyword.storage.modifier
 
 [
   "=" "+=" "-=" "*=" "/=" "%=" "+" "-" "*" "/" "%" "==" "!=" "<" "<=" ">" ">="
