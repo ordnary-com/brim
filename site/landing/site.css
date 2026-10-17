@@ -3,6 +3,7 @@
 :root {
   --blue: #015efe;
   --blue-dark: #004bd0;
+  --hero: #0045c4;
   --bg: #ffffff;
   --bg-2: #f6f7f9;
   --text: #1f2328;
@@ -51,7 +52,11 @@ code { font-family: var(--mono); font-size: .92em; }
 .btn.outline:hover { background: var(--bg-2); }
 
 /* ---- hero: the latest news, on blue --------------------------------- */
-.hero { background: var(--blue); color: #fff; padding: 64px 0 72px; }
+/* A shade darker than the logo blue, so a photo fits: a photo given with
+   class="hero photo" (hero.jpg) is tinted in the same blue by multiplying
+   it with the background color. Light or black-and-white photos work best. */
+.hero { background: var(--hero) center / cover no-repeat; color: #fff; padding: 64px 0 72px; }
+.hero.photo { background-image: url(hero.jpg); background-blend-mode: multiply; }
 .hero .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: center; }
 .hero a { color: #fff; }
 .hero .label { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: rgba(255, 255, 255, .8); text-transform: uppercase; letter-spacing: .04em; }
