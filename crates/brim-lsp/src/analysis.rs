@@ -81,6 +81,7 @@ fn find_project(path: &Path) -> Option<(brim_package::Graph, PathBuf, bool)> {
         cwd: dir.clone(),
         home: brim_package::default_home()?,
         update: false,
+        registry: None,
     };
     let (graph, _) = brim_package::resolve(&dir, manifest, file, &options).ok()?;
     Some((graph, root, is_lib))

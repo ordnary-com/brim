@@ -143,6 +143,10 @@ Guidelines for writing diagnostics:
 | M0008 | Dependency not found, or its git repository cannot be fetched |
 | M0009 | A dependency's package has another name, or two packages have the same name |
 | M0010 | Invalid `brim.lock` |
+| M0011 | A workspace manifest without `[package]` where a package is needed |
+| M0012 | Invalid workspace member |
+| M0013 | A registry package that does not exist, or whose archive does not match |
+| M0014 | No version of a registry package meets every requirement |
 
 ### Run-time errors (`brim-runtime`)
 

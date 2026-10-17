@@ -3,26 +3,33 @@
 //! [`resolve`] starts at a project's manifest and finds every package it
 //! depends on, directly or indirectly. Path dependencies are read where
 //! they are. Git dependencies are cloned into a cache (`$BRIM_HOME/git`,
-//! by default `~/.brim/git`) and checked out at one commit each.
+//! by default `~/.brim/git`) and checked out at one commit each. Registry
+//! dependencies get a version that meets every requirement on them (see
+//! [`registry`] and `docs/registry.md`) and are unpacked into
+//! `$BRIM_HOME/registry`.
 //!
-//! The commits are recorded in the project's lock file, `brim.lock`, so
-//! later builds use exactly the same versions until `brim update` asks for
-//! the newest ones. Path dependencies are listed in the lock file too, but
-//! always used as they are.
+//! The commits and versions are recorded in the project's lock file,
+//! `brim.lock`, so later builds use exactly the same versions until
+//! `brim update` asks for the newest ones. Path dependencies are listed in
+//! the lock file too, but always used as they are.
 //!
 //! Every package in a project has a distinct name: a package's name is the
 //! first part of its modules' names (`import geometry.shapes`).
 
 mod git;
 mod lock;
+pub mod registry;
+mod solve;
+mod workspace;
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
 use brim_diagnostics::{Diagnostic, SourceFile};
-use brim_manifest::{Dependency, Manifest, Source};
+use brim_manifest::{Dependency, Manifest, Source, Version};
 
 pub use lock::LOCK_FILE;
+pub use workspace::{Member, find_root, member_dirs, resolve_workspace};
 
 /// A package of a project.
 #[derive(Clone, Debug)]
@@ -39,6 +46,9 @@ pub struct Package {
     pub dependencies: Vec<(String, usize)>,
     /// For git packages: the URL and the commit.
     pub git: Option<(String, String)>,
+    /// For registry packages: the registry's URL and the archive's
+    /// checksum.
+    pub registry: Option<(String, String)>,
 }
 
 impl Package {
@@ -85,8 +95,11 @@ pub struct Options {
     /// The cache directory (`$BRIM_HOME`).
     pub home: PathBuf,
     /// Ignore the lock file and use the newest commit of every git
-    /// dependency (`brim update`).
+    /// dependency and the newest version of every registry dependency
+    /// (`brim update`).
     pub update: bool,
+    /// The registry's URL; `None` for [`registry::default_url`].
+    pub registry: Option<String>,
 }
 
 /// Why resolving failed: a diagnostic and the manifest or lock file it
@@ -118,7 +131,8 @@ impl Failure {
 pub struct Report {
     /// The lock file was created or changed.
     pub lock_written: bool,
-    /// Git repositories that were downloaded or updated.
+    /// Git repositories that were downloaded or updated, and registry
+    /// packages that were downloaded (`name version`).
     pub fetched: Vec<String>,
 }
 
@@ -156,22 +170,38 @@ pub fn resolve(
             manifest_file,
             dependencies: Vec::new(),
             git: None,
+            registry: None,
         }],
         by_name: HashMap::new(),
         report: Report::default(),
     };
     let root_name = resolver.packages[0].name().to_string();
     resolver.by_name.insert(root_name, (0, Identity::Root));
+    // The project, path and git packages first; registry packages only
+    // depend on registry packages, so they are added afterwards.
+    let mut wanted = Vec::new();
     let mut next = 0;
     while next < resolver.packages.len() {
         let deps = resolver.packages[next].manifest.dependencies.clone();
         for dep in &deps {
+            if let Source::Registry(req) = &dep.source {
+                wanted.push(solve::Wanted {
+                    from: next,
+                    name: dep.name.clone(),
+                    req: req.clone(),
+                    span: dep.span,
+                });
+                continue;
+            }
             let index = resolver.add(next, dep)?;
             resolver.packages[next]
                 .dependencies
                 .push((dep.name.clone(), index));
         }
         next += 1;
+    }
+    if !wanted.is_empty() {
+        resolver.add_registry(&wanted)?;
     }
     let mut report = resolver.report;
     let graph = Graph {
@@ -199,6 +229,7 @@ enum Identity {
     Root,
     Path(PathBuf),
     Git { url: String, commit: String },
+    Registry(Version),
 }
 
 struct Resolver<'a> {
@@ -215,6 +246,7 @@ impl Resolver<'_> {
         let from_pkg = &self.packages[from];
         let from_file = from_pkg.manifest_file.clone();
         let (dir, identity, git) = match &dep.source {
+            Source::Registry(_) => unreachable!("registry dependencies are added by add_registry"),
             Source::Path(path) => {
                 let dir = normalize(&from_pkg.dir.join(path));
                 let full = self.options.cwd.join(&dir);
@@ -305,16 +337,130 @@ impl Resolver<'_> {
             manifest_file,
             dependencies: Vec::new(),
             git,
+            registry: None,
         });
         self.by_name.insert(dep.name.clone(), (index, identity));
         Ok(index)
     }
+
+    /// Picks, downloads and adds the registry packages `wanted` needs, and
+    /// links them to the packages that depend on them.
+    fn add_registry(&mut self, wanted: &[solve::Wanted]) -> Result<(), Failure> {
+        let url = self
+            .options
+            .registry
+            .clone()
+            .unwrap_or_else(registry::default_url);
+        let reg = registry::Registry::new(&url);
+        for w in wanted {
+            if let Some((index, _)) = self.by_name.get(&w.name) {
+                let file = self.packages[w.from].manifest_file.clone();
+                return Err(Failure::in_file(
+                    Diagnostic::error(format!("two different packages are named `{}`", w.name))
+                        .with_code("M0009")
+                        .with_primary(w.span, "")
+                        .with_note(format!(
+                            "`{}` is also {}",
+                            w.name,
+                            describe(&self.packages[*index])
+                        ))
+                        .with_note("every package of a project needs its own name"),
+                    &file,
+                ));
+            }
+        }
+        let chosen = solve::solve(&reg, self.options, self.locked, &self.packages, wanted)?;
+        for (name, pick) in &chosen {
+            let (dir, downloaded) = reg
+                .source(&self.options.home, name, &pick.version, &pick.checksum)
+                .map_err(|message| {
+                    Failure::new(
+                        Diagnostic::error(format!(
+                            "cannot get dependency `{name}` {}",
+                            pick.version
+                        ))
+                        .with_code("M0008")
+                        .with_note(message),
+                    )
+                })?;
+            if downloaded {
+                self.report.fetched.push(format!("{name} {}", pick.version));
+            }
+            let manifest_path = dir.join(brim_manifest::MANIFEST_FILE);
+            let shown = slash(&manifest_path);
+            let text = std::fs::read_to_string(&manifest_path).map_err(|e| {
+                Failure::new(Diagnostic::error(format!("cannot read {shown}: {e}")))
+            })?;
+            let manifest_file = SourceFile::new(shown, text);
+            let manifest = brim_manifest::parse(manifest_file.text()).map_err(|diags| {
+                Failure::in_file(diags.into_iter().next().expect("errors"), &manifest_file)
+            })?;
+            if manifest.package.name != *name
+                || manifest.package.version != pick.version.to_string()
+            {
+                return Err(Failure::in_file(
+                    Diagnostic::error(format!(
+                        "the registry's {name} {} contains the package {} {}",
+                        pick.version, manifest.package.name, manifest.package.version
+                    ))
+                    .with_code("M0013"),
+                    &manifest_file,
+                ));
+            }
+            let index = self.packages.len();
+            self.packages.push(Package {
+                dir,
+                manifest,
+                manifest_file,
+                dependencies: Vec::new(),
+                git: None,
+                registry: Some((url.clone(), pick.checksum.clone())),
+            });
+            self.by_name.insert(
+                name.clone(),
+                (index, Identity::Registry(pick.version.clone())),
+            );
+        }
+        for w in wanted {
+            let index = self.by_name[&w.name].0;
+            self.packages[w.from]
+                .dependencies
+                .push((w.name.clone(), index));
+        }
+        for from in 0..self.packages.len() {
+            if self.packages[from].registry.is_none() {
+                continue;
+            }
+            let deps = self.packages[from].manifest.dependencies.clone();
+            for dep in deps {
+                let Some(&(index, _)) = self.by_name.get(&dep.name) else {
+                    return Err(Failure::in_file(
+                        Diagnostic::error(format!(
+                            "the registry package `{}` depends on `{}`, which is missing",
+                            self.packages[from].name(),
+                            dep.name
+                        ))
+                        .with_code("M0013")
+                        .with_primary(dep.span, ""),
+                        &self.packages[from].manifest_file,
+                    ));
+                };
+                self.packages[from].dependencies.push((dep.name, index));
+            }
+        }
+        Ok(())
+    }
 }
 
 fn describe(package: &Package) -> String {
-    match &package.git {
-        Some((url, commit)) => format!("the git repository {url} at {commit}"),
-        None => format!("the package in {}", slash(&package.dir)),
+    match (&package.git, &package.registry) {
+        (Some((url, commit)), _) => format!("the git repository {url} at {commit}"),
+        (_, Some(_)) => format!(
+            "the registry package {} {}",
+            package.name(),
+            package.manifest.package.version
+        ),
+        _ => format!("the package in {}", slash(&package.dir)),
     }
 }
 

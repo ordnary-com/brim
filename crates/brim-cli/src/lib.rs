@@ -5,6 +5,7 @@
 //! explicit output streams and returns an exit code (see [`exit`]).
 
 pub mod args;
+mod publish;
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -84,17 +85,46 @@ pub fn run(args: &[String], ctx: &mut Context<'_>) -> i32 {
                 &format!("brim {} ({backend})\n", env!("CARGO_PKG_VERSION")),
             )
         }
-        Command::Check { input, emit } => check(input.as_deref(), emit, ctx),
-        Command::Run { input, args } => run_program(input.as_deref(), args, ctx),
+        Command::Check {
+            input,
+            package,
+            emit,
+        } => check(&Target::new(&input, &package), emit, ctx),
+        Command::Run {
+            input,
+            package,
+            args,
+        } => run_program(&Target::new(&input, &package), args, ctx),
         Command::Build {
             input,
+            package,
             output,
             release,
-        } => build(input.as_deref(), output.as_deref(), release, ctx),
-        Command::Test { input, filter } => test(input.as_deref(), filter.as_deref(), ctx),
+        } => build(
+            &Target::new(&input, &package),
+            output.as_deref(),
+            release,
+            ctx,
+        ),
+        Command::Test {
+            input,
+            package,
+            filter,
+        } => test(&Target::new(&input, &package), filter.as_deref(), ctx),
         Command::New { path } => new_project(&path, ctx),
         Command::Fmt { paths, check } => fmt(&paths, check, ctx),
-        Command::Update { input } => update(input.as_deref(), ctx),
+        Command::Update { input, package } => update(&Target::new(&input, &package), ctx),
+        Command::Publish {
+            input,
+            package,
+            dry_run,
+        } => publish::publish(&Target::new(&input, &package), dry_run, ctx),
+        Command::Login { token } => publish::login(token, ctx),
+        Command::Yank {
+            name,
+            version,
+            undo,
+        } => publish::yank(&name, &version, undo, ctx),
         Command::Lsp => match brim_lsp::run(ctx.stdin, ctx.stdout) {
             Ok(0) => Ok(()),
             Ok(code) => Err(code),
@@ -105,10 +135,21 @@ pub fn run(args: &[String], ctx: &mut Context<'_>) -> i32 {
         },
         Command::GenTs {
             input,
+            package,
             output,
             angular,
-        } => gen_ts(input.as_deref(), output.as_deref(), angular, ctx),
-        Command::Doc { input, output, std } => doc(input.as_deref(), output.as_deref(), std, ctx),
+        } => gen_ts(
+            &Target::new(&input, &package),
+            output.as_deref(),
+            angular,
+            ctx,
+        ),
+        Command::Doc {
+            input,
+            package,
+            output,
+            std,
+        } => doc(&Target::new(&input, &package), output.as_deref(), std, ctx),
     };
     match result {
         Ok(()) => exit::SUCCESS,
@@ -126,12 +167,17 @@ fn write_out(out: &mut dyn Write, text: &str) -> CmdResult {
 
 // ---- commands ---------------------------------------------------------
 
-fn check(input: Option<&Path>, emit: Option<Emit>, ctx: &mut Context<'_>) -> CmdResult {
-    let input = load_input(input, ctx)?;
-    let file = &input.file;
-    compile(&input, emit, false, ctx)?;
-    let _ = writeln!(ctx.stderr, "ok: no errors found in {}", file.name());
-    Ok(())
+fn check(target: &Target<'_>, emit: Option<Emit>, ctx: &mut Context<'_>) -> CmdResult {
+    let mut result = Ok(());
+    for input in load_inputs(target, false, ctx)? {
+        match compile(&input, emit, input.lib, ctx) {
+            Ok(_) => {
+                let _ = writeln!(ctx.stderr, "ok: no errors found in {}", input.file.name());
+            }
+            Err(code) => result = result.and(Err(code)),
+        }
+    }
+    result
 }
 
 /// Runs a program given as text, as `brim run` would run a file of that
@@ -143,6 +189,7 @@ pub fn run_source(name: &str, text: &str, max_steps: Option<u64>, ctx: &mut Cont
         file: SourceFile::new(name, text),
         default_output: PathBuf::new(),
         packages: None,
+        lib: false,
     };
     let result = compile(&input, None, false, ctx).and_then(|(module, map, _)| {
         let mut host = brim_interp::Host {
@@ -173,8 +220,8 @@ pub fn run_source(name: &str, text: &str, max_steps: Option<u64>, ctx: &mut Cont
     }
 }
 
-fn run_program(input: Option<&Path>, args: Vec<String>, ctx: &mut Context<'_>) -> CmdResult {
-    let input = load_input(input, ctx)?;
+fn run_program(target: &Target<'_>, args: Vec<String>, ctx: &mut Context<'_>) -> CmdResult {
+    let input = load_input(target, ctx)?;
     let (module, map, _) = compile(&input, None, false, ctx)?;
     let mut host = brim_interp::Host {
         out: ctx.stdout,
@@ -195,9 +242,21 @@ fn run_program(input: Option<&Path>, args: Vec<String>, ctx: &mut Context<'_>) -
     }
 }
 
-fn test(input: Option<&Path>, filter: Option<&str>, ctx: &mut Context<'_>) -> CmdResult {
-    let input = load_input(input, ctx)?;
-    let (module, map, tests) = compile(&input, None, true, ctx)?;
+fn test(target: &Target<'_>, filter: Option<&str>, ctx: &mut Context<'_>) -> CmdResult {
+    let inputs = load_inputs(target, false, ctx)?;
+    let several = inputs.len() > 1;
+    let mut result = Ok(());
+    for input in inputs {
+        if several {
+            let _ = writeln!(ctx.stderr, "testing {}", input.name());
+        }
+        result = result.and(test_one(&input, filter, ctx));
+    }
+    result
+}
+
+fn test_one(input: &Input, filter: Option<&str>, ctx: &mut Context<'_>) -> CmdResult {
+    let (module, map, tests) = compile(input, None, true, ctx)?;
     // The tests of dependencies are theirs to run.
     let dependencies: Vec<&str> = input
         .packages
@@ -337,12 +396,12 @@ fn new_project(path: &Path, ctx: &mut Context<'_>) -> CmdResult {
 }
 
 fn gen_ts(
-    input: Option<&Path>,
+    target: &Target<'_>,
     output: Option<&Path>,
     angular: bool,
     ctx: &mut Context<'_>,
 ) -> CmdResult {
-    let input = load_input(input, ctx)?;
+    let input = load_input(target, ctx)?;
     let (checked, map) = analyze(&input, None, true, ctx)?;
     let dependencies: Vec<&str> = input
         .packages
@@ -429,10 +488,42 @@ fn build_stamp(cache: &Path, output: &Path, map: &SourceMap, release: bool) -> (
     (path, hex(key.as_bytes()))
 }
 
-fn doc(input: Option<&Path>, output: Option<&Path>, std: bool, ctx: &mut Context<'_>) -> CmdResult {
+fn doc(target: &Target<'_>, output: Option<&Path>, std: bool, ctx: &mut Context<'_>) -> CmdResult {
+    if std {
+        return doc_one(None, output, false, ctx);
+    }
+    let inputs = load_inputs(target, false, ctx)?;
+    let several = inputs.len() > 1;
+    if several && output.is_some() {
+        let _ = writeln!(
+            ctx.stderr,
+            "error: `--output` needs one package, and this workspace has several\n  \
+             = help: pick one with `-p NAME`"
+        );
+        return Err(exit::USAGE);
+    }
+    let mut result = Ok(());
+    for input in inputs {
+        result = result.and(doc_one(Some(input), output, several, ctx));
+    }
+    result
+}
+
+/// Documents one program, or the standard library without `input`. With
+/// `own_dir`, the default directory is `target/doc/<package>`.
+fn doc_one(
+    input: Option<Input>,
+    output: Option<&Path>,
+    own_dir: bool,
+    ctx: &mut Context<'_>,
+) -> CmdResult {
     // The parsed modules with their texts, and the title.
     let mut parsed: Vec<(String, brim_ast::Program, String, usize)> = Vec::new();
-    let (title, default_dir) = if std {
+    let (title, default_dir) = if let Some(input) = input {
+        let (title, dir) = doc_program(&input, &mut parsed, ctx)?;
+        let dir = if own_dir { dir.join(&title) } else { dir };
+        (title, dir)
+    } else {
         for (name, text) in brim_driver::STD_MODULES {
             let (program, diags) = brim_parser::parse(text);
             if brim_diagnostics::has_errors(&diags) {
@@ -442,60 +533,6 @@ fn doc(input: Option<&Path>, output: Option<&Path>, std: bool, ctx: &mut Context
             parsed.push(((*name).to_string(), program, (*text).to_string(), 0));
         }
         ("Brim standard library".to_string(), PathBuf::from("doc"))
-    } else {
-        let input = load_input(input, ctx)?;
-        let cwd = ctx.cwd.clone();
-        let loaded = brim_driver::load(&input.file, input.packages.as_ref(), &mut |path| {
-            std::fs::read(cwd.join(path))
-        });
-        if brim_diagnostics::has_errors(&loaded.diags) {
-            report(&loaded.diags, &loaded.map, ctx);
-            return Err(exit::COMPILE_ERROR);
-        }
-        let dependencies: Vec<&str> = input
-            .packages
-            .iter()
-            .flat_map(|g| &g.packages[1..])
-            .map(brim_package::Package::name)
-            .collect();
-        let package = input.packages.as_ref().map_or_else(
-            || {
-                Path::new(input.file.name())
-                    .file_stem()
-                    .map_or("program".to_string(), |s| s.to_string_lossy().into_owned())
-            },
-            |g| g.packages[0].name().to_string(),
-        );
-        for (i, module) in loaded.modules.iter().enumerate() {
-            let first = module.name.split('.').next().unwrap_or_default();
-            if first == "std" || dependencies.contains(&first) {
-                continue;
-            }
-            // The root module by its file's name: `main`.
-            let name = if module.name.is_empty() {
-                Path::new(input.file.name())
-                    .file_stem()
-                    .map_or("main".to_string(), |s| s.to_string_lossy().into_owned())
-            } else {
-                module.name.clone()
-            };
-            let text = loaded.map.files()[i].text().to_string();
-            // The modules' spans are offsets into the whole program.
-            let base = loaded.map.base(i);
-            parsed.push((name, module.program.clone(), text, base));
-        }
-        let dir = match &input.packages {
-            Some(_) => input
-                .default_output
-                .parent()
-                .map_or(PathBuf::from("target"), Path::to_path_buf)
-                .join("doc"),
-            None => input
-                .default_output
-                .parent()
-                .map_or(PathBuf::from("doc"), |p| p.join("doc")),
-        };
-        (package, dir)
     };
     let modules: Vec<brim_doc::Module> = parsed
         .iter()
@@ -525,17 +562,87 @@ fn doc(input: Option<&Path>, output: Option<&Path>, std: bool, ctx: &mut Context
     Ok(())
 }
 
-fn update(input: Option<&Path>, ctx: &mut Context<'_>) -> CmdResult {
-    let input = load_project(input, true, ctx)?;
-    let Some(graph) = &input.packages else {
+/// Collects the documented modules of a program; returns the title and the
+/// default directory.
+fn doc_program(
+    input: &Input,
+    parsed: &mut Vec<(String, brim_ast::Program, String, usize)>,
+    ctx: &mut Context<'_>,
+) -> Result<(String, PathBuf), i32> {
+    let cwd = ctx.cwd.clone();
+    let loaded = brim_driver::load(&input.file, input.packages.as_ref(), &mut |path| {
+        std::fs::read(cwd.join(path))
+    });
+    if brim_diagnostics::has_errors(&loaded.diags) {
+        report(&loaded.diags, &loaded.map, ctx);
+        return Err(exit::COMPILE_ERROR);
+    }
+    let dependencies: Vec<&str> = input
+        .packages
+        .iter()
+        .flat_map(|g| &g.packages[1..])
+        .map(brim_package::Package::name)
+        .collect();
+    let package = input.packages.as_ref().map_or_else(
+        || {
+            Path::new(input.file.name())
+                .file_stem()
+                .map_or("program".to_string(), |s| s.to_string_lossy().into_owned())
+        },
+        |g| g.packages[0].name().to_string(),
+    );
+    for (i, module) in loaded.modules.iter().enumerate() {
+        let first = module.name.split('.').next().unwrap_or_default();
+        if first == "std" || dependencies.contains(&first) {
+            continue;
+        }
+        // The root module by its file's name: `main`.
+        let name = if module.name.is_empty() {
+            Path::new(input.file.name())
+                .file_stem()
+                .map_or("main".to_string(), |s| s.to_string_lossy().into_owned())
+        } else {
+            module.name.clone()
+        };
+        let text = loaded.map.files()[i].text().to_string();
+        // The modules' spans are offsets into the whole program.
+        let base = loaded.map.base(i);
+        parsed.push((name, module.program.clone(), text, base));
+    }
+    let dir = match &input.packages {
+        Some(_) => input
+            .default_output
+            .parent()
+            .map_or(PathBuf::from("target"), Path::to_path_buf)
+            .join("doc"),
+        None => input
+            .default_output
+            .parent()
+            .map_or(PathBuf::from("doc"), |p| p.join("doc")),
+    };
+    Ok((package, dir))
+}
+
+fn update(target: &Target<'_>, ctx: &mut Context<'_>) -> CmdResult {
+    let inputs = load_inputs(target, true, ctx)?;
+    let own: Vec<&str> = inputs.iter().map(Input::name).collect();
+    let mut dependencies: Vec<&str> = inputs
+        .iter()
+        .flat_map(|i| i.packages.iter().flat_map(|g| &g.packages[1..]))
+        .map(brim_package::Package::name)
+        .filter(|name| !own.contains(name))
+        .collect();
+    dependencies.sort_unstable();
+    dependencies.dedup();
+    if inputs.iter().all(|i| i.packages.is_none()) {
         let _ = writeln!(
             ctx.stderr,
             "error: `brim update` works on a project, not a single file\n  \
              = help: pass the project's directory or brim.toml"
         );
         return Err(exit::USAGE);
-    };
-    let count = graph.packages.len() - 1;
+    }
+    let count = dependencies.len();
     let what = if count == 1 {
         "dependency"
     } else {
@@ -694,12 +801,39 @@ fn trap_diagnostic(trap: &brim_interp::Trap) -> Diagnostic {
 }
 
 fn build(
-    input: Option<&Path>,
+    target: &Target<'_>,
     output: Option<&Path>,
     release: bool,
     ctx: &mut Context<'_>,
 ) -> CmdResult {
-    let input = load_input(input, ctx)?;
+    let inputs = load_inputs(target, false, ctx)?;
+    if inputs.len() > 1 && output.is_some() {
+        let _ = writeln!(
+            ctx.stderr,
+            "error: `--output` needs one package, and this workspace has several\n  \
+             = help: pick one with `-p NAME`"
+        );
+        return Err(exit::USAGE);
+    }
+    let several = inputs.len() > 1;
+    let mut result = Ok(());
+    for input in inputs {
+        // At a workspace's root, libraries have nothing to build.
+        if several && input.lib {
+            let _ = writeln!(ctx.stderr, "skipped {} (a library)", input.name());
+            continue;
+        }
+        result = result.and(build_one(input, output, release, ctx));
+    }
+    result
+}
+
+fn build_one(
+    input: Input,
+    output: Option<&Path>,
+    release: bool,
+    ctx: &mut Context<'_>,
+) -> CmdResult {
     let (module, map, _) = compile(&input, None, false, ctx)?;
     let Input {
         file,
@@ -926,6 +1060,35 @@ struct Input {
     default_output: PathBuf,
     /// For a project: its packages.
     packages: Option<brim_package::Graph>,
+    /// A package without a program: `file` is its library root, which
+    /// needs no `main`.
+    lib: bool,
+}
+
+impl Input {
+    /// The package's name, or the file's for a single file.
+    fn name(&self) -> &str {
+        match &self.packages {
+            Some(graph) => graph.packages[0].name(),
+            None => self.file.name(),
+        }
+    }
+}
+
+/// What a project command works on: the PATH argument and `-p`.
+#[derive(Clone, Copy, Debug)]
+struct Target<'a> {
+    path: Option<&'a Path>,
+    package: Option<&'a str>,
+}
+
+impl<'a> Target<'a> {
+    fn new(path: &'a Option<PathBuf>, package: &'a Option<String>) -> Target<'a> {
+        Target {
+            path: path.as_deref(),
+            package: package.as_deref(),
+        }
+    }
 }
 
 /// Reports a problem with an input file (no source location available).
@@ -939,21 +1102,37 @@ fn input_error(ctx: &mut Context<'_>, path: &str, diag: Diagnostic) -> i32 {
     exit::INPUT
 }
 
-/// Turns the command's PATH argument into the source file to compile.
-fn load_input(input: Option<&Path>, ctx: &mut Context<'_>) -> Result<Input, i32> {
-    load_project(input, false, ctx)
+/// The one program a command such as `brim run` works on.
+fn load_input(target: &Target<'_>, ctx: &mut Context<'_>) -> Result<Input, i32> {
+    let mut inputs = load_inputs(target, false, ctx)?;
+    if inputs.len() > 1 {
+        let names: Vec<&str> = inputs.iter().map(Input::name).collect();
+        let _ = writeln!(
+            ctx.stderr,
+            "error: this workspace has several packages: {}\n  \
+             = help: pick one with `-p NAME`",
+            names.join(", ")
+        );
+        return Err(exit::USAGE);
+    }
+    Ok(inputs.remove(0))
 }
 
-/// [`load_input`]; `update` gets the newest commits of git dependencies.
-fn load_project(input: Option<&Path>, update: bool, ctx: &mut Context<'_>) -> Result<Input, i32> {
-    let manifest = match input {
+/// The manifest a command's PATH stands for, or the single source file.
+enum Located {
+    Manifest(PathBuf),
+    File(Input),
+}
+
+fn locate(path: Option<&Path>, ctx: &mut Context<'_>) -> Result<Located, i32> {
+    match path {
         None => match brim_manifest::find(&ctx.cwd) {
             Some(found) => {
                 let shown = found
                     .strip_prefix(&ctx.cwd)
                     .map(Path::to_path_buf)
                     .unwrap_or(found);
-                Some(shown)
+                Ok(Located::Manifest(shown))
             }
             None => {
                 let _ = writeln!(
@@ -962,63 +1141,248 @@ fn load_project(input: Option<&Path>, update: bool, ctx: &mut Context<'_>) -> Re
                      = help: pass a `.brim` file, e.g. `brim run examples/hello.brim`",
                     brim_manifest::MANIFEST_FILE
                 );
-                return Err(exit::USAGE);
+                Err(exit::USAGE)
             }
         },
         Some(path) => {
             let full = ctx.cwd.join(path);
             if full.is_dir() {
-                Some(path.join(brim_manifest::MANIFEST_FILE))
+                Ok(Located::Manifest(path.join(brim_manifest::MANIFEST_FILE)))
             } else if path
                 .file_name()
                 .is_some_and(|n| n == brim_manifest::MANIFEST_FILE)
             {
-                Some(path.to_path_buf())
+                Ok(Located::Manifest(path.to_path_buf()))
             } else if path.extension().is_some_and(|e| e == "brim") {
-                return Ok(Input {
+                Ok(Located::File(Input {
                     file: read_source(path, ctx, None)?,
                     default_output: path.with_extension(std::env::consts::EXE_EXTENSION),
                     packages: None,
-                });
+                    lib: false,
+                }))
             } else if !full.exists() {
                 let shown = path.display().to_string();
-                return Err(input_error(
+                Err(input_error(
                     ctx,
                     &shown,
                     Diagnostic::error("file not found"),
-                ));
+                ))
             } else {
                 let shown = path.display().to_string();
-                return Err(input_error(
+                Err(input_error(
                     ctx,
                     &shown,
                     Diagnostic::error("not a Brim source file")
                         .with_help("Brim source files use the `.brim` extension")
                         .with_help("to build a project, pass its directory or brim.toml"),
-                ));
+                ))
             }
         }
-    };
-    let manifest_path = manifest.expect("all other cases returned");
-    let manifest_file = read_text(&manifest_path, ctx)?;
-    let manifest = match brim_manifest::parse(manifest_file.text()) {
-        Ok(m) => m,
+    }
+}
+
+/// Reads and validates a package manifest (or workspace root), printing
+/// its errors.
+fn read_manifest(
+    path: &Path,
+    ctx: &mut Context<'_>,
+) -> Result<(SourceFile, brim_manifest::Root), i32> {
+    let file = read_text(path, ctx)?;
+    match brim_manifest::parse_root(file.text()) {
+        Ok(root) => Ok((file, root)),
         Err(diags) => {
             let renderer = Renderer::new(ctx.color);
             for diag in &diags {
-                let _ = writeln!(ctx.stderr, "{}", renderer.render(diag, &manifest_file));
+                let _ = writeln!(ctx.stderr, "{}", renderer.render(diag, &file));
             }
-            return Err(exit::INPUT);
+            Err(exit::INPUT)
         }
+    }
+}
+
+/// The programs a project command works on: one package, the `-p` member
+/// of a workspace, the member whose directory the command runs in, or
+/// every member at a workspace's root. `update` picks the newest
+/// dependency versions.
+fn load_inputs(
+    target: &Target<'_>,
+    update: bool,
+    ctx: &mut Context<'_>,
+) -> Result<Vec<Input>, i32> {
+    let manifest_path = match locate(target.path, ctx)? {
+        Located::File(input) => {
+            if target.package.is_some() {
+                let _ = writeln!(
+                    ctx.stderr,
+                    "error: `-p` picks a package of a workspace, not of a single file"
+                );
+                return Err(exit::USAGE);
+            }
+            return Ok(vec![input]);
+        }
+        Located::Manifest(path) => path,
     };
+    let (manifest_file, root) = read_manifest(&manifest_path, ctx)?;
     let project_dir = manifest_path
         .parent()
         .unwrap_or(Path::new(""))
         .to_path_buf();
-    let mut entry = project_dir.join(&manifest.build.entry);
+    let workspace = match &root.workspace {
+        Some(ws) => Some((project_dir.clone(), manifest_file.clone(), ws.clone(), true)),
+        None => brim_package::find_root(&ctx.cwd, &project_dir).and_then(|(dir, file)| {
+            let ws = brim_manifest::parse_root(file.text()).ok()?.workspace?;
+            Some((dir, file, ws, false))
+        }),
+    };
+    let Some((ws_dir, ws_file, ws, at_root)) = workspace else {
+        let manifest = root
+            .package
+            .expect("a manifest without [workspace] has a package");
+        if let Some(name) = target.package
+            && name != manifest.package.name
+        {
+            let _ = writeln!(
+                ctx.stderr,
+                "error: there is no package `{name}` here; this is the package `{}`",
+                manifest.package.name
+            );
+            return Err(exit::USAGE);
+        }
+        let options = package_options(update, ctx)?;
+        let lock = project_dir.join(brim_package::LOCK_FILE);
+        let graph = match brim_package::resolve(&project_dir, manifest, manifest_file, &options) {
+            Ok((graph, report)) => {
+                print_report(&report, &lock, ctx);
+                graph
+            }
+            Err(failure) => return Err(report_failure(failure, ctx)),
+        };
+        let target_dir = project_dir.join("target");
+        return Ok(vec![package_input(
+            &project_dir,
+            &manifest_path,
+            &target_dir,
+            graph,
+            ctx,
+        )?]);
+    };
+
+    // A workspace: the root package (if any) and the members.
+    let mut members: Vec<brim_package::Member> = Vec::new();
+    let root_package = if at_root {
+        root.package.clone()
+    } else {
+        brim_manifest::parse_root(ws_file.text())
+            .ok()
+            .and_then(|r| r.package)
+    };
+    if let Some(manifest) = root_package {
+        members.push(brim_package::Member {
+            dir: ws_dir.clone(),
+            manifest,
+            manifest_file: ws_file.clone(),
+            span: None,
+        });
+    }
+    let dirs = match brim_package::member_dirs(&ctx.cwd, &ws_dir, &ws, &ws_file) {
+        Ok(dirs) => dirs,
+        Err(failure) => return Err(report_failure(failure, ctx)),
+    };
+    for (dir, span) in dirs {
+        if members.iter().any(|m| same_dir(&ctx.cwd, &m.dir, &dir)) {
+            continue;
+        }
+        let (manifest_file, member_root) =
+            read_manifest(&dir.join(brim_manifest::MANIFEST_FILE), ctx)?;
+        let Some(manifest) = member_root.package else {
+            let _ = writeln!(
+                ctx.stderr,
+                "error: the workspace member {} has no `[package]`",
+                dir.display()
+            );
+            return Err(exit::INPUT);
+        };
+        members.push(brim_package::Member {
+            dir,
+            manifest,
+            manifest_file,
+            span: Some(span),
+        });
+    }
+    let options = package_options(update, ctx)?;
+    let graphs = match brim_package::resolve_workspace(&ws_dir, ws_file, &members, &options) {
+        Ok((graphs, report)) => {
+            print_report(&report, &ws_dir.join(brim_package::LOCK_FILE), ctx);
+            graphs
+        }
+        Err(failure) => return Err(report_failure(failure, ctx)),
+    };
+    let names = || -> String {
+        members
+            .iter()
+            .map(|m| m.manifest.package.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let selected: Vec<usize> = match target.package {
+        Some(name) => match members.iter().position(|m| m.manifest.package.name == name) {
+            Some(i) => vec![i],
+            None => {
+                let _ = writeln!(
+                    ctx.stderr,
+                    "error: the workspace has no package `{name}`\n  = note: its packages: {}",
+                    names()
+                );
+                return Err(exit::USAGE);
+            }
+        },
+        None if !at_root => members
+            .iter()
+            .position(|m| same_dir(&ctx.cwd, &m.dir, &project_dir))
+            .into_iter()
+            .collect(),
+        None => (0..members.len()).collect(),
+    };
+    if selected.is_empty() {
+        let _ = writeln!(ctx.stderr, "error: the workspace has no packages");
+        return Err(exit::INPUT);
+    }
+    let target_dir = ws_dir.join("target");
+    let mut inputs = Vec::new();
+    for i in selected {
+        let member = &members[i];
+        let manifest_path = member.dir.join(brim_manifest::MANIFEST_FILE);
+        inputs.push(package_input(
+            &member.dir,
+            &manifest_path,
+            &target_dir,
+            graphs[i].clone(),
+            ctx,
+        )?);
+    }
+    Ok(inputs)
+}
+
+/// Whether two directories relative to `cwd` are the same.
+fn same_dir(cwd: &Path, a: &Path, b: &Path) -> bool {
+    let canonical = |p: &Path| cwd.join(p).canonicalize().ok();
+    a == b || (canonical(a).is_some() && canonical(a) == canonical(b))
+}
+
+/// The program of the package in `dir`, whose dependencies are `graph`.
+fn package_input(
+    dir: &Path,
+    manifest_path: &Path,
+    target_dir: &Path,
+    graph: brim_package::Graph,
+    ctx: &mut Context<'_>,
+) -> Result<Input, i32> {
+    let manifest = &graph.packages[0].manifest;
+    let mut entry = dir.join(&manifest.build.entry);
     // A library without a program: check and test its library root.
-    let lib = project_dir.join(&manifest.build.lib);
-    if !ctx.cwd.join(&entry).exists() && ctx.cwd.join(&lib).is_file() {
+    let lib = dir.join(&manifest.build.lib);
+    let is_lib = !ctx.cwd.join(&entry).exists() && ctx.cwd.join(&lib).is_file();
+    if is_lib {
         entry = lib;
     }
     let note = format!(
@@ -1026,26 +1390,19 @@ fn load_project(input: Option<&Path>, update: bool, ctx: &mut Context<'_>) -> Re
         manifest_path.display(),
         brim_manifest::DEFAULT_ENTRY
     );
-    let default_output = project_dir
-        .join("target")
+    let default_output = target_dir
         .join(&manifest.package.name)
         .with_extension(std::env::consts::EXE_EXTENSION);
-    let graph = resolve_packages(&project_dir, manifest, manifest_file, update, ctx)?;
     Ok(Input {
         file: read_source(&entry, ctx, Some(note))?,
         default_output,
         packages: Some(graph),
+        lib: is_lib,
     })
 }
 
-/// Finds a project's dependencies (see `brim-package`).
-fn resolve_packages(
-    project_dir: &Path,
-    manifest: brim_manifest::Manifest,
-    manifest_file: SourceFile,
-    update: bool,
-    ctx: &mut Context<'_>,
-) -> Result<brim_package::Graph, i32> {
+/// How to resolve dependencies here.
+fn package_options(update: bool, ctx: &mut Context<'_>) -> Result<brim_package::Options, i32> {
     let Some(home) = brim_package::default_home() else {
         let _ = writeln!(
             ctx.stderr,
@@ -1054,31 +1411,30 @@ fn resolve_packages(
         );
         return Err(exit::INPUT);
     };
-    let options = brim_package::Options {
+    Ok(brim_package::Options {
         cwd: ctx.cwd.clone(),
         home,
         update,
-    };
-    match brim_package::resolve(project_dir, manifest, manifest_file, &options) {
-        Ok((graph, report)) => {
-            for url in &report.fetched {
-                let _ = writeln!(ctx.stderr, "fetched {url}");
-            }
-            if report.lock_written {
-                let lock = project_dir.join(brim_package::LOCK_FILE);
-                let _ = writeln!(ctx.stderr, "updated {}", lock.display());
-            }
-            Ok(graph)
-        }
-        Err(failure) => {
-            let file = failure
-                .file
-                .unwrap_or_else(|| SourceFile::new(brim_manifest::MANIFEST_FILE, ""));
-            let rendered = Renderer::new(ctx.color).render(&failure.diagnostic, &file);
-            let _ = write!(ctx.stderr, "{rendered}");
-            Err(exit::INPUT)
-        }
+        registry: None,
+    })
+}
+
+fn print_report(report: &brim_package::Report, lock: &Path, ctx: &mut Context<'_>) {
+    for what in &report.fetched {
+        let _ = writeln!(ctx.stderr, "fetched {what}");
     }
+    if report.lock_written {
+        let _ = writeln!(ctx.stderr, "updated {}", lock.display());
+    }
+}
+
+fn report_failure(failure: brim_package::Failure, ctx: &mut Context<'_>) -> i32 {
+    let file = failure
+        .file
+        .unwrap_or_else(|| SourceFile::new(brim_manifest::MANIFEST_FILE, ""));
+    let rendered = Renderer::new(ctx.color).render(&failure.diagnostic, &file);
+    let _ = write!(ctx.stderr, "{rendered}");
+    exit::INPUT
 }
 
 fn read_source(

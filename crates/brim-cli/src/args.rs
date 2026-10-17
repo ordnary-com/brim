@@ -22,15 +22,21 @@ pub enum Command {
     Version,
     Check {
         input: Option<PathBuf>,
+        /// `-p`/`--package`: a package of the workspace.
+        package: Option<String>,
         emit: Option<Emit>,
     },
     Run {
         input: Option<PathBuf>,
+        /// `-p`/`--package`: a package of the workspace.
+        package: Option<String>,
         /// Arguments for the program (`args()`), after its path.
         args: Vec<String>,
     },
     Build {
         input: Option<PathBuf>,
+        /// `-p`/`--package`: a package of the workspace.
+        package: Option<String>,
         /// `-o`/`--output`: where to write the executable.
         output: Option<PathBuf>,
         /// `--release`: optimise.
@@ -38,6 +44,8 @@ pub enum Command {
     },
     Test {
         input: Option<PathBuf>,
+        /// `-p`/`--package`: a package of the workspace.
+        package: Option<String>,
         /// Only run tests whose names contain this text.
         filter: Option<String>,
     },
@@ -48,6 +56,8 @@ pub enum Command {
     /// `brim gen ts [PATH]`: TypeScript types for the program's API.
     GenTs {
         input: Option<PathBuf>,
+        /// `-p`/`--package`: a package of the workspace.
+        package: Option<String>,
         /// `-o`/`--output`: the file to write instead of standard output.
         output: Option<PathBuf>,
         /// `--angular`: also an Angular service for the API functions.
@@ -56,6 +66,8 @@ pub enum Command {
     /// `brim doc [PATH]`: HTML documentation from the doc comments.
     Doc {
         input: Option<PathBuf>,
+        /// `-p`/`--package`: a package of the workspace.
+        package: Option<String>,
         /// `-o`/`--output`: the directory to write.
         output: Option<PathBuf>,
         /// `--std`: the standard library instead of a program.
@@ -66,6 +78,26 @@ pub enum Command {
     /// `brim update [PATH]`: newest commits for git dependencies.
     Update {
         input: Option<PathBuf>,
+        /// `-p`/`--package`: a package of the workspace.
+        package: Option<String>,
+    },
+    /// `brim publish [PATH]`: upload the package to the registry.
+    Publish {
+        input: Option<PathBuf>,
+        package: Option<String>,
+        /// `--dry-run`: check and pack, but do not upload.
+        dry_run: bool,
+    },
+    /// `brim login`: store a registry token.
+    Login {
+        /// `--token`; else read from standard input.
+        token: Option<String>,
+    },
+    /// `brim yank NAME@VERSION [--undo]`.
+    Yank {
+        name: String,
+        version: String,
+        undo: bool,
     },
     Fmt {
         /// Files and directories; empty for the current project.
@@ -90,7 +122,8 @@ impl fmt::Display for UsageError {
 }
 
 const COMMANDS: &[&str] = &[
-    "check", "run", "build", "test", "new", "fmt", "update", "gen", "doc", "lsp", "help", "version",
+    "check", "run", "build", "test", "new", "fmt", "update", "publish", "login", "yank", "gen",
+    "doc", "lsp", "help", "version",
 ];
 
 /// Parses the arguments after the program name.
@@ -119,6 +152,7 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
             let parsed = CommandArgs::parse("check", rest)?;
             Ok(parsed.help.unwrap_or(Command::Check {
                 input: parsed.input,
+                package: parsed.package,
                 emit: parsed.emit,
             }))
         }
@@ -126,6 +160,7 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
             let parsed = CommandArgs::parse("run", rest)?;
             Ok(parsed.help.unwrap_or(Command::Run {
                 input: parsed.input,
+                package: parsed.package,
                 args: parsed.program_args,
             }))
         }
@@ -133,6 +168,7 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
             let parsed = CommandArgs::parse("build", rest)?;
             Ok(parsed.help.unwrap_or(Command::Build {
                 input: parsed.input,
+                package: parsed.package,
                 output: parsed.output,
                 release: parsed.release,
             }))
@@ -141,6 +177,7 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
             let parsed = CommandArgs::parse("test", rest)?;
             Ok(parsed.help.unwrap_or(Command::Test {
                 input: parsed.input,
+                package: parsed.package,
                 filter: parsed.program_args.into_iter().next(),
             }))
         }
@@ -169,6 +206,7 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
                 let parsed = CommandArgs::parse("gen", rest)?;
                 Ok(parsed.help.unwrap_or(Command::GenTs {
                     input: parsed.input,
+                    package: parsed.package,
                     output: parsed.output,
                     angular: parsed.angular,
                 }))
@@ -182,6 +220,7 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
             let parsed = CommandArgs::parse("doc", rest)?;
             Ok(parsed.help.unwrap_or(Command::Doc {
                 input: parsed.input,
+                package: parsed.package,
                 output: parsed.output,
                 std: parsed.std,
             }))
@@ -197,7 +236,65 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
             let parsed = CommandArgs::parse("update", rest)?;
             Ok(parsed.help.unwrap_or(Command::Update {
                 input: parsed.input,
+                package: parsed.package,
             }))
+        }
+        "publish" => {
+            let parsed = CommandArgs::parse("publish", rest)?;
+            Ok(parsed.help.unwrap_or(Command::Publish {
+                input: parsed.input,
+                package: parsed.package,
+                dry_run: parsed.dry_run,
+            }))
+        }
+        "login" => {
+            let mut token = None;
+            let mut iter = rest.iter();
+            while let Some(arg) = iter.next() {
+                match arg.as_str() {
+                    "-h" | "--help" => return Ok(Command::Help(Some("login".into()))),
+                    "--token" => {
+                        token = Some(iter.next().cloned().ok_or_else(|| UsageError {
+                            message: "`--token` needs a value".into(),
+                            command: Some("login"),
+                        })?);
+                    }
+                    a if a.starts_with("--token=") => token = Some(a["--token=".len()..].into()),
+                    other => return Err(unexpected(other, Some("login"))),
+                }
+            }
+            Ok(Command::Login { token })
+        }
+        "yank" => {
+            let mut spec = None;
+            let mut undo = false;
+            for arg in rest {
+                match arg.as_str() {
+                    "-h" | "--help" => return Ok(Command::Help(Some("yank".into()))),
+                    "--undo" => undo = true,
+                    a if a.starts_with('-') => {
+                        return Err(UsageError {
+                            message: format!("unknown option `{a}` for `brim yank`"),
+                            command: Some("yank"),
+                        });
+                    }
+                    _ if spec.is_none() => spec = Some(arg.clone()),
+                    other => return Err(unexpected(other, Some("yank"))),
+                }
+            }
+            match spec.as_deref().and_then(|s| s.split_once('@')) {
+                Some((name, version)) if !name.is_empty() && !version.is_empty() => {
+                    Ok(Command::Yank {
+                        name: name.into(),
+                        version: version.into(),
+                        undo,
+                    })
+                }
+                _ => Err(UsageError {
+                    message: "`brim yank` needs NAME@VERSION, e.g. `brim yank router@1.2.0`".into(),
+                    command: Some("yank"),
+                }),
+            }
         }
         "fmt" => {
             let mut paths = Vec::new();
@@ -260,6 +357,10 @@ struct CommandArgs {
     std: bool,
     /// `run` only: positional arguments after the path.
     program_args: Vec<String>,
+    /// `-p`/`--package`, for project commands.
+    package: Option<String>,
+    /// `publish` only: `--dry-run`.
+    dry_run: bool,
     help: Option<Command>,
 }
 
@@ -276,8 +377,11 @@ impl CommandArgs {
             angular: false,
             std: false,
             program_args: Vec::new(),
+            package: None,
+            dry_run: false,
             help: None,
         };
+        let takes_package = command != "new";
         let mut only_positional = false;
         let mut iter = args.iter();
         while let Some(arg) = iter.next() {
@@ -311,6 +415,17 @@ impl CommandArgs {
                     a if has_output && a.starts_with("--output=") => {
                         parsed.output = Some(PathBuf::from(&a["--output=".len()..]));
                     }
+                    "-p" | "--package" if takes_package => {
+                        let value = iter.next().ok_or_else(|| UsageError {
+                            message: format!("`{arg}` needs a value: a package of the workspace"),
+                            command: Some(command),
+                        })?;
+                        parsed.package = Some(value.clone());
+                    }
+                    a if takes_package && a.starts_with("--package=") => {
+                        parsed.package = Some(a["--package=".len()..].to_string());
+                    }
+                    "--dry-run" if command == "publish" => parsed.dry_run = true,
                     "--release" if is_build => parsed.release = true,
                     "--angular" if command == "gen" => parsed.angular = true,
                     "--std" if command == "doc" => parsed.std = true,
@@ -362,7 +477,10 @@ Commands:
   test [PATH]    Run a program's tests
   new <PATH>     Create a new project
   fmt [PATH...]  Format source files
-  update [PATH]  Update the git dependencies in brim.lock
+  update [PATH]  Pick the newest dependency versions for brim.lock
+  publish [PATH] Publish the package to the registry
+  login          Store a token for the registry
+  yank NAME@VER  Stop new projects from picking a published version
   gen ts [PATH]  Generate TypeScript types for the program's API
   doc [PATH]     Write HTML documentation from the doc comments
   lsp            Run the language server for editors
@@ -371,7 +489,8 @@ Commands:
 
 PATH is a `.brim` file, a `brim.toml` manifest, or a directory containing
 one. Without PATH, the nearest `brim.toml` in the current directory or its
-parents is used.
+parents is used. In a workspace, `-p NAME` picks a member; at the root,
+check, build, test and doc work on every member.
 
 Options:
   -h, --help     Show help
@@ -388,6 +507,7 @@ Usage: brim check [OPTIONS] [PATH]
 
 Options:
   --emit <tokens|ast|ir>  Print an intermediate representation to stdout
+  -p, --package <NAME>    A package of the workspace
   -h, --help              Show help
 "
         }
@@ -404,7 +524,8 @@ ARGS are passed to the program (`args()`). The program's exit code (see
 `exit`) becomes the exit code of `brim run`.
 
 Options:
-  -h, --help  Show help
+  -p, --package <NAME>  A package of the workspace
+  -h, --help            Show help
 "
         }
         "build" => {
@@ -421,9 +542,10 @@ the program is still checked and the command reports the missing backend.
 Usage: brim build [OPTIONS] [PATH]
 
 Options:
-  -o, --output <PATH>  Where to write the executable
-  --release            Optimise the executable
-  -h, --help           Show help
+  -o, --output <PATH>   Where to write the executable
+  --release             Optimise the executable
+  -p, --package <NAME>  A package of the workspace
+  -h, --help            Show help
 "
         }
         "test" => {
@@ -443,7 +565,8 @@ Usage: brim test [PATH] [FILTER]
 FILTER runs only the tests whose names contain it.
 
 Options:
-  -h, --help  Show help
+  -p, --package <NAME>  A package of the workspace
+  -h, --help            Show help
 "
         }
         "new" => {
@@ -471,9 +594,10 @@ comment, `code` is code and lines indented by two or more spaces are code
 examples. Writes `target/doc` in a project, `doc` next to a single file.
 
 Options:
-  -o, --output <DIR>  Write to DIR
-      --std           Document the standard library instead
-  -h, --help          Show help
+  -o, --output <DIR>    Write to DIR
+      --std             Document the standard library instead
+  -p, --package <NAME>  A package of the workspace
+  -h, --help            Show help
 "
         }
         "gen" => {
@@ -494,9 +618,10 @@ Writes a TypeScript declaration for every `pub` struct and enum. With
 `serve_api`, with a method per API function.
 
 Options:
-  -o, --output <FILE>  Write to FILE instead of standard output
-      --angular        Also write an Angular client for the API functions
-  -h, --help           Show help
+  -o, --output <FILE>   Write to FILE instead of standard output
+      --angular         Also write an Angular client for the API functions
+  -p, --package <NAME>  A package of the workspace
+  -h, --help            Show help
 "
         }
         "lsp" => {
@@ -515,13 +640,62 @@ Options:
         }
         "update" => {
             "\
-Update the git dependencies in brim.lock
+Pick the newest dependency versions for brim.lock
 
 Fetches every git dependency of the project and records the newest commit
-of its branch, tag or default branch in `brim.lock`. Other commands use
-the commits in `brim.lock` and fetch only what is missing.
+of its branch, tag or default branch in `brim.lock`, and picks the newest
+version of every registry dependency that meets its requirements. Other
+commands use what `brim.lock` says and fetch only what is missing.
 
-Usage: brim update [PATH]
+Usage: brim update [OPTIONS] [PATH]
+
+Options:
+  -p, --package <NAME>  A package of the workspace
+  -h, --help            Show help
+"
+        }
+        "publish" => {
+            "\
+Publish the package to the registry
+
+Checks the package, packs `brim.toml`, `src/` and the README, LICENSE and
+CHANGELOG files at the top into an archive, and uploads it with the token
+from `brim login`. Every dependency needs a `version`; a `path` dependency
+may have one, which the published manifest keeps. A published version can
+never change: publish a new version instead.
+
+The registry is `$BRIM_REGISTRY`, or the default registry.
+
+Usage: brim publish [OPTIONS] [PATH]
+
+Options:
+  --dry-run             Check and pack, but do not upload
+  -p, --package <NAME>  A package of the workspace
+  -h, --help            Show help
+"
+        }
+        "login" => {
+            "\
+Store a token for the registry
+
+Reads an API token from standard input (or `--token`), checks it with the
+registry and stores it in `$BRIM_HOME/credentials.toml`. The environment
+variable BRIM_REGISTRY_TOKEN, when set, is used instead.
+
+Usage: brim login [--token <TOKEN>]
+
+Options:
+  -h, --help  Show help
+"
+        }
+        "yank" => {
+            "\
+Stop new projects from picking a published version
+
+A yanked version stays available to projects whose `brim.lock` names it,
+but is not picked for new lock files. `--undo` takes the yank back.
+
+Usage: brim yank NAME@VERSION [--undo]
 
 Options:
   -h, --help  Show help
@@ -577,6 +751,7 @@ mod tests {
             p(&["check", "a.brim"]),
             Ok(Command::Check {
                 input: Some("a.brim".into()),
+                package: None,
                 emit: None
             })
         );
@@ -584,6 +759,7 @@ mod tests {
             p(&["check", "--emit", "ir", "a.brim"]),
             Ok(Command::Check {
                 input: Some("a.brim".into()),
+                package: None,
                 emit: Some(Emit::Ir)
             })
         );
@@ -591,6 +767,7 @@ mod tests {
             p(&["check", "--emit=ast"]),
             Ok(Command::Check {
                 input: None,
+                package: None,
                 emit: Some(Emit::Ast)
             })
         );
@@ -598,6 +775,7 @@ mod tests {
             p(&["run"]),
             Ok(Command::Run {
                 input: None,
+                package: None,
                 args: vec![]
             })
         );
@@ -605,6 +783,7 @@ mod tests {
             p(&["run", "--", "-weird.brim"]),
             Ok(Command::Run {
                 input: Some("-weird.brim".into()),
+                package: None,
                 args: vec![]
             })
         );
@@ -612,6 +791,7 @@ mod tests {
             p(&["run", "tool.brim", "a", "--flag", "-x"]),
             Ok(Command::Run {
                 input: Some("tool.brim".into()),
+                package: None,
                 args: vec!["a".into(), "--flag".into(), "-x".into()]
             })
         );
@@ -620,6 +800,7 @@ mod tests {
             p(&["test", "lib.brim", "parse"]),
             Ok(Command::Test {
                 input: Some("lib.brim".into()),
+                package: None,
                 filter: Some("parse".into()),
             })
         );
@@ -627,6 +808,7 @@ mod tests {
             p(&["test"]),
             Ok(Command::Test {
                 input: None,
+                package: None,
                 filter: None,
             })
         );
@@ -648,6 +830,7 @@ mod tests {
             p(&["gen", "ts", "-o", "api.ts", "app"]),
             Ok(Command::GenTs {
                 input: Some("app".into()),
+                package: None,
                 output: Some("api.ts".into()),
                 angular: false,
             })
@@ -656,6 +839,7 @@ mod tests {
             p(&["doc", "--std", "-o", "out"]),
             Ok(Command::Doc {
                 input: None,
+                package: None,
                 output: Some("out".into()),
                 std: true,
             })
@@ -664,11 +848,43 @@ mod tests {
             p(&["gen", "ts", "--angular"]),
             Ok(Command::GenTs {
                 input: None,
+                package: None,
                 output: None,
                 angular: true,
             })
         );
         assert_eq!(p(&["lsp", "--stdio"]), Ok(Command::Lsp));
+        assert_eq!(
+            p(&["build", "-p", "server", "--release"]),
+            Ok(Command::Build {
+                input: None,
+                package: Some("server".into()),
+                output: None,
+                release: true,
+            })
+        );
+        assert_eq!(
+            p(&["publish", "--dry-run", "--package=lib"]),
+            Ok(Command::Publish {
+                input: None,
+                package: Some("lib".into()),
+                dry_run: true,
+            })
+        );
+        assert_eq!(
+            p(&["login", "--token", "brim_x"]),
+            Ok(Command::Login {
+                token: Some("brim_x".into())
+            })
+        );
+        assert_eq!(
+            p(&["yank", "router@1.2.0", "--undo"]),
+            Ok(Command::Yank {
+                name: "router".into(),
+                version: "1.2.0".into(),
+                undo: true,
+            })
+        );
         assert_eq!(
             p(&["new", "hello"]),
             Ok(Command::New {
@@ -679,6 +895,7 @@ mod tests {
             p(&["build", "--release", "-o", "out/app", "a.brim"]),
             Ok(Command::Build {
                 input: Some("a.brim".into()),
+                package: None,
                 output: Some("out/app".into()),
                 release: true,
             })
@@ -687,6 +904,7 @@ mod tests {
             p(&["build", "--output=app"]),
             Ok(Command::Build {
                 input: None,
+                package: None,
                 output: Some("app".into()),
                 release: false,
             })
@@ -698,7 +916,7 @@ mod tests {
         let msg = |args: &[&str]| p(args).unwrap_err().message;
         assert_eq!(
             msg(&["frobnicate"]),
-            "unknown command `frobnicate` (available: check, run, build, test, new, fmt, update, gen, doc, lsp, help, version)"
+            "unknown command `frobnicate` (available: check, run, build, test, new, fmt, update, publish, login, yank, gen, doc, lsp, help, version)"
         );
         assert_eq!(
             msg(&["check", "a.brim", "b.brim"]),
@@ -731,6 +949,18 @@ mod tests {
         );
         assert_eq!(msg(&["new", "a", "b"]), "unexpected argument `b`");
         assert_eq!(msg(&["gen"]), "`brim gen` needs a target: ts");
+        assert_eq!(
+            msg(&["yank", "router"]),
+            "`brim yank` needs NAME@VERSION, e.g. `brim yank router@1.2.0`"
+        );
+        assert_eq!(
+            msg(&["new", "-p", "x"]),
+            "unknown option `-p` for `brim new`"
+        );
+        assert_eq!(
+            msg(&["publish", "--release"]),
+            "unknown option `--release` for `brim publish`"
+        );
         assert_eq!(
             msg(&["gen", "rust"]),
             "unknown target `rust` for `brim gen` (available: ts)"

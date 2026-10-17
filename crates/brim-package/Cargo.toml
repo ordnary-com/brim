@@ -11,8 +11,17 @@ authors.workspace = true
 [dependencies]
 brim-diagnostics.workspace = true
 brim-manifest.workspace = true
+brim-runtime.workspace = true
+flate2.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+tar.workspace = true
 toml.workspace = true
+
+# HTTP for the registry; not in WebAssembly (the playground), whose
+# programs have no dependencies.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+curl.workspace = true
 
 [lints]
 workspace = true

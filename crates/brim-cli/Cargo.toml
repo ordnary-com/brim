@@ -37,6 +37,8 @@ brim-semantic.workspace = true
 brim-tsgen.workspace = true
 brim-runtime.workspace = true
 brim-doc.workspace = true
+serde_json.workspace = true
+toml.workspace = true
 
 [dev-dependencies]
 brim-fmt.workspace = true

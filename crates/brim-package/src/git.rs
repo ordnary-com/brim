@@ -162,7 +162,7 @@ fn path_arg(path: &Path) -> String {
 }
 
 /// FNV-1a: a stable hash for cache directory names.
-fn fnv1a(bytes: &[u8]) -> u64 {
+pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for &b in bytes {
         hash ^= u64::from(b);

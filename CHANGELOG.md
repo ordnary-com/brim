@@ -4,7 +4,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Version requirements and a package registry: `router = "1.2"` in `[dependencies]` picks the newest version that meets every requirement on the package in the project (`^`, `~`, `=`, comparisons and `*`, as in `docs/registry.md`), records it with its checksum in `brim.lock` and works offline from there. Conflicts say who requires what (`M0014`). `brim update` picks the newest versions again.
+- `brim publish` (with `--dry-run`), `brim login` and `brim yank NAME@VERSION [--undo]`. A path dependency can carry a `version` for publishing: `shared = { path = "../shared", version = "0.1" }`. `[package]` takes `description`, `license` and `repository`.
+- The registry service itself, in `registry/`: index, downloads, publishing with API tokens, yanking, search and package pages.
+- Workspaces: `[workspace] members = ["apps/*", "shared"]` in a root `brim.toml`, with one `brim.lock` for all members. At the root, `check`, `test`, `build` and `doc` work on every member; `-p NAME` (`--package`) picks one.
+
 ### Changed
+
+- `brim check` on a library without `main` checks its library root instead of asking for `main`.
 
 - Native code releases values right after their last use instead of at the end of the block, so a list or map changed by several `mut self` methods in a row is changed in place instead of copied (a `StringBuilder` with two `add`s per loop went from 6 s to a few ms for 100,000 parts).
 - `brim build` keeps the compiled runtime in `~/.brim/cache` (`$BRIM_HOME/cache`): builds after the first are about ten times faster.

@@ -942,7 +942,7 @@ These questions are not settled. The current behavior is a reversible default.
 7. **Statement termination.** Newline termination, with continuation after operators and before a line that starts with `.`, is the current rule.
 8. **`main` signature.** `main` takes no parameters and returns nothing; arguments come from `args()` and the exit code from `exit`. Returning a `Result` from `main` is undecided.
 9. **Unicode identifiers.** Identifiers are ASCII-only. Allowing Unicode (UAX #31) is possible later.
-10. **Modules.** Modules are files and `pub` controls visibility, of items and of fields; `pub import` re-exports items; dependencies add their modules under the package's name. Re-exporting whole modules and a package registry with version requirements are undecided.
+10. **Modules.** Modules are files and `pub` controls visibility, of items and of fields; `pub import` re-exports items; dependencies add their modules under the package's name. Re-exporting whole modules is undecided; packages come from a registry with version requirements (`docs/registry.md`), directories or git.
 11. **Loop forms.** `while`, `loop` and `for` exist. Labeled `break` for nested loops and `for` over other collections are candidates.
 12. **Struct literals.** Field-shorthand literals (`Point { x, y }`) and default values are undecided. Ordering structs with `<` is not supported.
 13. **More patterns.** Patterns for struct fields, ranges (`1..5`) and binding a whole value while matching its parts (`x @ Some(_)`) are not supported yet.
@@ -963,23 +963,33 @@ Brim projects are described by a `brim.toml` file. This is a **proposed format**
 name = "hello"          # required: lowercase letter, then [a-z0-9_-], max 64 chars
 version = "0.1.0"       # required: MAJOR.MINOR.PATCH with an optional -prerelease
 edition = "2026"        # required: language edition; only "2026" exists
+description = "..."     # optional; for the registry
+license = "MIT"         # optional; an SPDX expression, for the registry
+repository = "https://..." # optional; for the registry
 
 [build]                 # optional
 entry = "src/main.brim" # optional; default "src/main.brim"; relative, inside the package
 lib = "src/lib.brim"    # optional; default "src/lib.brim": the library root
 
 [dependencies]          # optional
+router = "1.2"          # from the registry
 geometry = { path = "../geometry" }
+shapes = { path = "../shapes", version = "0.3" }
 http = { git = "https://example.com/http.git", tag = "v1.0.0" }
+
+[workspace]             # optional; [package] may then be left out
+members = ["apps/*", "shared"]
 ```
 
 - Unknown tables and keys are errors, to catch typos.
-- A dependency comes from a directory with a `brim.toml` (`path`, relative to this manifest) or from a git repository (`git`, with at most one of `tag`, `branch` and `rev`; without them, the default branch). There is no package registry yet, so version requirements such as `http = "1.0"` are errors (`M0006`).
+- A dependency comes from the package registry (a version requirement: `router = "1.2"` or `router = { version = "1.2" }`; see `docs/registry.md` for the forms), from a directory with a `brim.toml` (`path`, relative to this manifest), or from a git repository (`git`, with at most one of `tag`, `branch` and `rev`; without them, the default branch). A `path` dependency may also have a `version`, which `brim publish` keeps; `version` cannot be combined with `git` (`M0006`).
+- Every registry package has one version in a project: the newest non-yanked version that meets every requirement on it (`M0014` when none does; `M0013` for a package the registry does not have).
 - A dependency's name is the name of its package, and is used in `import`, so it contains no `-` (`M0007`). All packages of a project have different names (`M0009`).
 - A package is used as a library through its library root: `import geometry` is the module in `src/lib.brim` of the package `geometry`, and `import geometry.shapes` the module in `src/shapes.brim` next to it. Inside the package, its modules import each other as usual (`import shapes`). The project's own modules cannot have the name of a dependency.
 - A package without `src/main.brim` but with a library root is a library: `brim check` and `brim test` work on its library root.
 - `brim test` runs only the tests of the project's own modules.
-- **`brim.lock`.** The first build writes the commit of every git dependency to `brim.lock`, next to `brim.toml`; later builds use those commits. `brim update` fetches the newest commits. Commit `brim.lock` for programs, so every build uses the same versions. Git repositories are cached in `$BRIM_HOME/git` (by default `~/.brim/git`) and only fetched when a commit is missing.
+- **`brim.lock`.** The first build writes the commit of every git dependency and the version and checksum of every registry dependency to `brim.lock`, next to `brim.toml` (at the root of a workspace); later builds use those, without the network when they are cached. `brim update` picks the newest commits and versions. Commit `brim.lock` for programs, so every build uses the same versions. Git repositories are cached in `$BRIM_HOME/git` (by default `~/.brim/git`) and only fetched when a commit is missing.
+- **Workspaces.** `[workspace] members` lists member directories relative to the manifest; a last component `*` stands for every subdirectory with a `brim.toml` (`M0012` for invalid members). The manifest may also have a `[package]`, which is then a member too. Members share the root's `brim.lock`. At the root, `check`, `test`, `build` and `doc` work on every member; `-p NAME` picks one, as does running in a member's directory.
 - `brim run`, `brim check`, `brim build` and `brim test` without a path use the nearest `brim.toml` in the current directory or its parents.
 - `brim fmt` formats the project's source files (all `.brim` files under the manifest's directory, except in `target`).
 - `brim new PATH` creates a project: a `brim.toml`, a `src/main.brim` with a test, and a `.gitignore`.

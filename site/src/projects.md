@@ -58,10 +58,12 @@ test result: FAILED. 0 passed; 1 failed
 
 ## Dependencies
 
-Packages can use other packages, from a directory or a git repository:
+Packages can use other packages: from the package registry by version, from
+a directory, or from a git repository:
 
 ```toml
 [dependencies]
+router = "1.2"
 geometry = { path = "../geometry" }
 http = { git = "https://github.com/example/brim-http.git", tag = "v1.0.0" }
 ```
@@ -69,9 +71,68 @@ http = { git = "https://github.com/example/brim-http.git", tag = "v1.0.0" }
 `import geometry` then refers to the library root of `geometry`
 (`src/lib.brim`), and `import geometry.shapes` to its `src/shapes.brim`.
 
-The commits of git dependencies are recorded in `brim.lock`, so every
-build uses the same versions; commit it with your program. `brim update`
-moves them to the newest commits. Repositories are cached in
-`~/.brim/git` (or `$BRIM_HOME/git`).
+### Versions
 
-There is no package registry yet.
+`router = "1.2"` means any version from 1.2.0 up to, but not including,
+2.0.0: a newer version that promises to be compatible. Other forms:
+
+| Requirement | Versions |
+|-------------|----------|
+| `"1.2.3"` or `"^1.2.3"` | 1.2.3 up to 2.0.0 |
+| `"0.3"` | 0.3.0 up to 0.4.0 (before 1.0, the second number is the major one) |
+| `"~1.2.3"` | 1.2.3 up to 1.3.0 |
+| `"=1.2.3"` | exactly 1.2.3 |
+| `">=1.2, <1.5"` | the comparisons, all of them |
+| `"*"` | any version |
+
+Pre-releases such as `2.0.0-beta.1` are only picked when the requirement
+names one. Every package has one version in a project: the newest that
+meets all requirements on it, from the project and from other packages.
+When there is none, brim says who requires what.
+
+### brim.lock
+
+The picked versions and the commits of git dependencies are recorded in
+`brim.lock`, so every build uses the same versions, also without a network;
+commit it with your program. `brim update` picks the newest versions and
+commits again. Downloads are cached in `~/.brim` (or `$BRIM_HOME`).
+
+### Publishing
+
+```sh
+brim login            # paste an API token for the registry
+brim publish --dry-run
+brim publish
+```
+
+`brim publish` checks the package, packs `brim.toml`, `src/` and the
+README, LICENSE and CHANGELOG files, and uploads them. Give the package a
+`description` and a `license` in `[package]`. Every dependency needs a
+version; a path dependency can have one too, which is what the published
+package keeps:
+
+```toml
+[dependencies]
+shared = { path = "../shared", version = "0.1" }
+```
+
+A published version never changes. `brim yank router@1.2.0` stops new
+projects from picking a broken version; projects whose `brim.lock` has it
+keep working.
+
+## Workspaces
+
+A workspace is a directory with packages that are developed together. Its
+`brim.toml` lists them:
+
+```toml
+[workspace]
+members = ["apps/*", "shared"]
+```
+
+`apps/*` stands for every directory in `apps` with a `brim.toml`. The
+members share one `brim.lock`, at the root, and every dependency has one
+version in the whole workspace. At the root, `brim check`, `brim test`,
+`brim build` and `brim doc` work on every member; `-p NAME` picks one, as
+does running brim in a member's directory. Members depend on each other
+with `path`.

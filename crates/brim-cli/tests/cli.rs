@@ -815,3 +815,103 @@ fn http_server_and_client() {
     assert_eq!(lines.next().unwrap().unwrap(), "stopped");
     assert!(server.wait().unwrap().success());
 }
+
+#[test]
+fn workspaces() {
+    let dir = scratch("workspace");
+    let home = dir.join("home");
+    let ws = dir.join("ws");
+    fs::create_dir_all(ws.join("apps/api/src")).unwrap();
+    fs::create_dir_all(ws.join("apps/tool/src")).unwrap();
+    fs::create_dir_all(ws.join("shared/src")).unwrap();
+    fs::write(
+        ws.join("brim.toml"),
+        "[workspace]\nmembers = [\"apps/*\", \"shared\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        ws.join("apps/api/brim.toml"),
+        manifest(
+            "api",
+            "shared = { path = \"../../shared\", version = \"0.1\" }\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        ws.join("apps/api/src/main.brim"),
+        "import shared\n\nfn main() {\n    print(shared.banner(\"api\"))\n}\n",
+    )
+    .unwrap();
+    fs::write(ws.join("apps/tool/brim.toml"), manifest("tool", "")).unwrap();
+    fs::write(
+        ws.join("apps/tool/src/main.brim"),
+        "fn main() {\n    print(\"tool\")\n}\n\nfn test_tool() {\n    assert(true)\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        ws.join("shared/brim.toml"),
+        manifest("shared", "").replace(
+            "edition = \"2026\"",
+            "edition = \"2026\"\ndescription = \"Shared\"\nlicense = \"MIT\"",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        ws.join("shared/src/lib.brim"),
+        "pub fn banner(s: string) -> string {\n    return \"[\" + s + \"]\"\n}\n\nfn test_banner() {\n    assert_eq(banner(\"x\"), \"[x]\")\n}\n",
+    )
+    .unwrap();
+    fs::write(ws.join("shared/README.md"), "# shared\n").unwrap();
+
+    // At the root: every member, with one lock file there.
+    let out = brim_with_home(&ws, &home, &["check"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out),
+        "updated brim.lock\nok: no errors found in apps/api/src/main.brim\n\
+         ok: no errors found in apps/tool/src/main.brim\n\
+         ok: no errors found in shared/src/lib.brim\n"
+    );
+    assert!(ws.join("brim.lock").is_file());
+    let out = brim_with_home(&ws, &home, &["test"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stdout(&out));
+    assert_eq!(stdout(&out).matches("test result: ok").count(), 3);
+
+    // `run` needs one package.
+    let out = brim_with_home(&ws, &home, &["run"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        stderr(&out).contains("several packages: api, tool, shared"),
+        "{}",
+        stderr(&out)
+    );
+    let out = brim_with_home(&ws, &home, &["run", "-p", "api"]);
+    assert_eq!(stdout(&out), "[api]\n", "{}", stderr(&out));
+    // In a member's directory: that member, with the root's lock file.
+    let out = brim_with_home(&ws.join("apps/tool"), &home, &["run"]);
+    assert_eq!(stdout(&out), "tool\n", "{}", stderr(&out));
+    assert!(!ws.join("apps/tool/brim.lock").exists());
+    let out = brim_with_home(&ws, &home, &["check", "-p", "nope"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(stderr(&out).contains("the workspace has no package `nope`"));
+
+    // Publishing packs the files and keeps the version of a path dependency.
+    let out = brim_with_home(&ws, &home, &["publish", "-p", "shared", "--dry-run"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "README.md\nbrim.toml\nsrc/lib.brim\n");
+    assert!(ws.join("target/package/shared-0.1.0.tar.gz").is_file());
+    let out = brim_with_home(&ws, &home, &["publish", "-p", "api", "--dry-run"]);
+    assert_eq!(out.status.code(), Some(3));
+    assert!(
+        stderr(&out).contains("there is no library root"),
+        "{}",
+        stderr(&out)
+    );
+    let out = brim_with_home(&ws, &home, &["yank", "shared@0.1.0"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        stderr(&out).contains("run `brim login`"),
+        "{}",
+        stderr(&out)
+    );
+}

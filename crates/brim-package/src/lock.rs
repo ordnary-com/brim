@@ -9,12 +9,18 @@
 //! version = "1.0.0"
 //! source = "git+https://example.com/http.git?tag=v1.0.0"
 //! commit = "4f0c..."
+//!
+//! [[package]]
+//! name = "router"
+//! version = "1.2.0"
+//! source = "registry+https://registry.ordnary.com"
+//! checksum = "9a1e..."
 //! ```
 
 use std::path::Path;
 
 use brim_diagnostics::{Diagnostic, SourceFile, Span};
-use brim_manifest::GitRef;
+use brim_manifest::{GitRef, Version};
 use serde::Deserialize;
 
 use crate::{Failure, Graph};
@@ -36,10 +42,10 @@ pub(crate) struct LockFile {
 #[serde(deny_unknown_fields)]
 struct LockedPackage {
     name: String,
-    #[allow(dead_code)]
     version: String,
     source: String,
     commit: Option<String>,
+    checksum: Option<String>,
 }
 
 impl LockFile {
@@ -50,6 +56,20 @@ impl LockFile {
             .find(|p| p.name == name && p.source == source)
             .and_then(|p| p.commit.as_deref())
     }
+
+    /// The locked version and checksum of a registry package.
+    pub(crate) fn registry(&self, name: &str, source: &str) -> Option<(Version, &str)> {
+        let p = self
+            .packages
+            .iter()
+            .find(|p| p.name == name && p.source == source)?;
+        Some((Version::parse(&p.version)?, p.checksum.as_deref()?))
+    }
+}
+
+/// How a registry appears in the lock file.
+pub(crate) fn registry_source(url: &str) -> String {
+    format!("registry+{url}")
 }
 
 /// How a git dependency appears in the lock file.
@@ -95,6 +115,14 @@ pub(crate) fn render(graph: &Graph) -> String {
         .iter()
         .map(|p| {
             let source = match (&p.git, find_source(graph, p.name())) {
+                _ if p.registry.is_some() => {
+                    let (url, checksum) = p.registry.as_ref().expect("checked");
+                    format!(
+                        "source = {}\nchecksum = {}\n",
+                        quote(&registry_source(url)),
+                        quote(checksum)
+                    )
+                }
                 (Some((url, commit)), Some(brim_manifest::Source::Git { reference, .. })) => {
                     format!(
                         "source = {}\ncommit = {}\n",
