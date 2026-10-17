@@ -4,3 +4,6 @@ target/
 *.swp
 .idea/
 .vscode/
+registry/node_modules
+registry/.wrangler
+registry/.dev.vars

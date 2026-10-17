@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "brim-registry",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-12",
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "r2_buckets": [
+    {
+      "binding": "ARCHIVES",
+      "bucket_name": "brim-registry-archives"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "brim-registry",
+      // Placeholder. Set to the id printed by `wrangler d1 create brim-registry` at deploy time.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // ADMIN_TOKEN is set with `wrangler secret put ADMIN_TOKEN` (and in .dev.vars locally).
+  "secrets": {
+    "required": ["ADMIN_TOKEN"]
+  }
+}
