@@ -28,13 +28,13 @@ pub mod random;
 
 use std::fmt;
 use std::io::{self, Write};
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub use abi::{AbiType, RuntimeFn};
 
 /// The runtime representation of a Brim `string`: immutable, UTF-8,
 /// reference-counted. Cloning is cheap and never copies the text.
-pub type BrimStr = Rc<str>;
+pub type BrimStr = Arc<str>;
 
 /// The default maximum number of simultaneously active Brim calls,
 /// including `main`. Deeper recursion is the run-time error `R0003`. The
@@ -70,6 +70,10 @@ pub enum RuntimeError {
     FloatToInt,
     /// A call to an `extern fn` in the interpreter, which cannot call C.
     CCall { name: String },
+    /// `join` of a task that was already joined.
+    TaskJoined,
+    /// Starting a task where there are no threads (WebAssembly).
+    NoTasks,
 }
 
 impl RuntimeError {
@@ -87,6 +91,8 @@ impl RuntimeError {
             RuntimeError::StepLimit { .. } => "R0009",
             RuntimeError::FloatToInt => "R0010",
             RuntimeError::CCall { .. } => "R0011",
+            RuntimeError::TaskJoined => "R0012",
+            RuntimeError::NoTasks => "R0013",
         }
     }
 }
@@ -130,6 +136,8 @@ impl fmt::Display for RuntimeError {
             RuntimeError::CCall { name } => {
                 write!(f, "cannot call the C function `{name}` in the interpreter")
             }
+            RuntimeError::TaskJoined => write!(f, "the task was already joined"),
+            RuntimeError::NoTasks => write!(f, "tasks are not available on this platform"),
         }
     }
 }
@@ -177,17 +185,17 @@ pub fn str_concat(a: &str, b: &str) -> BrimStr {
     let mut s = String::with_capacity(a.len() + b.len());
     s.push_str(a);
     s.push_str(b);
-    Rc::from(s)
+    Arc::from(s)
 }
 
 /// Implements `to_string(i64)`: the decimal representation.
 pub fn i64_to_str(value: i64) -> BrimStr {
-    Rc::from(value.to_string())
+    Arc::from(value.to_string())
 }
 
 /// Implements `to_string(bool)`: `"true"` or `"false"`.
 pub fn bool_to_str(value: bool) -> BrimStr {
-    Rc::from(if value { "true" } else { "false" })
+    Arc::from(if value { "true" } else { "false" })
 }
 
 /// A string written as a Brim string literal: in double quotes, with `\`,
@@ -210,7 +218,7 @@ pub fn str_quote(s: &str) -> BrimStr {
         }
     }
     out.push('"');
-    Rc::from(out)
+    Arc::from(out)
 }
 
 /// Implements string `==`: byte-wise equality of the UTF-8 text.

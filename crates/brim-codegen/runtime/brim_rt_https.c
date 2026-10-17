@@ -196,10 +196,17 @@ BrimStr *brim_rt_http_request(const BrimStr *method, const BrimStr *url, const B
         free(raw);
     }
     if (strcmp_len(method, "HEAD") != 0) {
-        static char chunk[65536];
+        /* Not static: tasks make requests at the same time. */
+        enum { CHUNK = 65536 };
+        char *chunk = malloc(CHUNK);
+        if (chunk == NULL) {
+            result = fail("out of memory");
+            goto done;
+        }
         for (;;) {
             DWORD got = 0;
-            if (!WinHttpReadData(req, chunk, sizeof chunk, &got)) {
+            if (!WinHttpReadData(req, chunk, CHUNK, &got)) {
+                free(chunk);
                 result = fail(reason(GetLastError()));
                 goto done;
             }
@@ -208,6 +215,7 @@ BrimStr *brim_rt_http_request(const BrimStr *method, const BrimStr *url, const B
             }
             bytes_add(&content, chunk, got);
         }
+        free(chunk);
     }
     if (!brim_rt_internal_valid_utf8(content.data, (int64_t)content.len)) {
         result = fail("the response is not valid UTF-8");
@@ -238,6 +246,7 @@ done:
 }
 #else
 #include <curl/curl.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -311,14 +320,16 @@ static const char *reason(CURLcode code) {
     }
 }
 
+static void curl_init(void) {
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+}
+
 BrimStr *brim_rt_http_request(const BrimStr *method, const BrimStr *url, const BrimStr *headers,
                               const BrimStr *body, int64_t timeout_ms) {
     brim_rt_internal_set_error(NULL);
-    static int ready;
-    if (!ready) {
-        curl_global_init(CURL_GLOBAL_DEFAULT);
-        ready = 1;
-    }
+    /* Once, also when tasks make their first requests at the same time. */
+    static pthread_once_t ready = PTHREAD_ONCE_INIT;
+    pthread_once(&ready, curl_init);
     CURL *curl = curl_easy_init();
     if (curl == NULL) {
         brim_rt_internal_set_error("network error");

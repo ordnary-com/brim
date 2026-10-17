@@ -28,8 +28,11 @@ mod https {
     }
 }
 
+use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, Write};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 use brim_diagnostics::Span;
 use brim_ir::{
@@ -76,11 +79,11 @@ enum Value {
     Str(BrimStr),
     /// Field values in field order. Structs are immutable values: `insert`
     /// builds a new one, so sharing the fields is safe.
-    Struct(Rc<[Value]>),
+    Struct(Arc<[Value]>),
     /// Copy-on-write: changing a list that is not shared changes it in place.
-    List(Rc<Vec<Value>>),
+    List(Arc<Vec<Value>>),
     /// Copy-on-write, like lists.
-    Map(Rc<MapData>),
+    Map(Arc<MapData>),
     /// A function and its environment (a list).
     Closure(FuncId, Box<Value>),
 }
@@ -96,9 +99,9 @@ impl Drop for Value {
         // lists, structs and maps that are still shared.
         let alone = match self {
             Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Str(_) => false,
-            Value::Struct(fields) => Rc::strong_count(fields) == 1,
-            Value::List(items) => Rc::strong_count(items) == 1,
-            Value::Map(map) => Rc::strong_count(map) == 1,
+            Value::Struct(fields) => Arc::strong_count(fields) == 1,
+            Value::List(items) => Arc::strong_count(items) == 1,
+            Value::Map(map) => Arc::strong_count(map) == 1,
             Value::Closure(..) => true,
         };
         if alone {
@@ -123,12 +126,12 @@ fn drop_nested(value: &mut Value) {
 fn take_contents(value: &mut Value, out: &mut Vec<Value>) {
     match value {
         Value::List(items) => {
-            if let Some(items) = Rc::get_mut(items) {
+            if let Some(items) = Arc::get_mut(items) {
                 out.append(items);
             }
         }
         Value::Struct(fields) => {
-            if let Some(fields) = Rc::get_mut(fields) {
+            if let Some(fields) = Arc::get_mut(fields) {
                 out.extend(
                     fields
                         .iter_mut()
@@ -137,7 +140,7 @@ fn take_contents(value: &mut Value, out: &mut Vec<Value>) {
             }
         }
         Value::Map(map) => {
-            if let Some(map) = Rc::get_mut(map) {
+            if let Some(map) = Arc::get_mut(map) {
                 for (key, value) in map.entries.drain(..) {
                     out.push(key);
                     out.push(value);
@@ -222,14 +225,14 @@ impl Value {
         }
     }
 
-    fn list(&self) -> &Rc<Vec<Value>> {
+    fn list(&self) -> &Arc<Vec<Value>> {
         match self {
             Value::List(v) => v,
             other => unreachable!("validated IR: expected a list, found {other:?}"),
         }
     }
 
-    fn map(&self) -> &Rc<MapData> {
+    fn map(&self) -> &Arc<MapData> {
         match self {
             Value::Map(v) => v,
             other => unreachable!("validated IR: expected a map, found {other:?}"),
@@ -238,28 +241,28 @@ impl Value {
 
     // `Value` implements `Drop`, so these take the contents out instead of
     // moving them.
-    fn into_map(mut self) -> Rc<MapData> {
+    fn into_map(mut self) -> Arc<MapData> {
         match &mut self {
             Value::Map(v) => std::mem::take(v),
             other => unreachable!("validated IR: expected a map, found {other:?}"),
         }
     }
 
-    fn into_list(mut self) -> Rc<Vec<Value>> {
+    fn into_list(mut self) -> Arc<Vec<Value>> {
         match &mut self {
             Value::List(v) => std::mem::take(v),
             other => unreachable!("validated IR: expected a list, found {other:?}"),
         }
     }
 
-    fn into_fields(mut self) -> Rc<[Value]> {
+    fn into_fields(mut self) -> Arc<[Value]> {
         match &mut self {
             Value::Struct(v) => std::mem::take(v),
             other => unreachable!("validated IR: expected a struct, found {other:?}"),
         }
     }
 
-    fn fields(&self) -> &Rc<[Value]> {
+    fn fields(&self) -> &Arc<[Value]> {
         match self {
             Value::Struct(v) => v,
             other => unreachable!("validated IR: expected a struct, found {other:?}"),
@@ -358,18 +361,14 @@ impl Frame {
     }
 }
 
-/// Runs `module` from its entry point, writing program output to `out`.
-///
-/// The module must have passed [`brim_ir::validate`]; executing invalid IR
-/// may panic.
 /// What a running program can use from its environment.
 pub struct Host<'a> {
     /// Standard output (`print`).
-    pub out: &'a mut dyn Write,
+    pub out: &'a mut (dyn Write + Send),
     /// Standard error (`eprint`).
-    pub err: &'a mut dyn Write,
+    pub err: &'a mut (dyn Write + Send),
     /// Standard input (`read_line`).
-    pub input: &'a mut dyn BufRead,
+    pub input: &'a mut (dyn BufRead + Send),
     /// The program's arguments (`args()`), without a program name.
     pub args: Vec<String>,
     /// The directory relative file paths are resolved against.
@@ -395,64 +394,363 @@ pub fn run(module: &Module, host: &mut Host<'_>, limits: Limits) -> Result<i32, 
 
 /// Runs one function of `module`, which must take no parameters and return
 /// `void`, as if it were the entry point. `brim test` runs each test so.
+///
+/// Tasks the program starts (`std.task`) run on threads of their own; the
+/// run ends when the function returns, stopping the tasks still running.
 pub fn run_function(
     module: &Module,
     function: brim_ir::FuncId,
     host: &mut Host<'_>,
     limits: Limits,
 ) -> Result<i32, Trap> {
-    let mut cache = vec![None; module.functions.len()];
-    let mut stack = vec![Frame::new(module, function, Vec::new(), None, &mut cache)];
-    let mut state = State {
-        host,
-        last_error: String::new(),
-        process: brim_runtime::ProcessOutput::default(),
+    let shared = Shared {
+        out: Mutex::new(&mut *host.out),
+        err: Mutex::new(&mut *host.err),
+        input: Mutex::new(&mut *host.input),
+        args: host.args.clone(),
+        cwd: host.cwd.clone(),
         sockets: brim_runtime::net::Sockets::default(),
+        tasks: Mutex::new(Tasks::default()),
+        wake: Condvar::new(),
+        stopping: AtomicBool::new(false),
+        ended: Mutex::new(None),
     };
-    let result = execute(module, &mut state, limits, &mut stack, &mut cache);
+    let (result, backtrace) = std::thread::scope(|scope| {
+        let mut cache = vec![None; module.functions.len()];
+        let mut stack = vec![Frame::new(module, function, Vec::new(), None, &mut cache)];
+        let mut state = State::new(&shared, scope);
+        let result = execute(module, &mut state, limits, &mut stack, &mut cache);
+        let backtrace: Vec<String> = stack
+            .iter()
+            .map(|f| module.function(f.func).name.clone())
+            .collect();
+        shared.stop();
+        (result, backtrace)
+    });
+    // A task that ended the program decides how it ended.
+    let ended = lock(&shared.ended).take();
     // Output written before a failure is still delivered.
-    let flushed = state.host.out.flush().and(state.host.err.flush());
-    match result {
-        Err((error, span)) => Err(Trap {
+    let flushed = lock(&shared.out).flush().and(lock(&shared.err).flush());
+    let result = match (ended, result) {
+        (Some(ended), _) => ended,
+        (None, Ok(Outcome::Returned | Outcome::Stopped)) => Ok(0),
+        (None, Ok(Outcome::Exit(code))) => Ok(code),
+        (None, Err((error, span))) => Err(Trap {
+            error,
+            span,
+            backtrace,
+        }),
+    };
+    let code = result?;
+    flushed.map(|()| code).map_err(|e| Trap {
+        error: RuntimeError::Io {
+            message: e.to_string(),
+        },
+        span: None,
+        backtrace: Vec::new(),
+    })
+}
+
+/// Locks a mutex, also after a thread panicked while holding it.
+fn lock<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// What the tasks of a run share.
+struct Shared<'h> {
+    out: Mutex<&'h mut (dyn Write + Send)>,
+    err: Mutex<&'h mut (dyn Write + Send)>,
+    input: Mutex<&'h mut (dyn BufRead + Send)>,
+    args: Vec<String>,
+    cwd: std::path::PathBuf,
+    /// Open sockets (`std.net`).
+    sockets: brim_runtime::net::Sockets,
+    tasks: Mutex<Tasks>,
+    /// Wakes the tasks waiting for a task, a channel or the end.
+    wake: Condvar,
+    /// Set when the program ends: tasks stop at their next instruction.
+    stopping: AtomicBool,
+    /// How a task other than the first ended the program: `exit` or a
+    /// run-time error.
+    ended: Mutex<Option<Result<i32, Trap>>>,
+}
+
+impl Shared<'_> {
+    /// Ends the run: every task stops.
+    fn stop(&self) {
+        self.stopping.store(true, Ordering::SeqCst);
+        self.sockets.stop();
+        let _tasks = lock(&self.tasks);
+        self.wake.notify_all();
+    }
+
+    /// A task other than the first ended the program.
+    fn end(&self, how: Result<i32, Trap>) {
+        lock(&self.ended).get_or_insert(how);
+        self.stop();
+    }
+
+    fn stopping(&self) -> bool {
+        self.stopping.load(Ordering::Relaxed)
+    }
+}
+
+/// Tasks and channels, by handle. Handles are never reused.
+#[derive(Default)]
+struct Tasks {
+    next: i64,
+    /// The tasks that can be joined: `None` while running, then the list
+    /// their function returned.
+    results: HashMap<i64, Option<Value>>,
+    channels: HashMap<i64, Channel>,
+}
+
+/// A channel; it is removed once closed and drained, and a handle that is
+/// not here is a closed channel.
+#[derive(Default)]
+struct Channel {
+    queue: VecDeque<Value>,
+    /// The most values queued before `send` waits; 0 for no limit.
+    capacity: usize,
+    closed: bool,
+}
+
+/// How a task's instructions ended.
+enum Outcome {
+    /// Its function returned.
+    Returned,
+    /// It called `exit`.
+    Exit(i32),
+    /// The run is ending.
+    Stopped,
+}
+
+/// One task's state, and what it shares with the others.
+struct State<'s, 'e, 'h> {
+    shared: &'e Shared<'h>,
+    scope: &'s std::thread::Scope<'s, 'e>,
+    /// The error of the last I/O function (`LastError`); empty on success.
+    last_error: String,
+    /// The output of the last `ProcessRun`.
+    process: brim_runtime::ProcessOutput,
+    /// What the task's function returned.
+    returned: Option<Value>,
+}
+
+impl<'s, 'e, 'h> State<'s, 'e, 'h> {
+    fn new(shared: &'e Shared<'h>, scope: &'s std::thread::Scope<'s, 'e>) -> Self {
+        State {
+            shared,
+            scope,
+            last_error: String::new(),
+            process: brim_runtime::ProcessOutput::default(),
+            returned: None,
+        }
+    }
+
+    fn out(&self) -> MutexGuard<'e, &'h mut (dyn Write + Send)> {
+        lock(&self.shared.out)
+    }
+
+    fn err(&self) -> MutexGuard<'e, &'h mut (dyn Write + Send)> {
+        lock(&self.shared.err)
+    }
+
+    /// Starts a task running `closure`; its handle.
+    fn start_task(
+        &mut self,
+        module: &'e Module,
+        limits: Limits,
+        closure: Value,
+        joinable: bool,
+    ) -> Result<i64, RuntimeError> {
+        let shared = self.shared;
+        let scope = self.scope;
+        shared.sockets.share();
+        let id = {
+            let mut tasks = lock(&shared.tasks);
+            tasks.next += 1;
+            if joinable {
+                let id = tasks.next;
+                tasks.results.insert(id, None);
+            }
+            tasks.next
+        };
+        let joined = joinable.then_some(id);
+        std::thread::Builder::new()
+            .spawn_scoped(scope, move || {
+                run_task(module, shared, scope, limits, closure, joined)
+            })
+            .map_err(|_| RuntimeError::NoTasks)?;
+        Ok(id)
+    }
+
+    /// Waits for a task and takes the list its function returned.
+    fn join(&mut self, id: i64) -> Result<Option<Value>, RuntimeError> {
+        let shared = self.shared;
+        let mut tasks = lock(&shared.tasks);
+        loop {
+            if shared.stopping() {
+                return Ok(None);
+            }
+            match tasks.results.get(&id) {
+                None => return Err(RuntimeError::TaskJoined),
+                Some(Some(_)) => return Ok(tasks.results.remove(&id).flatten()),
+                Some(None) => {
+                    tasks = shared.wake.wait(tasks).unwrap_or_else(|e| e.into_inner());
+                }
+            }
+        }
+    }
+
+    fn new_channel(&mut self, capacity: i64) -> i64 {
+        let mut tasks = lock(&self.shared.tasks);
+        tasks.next += 1;
+        let id = tasks.next;
+        tasks.channels.insert(
+            id,
+            Channel {
+                capacity: usize::try_from(capacity).unwrap_or(0),
+                ..Channel::default()
+            },
+        );
+        id
+    }
+
+    /// Queues `value`; whether the channel was open. `None` when the run
+    /// is ending.
+    fn send(&mut self, id: i64, value: Value) -> Option<bool> {
+        let shared = self.shared;
+        let mut tasks = lock(&shared.tasks);
+        loop {
+            if shared.stopping() {
+                return None;
+            }
+            let Some(channel) = tasks.channels.get_mut(&id) else {
+                return Some(false);
+            };
+            if channel.closed {
+                return Some(false);
+            }
+            if channel.capacity == 0 || channel.queue.len() < channel.capacity {
+                channel.queue.push_back(value);
+                shared.wake.notify_all();
+                return Some(true);
+            }
+            tasks = shared.wake.wait(tasks).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+
+    /// The next value of a channel, waiting for one: `Some(None)` once it
+    /// is closed and drained, `None` when the run is ending.
+    fn receive(&mut self, id: i64) -> Option<Option<Value>> {
+        let shared = self.shared;
+        let mut tasks = lock(&shared.tasks);
+        loop {
+            if shared.stopping() {
+                return None;
+            }
+            let Some(channel) = tasks.channels.get_mut(&id) else {
+                return Some(None);
+            };
+            if let Some(value) = channel.queue.pop_front() {
+                if channel.closed && channel.queue.is_empty() {
+                    tasks.channels.remove(&id);
+                }
+                // A sender may wait for room.
+                shared.wake.notify_all();
+                return Some(Some(value));
+            }
+            if channel.closed {
+                tasks.channels.remove(&id);
+                return Some(None);
+            }
+            tasks = shared.wake.wait(tasks).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+
+    fn close_channel(&mut self, id: i64) {
+        let mut tasks = lock(&self.shared.tasks);
+        if let Some(channel) = tasks.channels.get_mut(&id) {
+            channel.closed = true;
+            if channel.queue.is_empty() {
+                tasks.channels.remove(&id);
+            }
+        }
+        self.shared.wake.notify_all();
+    }
+
+    /// Waits `millis` milliseconds, or until the run ends.
+    fn sleep(&mut self, millis: i64) {
+        let duration = std::time::Duration::from_millis(u64::try_from(millis).unwrap_or(0));
+        let deadline = std::time::Instant::now() + duration;
+        let shared = self.shared;
+        let mut tasks = lock(&shared.tasks);
+        while !shared.stopping() {
+            let now = std::time::Instant::now();
+            if now >= deadline {
+                break;
+            }
+            tasks = shared
+                .wake
+                .wait_timeout(tasks, deadline - now)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+    }
+}
+
+/// Runs a task's closure to the end, on its own thread.
+fn run_task<'s, 'e, 'h>(
+    module: &'e Module,
+    shared: &'e Shared<'h>,
+    scope: &'s std::thread::Scope<'s, 'e>,
+    limits: Limits,
+    closure: Value,
+    joined: Option<i64>,
+) {
+    let Value::Closure(func, env) = &closure else {
+        unreachable!("validated IR: tasks run closures");
+    };
+    let mut cache = vec![None; module.functions.len()];
+    let env = (**env).clone();
+    let mut stack = vec![Frame::new(module, *func, vec![env], None, &mut cache)];
+    let mut state = State::new(shared, scope);
+    match execute(module, &mut state, limits, &mut stack, &mut cache) {
+        Ok(Outcome::Returned) => {
+            if let Some(id) = joined {
+                let mut tasks = lock(&shared.tasks);
+                tasks.results.insert(id, state.returned.take());
+                shared.wake.notify_all();
+            }
+        }
+        Ok(Outcome::Exit(code)) => shared.end(Ok(code)),
+        Ok(Outcome::Stopped) => {}
+        Err((error, span)) => shared.end(Err(Trap {
             error,
             span,
             backtrace: stack
                 .iter()
                 .map(|f| module.function(f.func).name.clone())
                 .collect(),
-        }),
-        Ok(code) => flushed.map(|()| code).map_err(|e| Trap {
-            error: RuntimeError::Io {
-                message: e.to_string(),
-            },
-            span: None,
-            backtrace: Vec::new(),
-        }),
+        })),
     }
-}
-
-/// The host and the runtime's own state.
-struct State<'h, 'a> {
-    host: &'h mut Host<'a>,
-    /// The error of the last I/O function (`LastError`); empty on success.
-    last_error: String,
-    /// The output of the last `ProcessRun`.
-    process: brim_runtime::ProcessOutput,
-    /// Open sockets (`std.net`).
-    sockets: brim_runtime::net::Sockets,
 }
 
 type Failure = (RuntimeError, Option<Span>);
 
-fn execute(
-    module: &Module,
-    state: &mut State<'_, '_>,
+fn execute<'s, 'e, 'h>(
+    module: &'e Module,
+    state: &mut State<'s, 'e, 'h>,
     limits: Limits,
     stack: &mut Vec<Frame>,
     cache: &mut [Option<Rc<LastUses>>],
-) -> Result<i32, Failure> {
+) -> Result<Outcome, Failure> {
     let mut steps: u64 = 0;
     loop {
+        if state.shared.stopping() {
+            return Ok(Outcome::Stopped);
+        }
         if let Some(limit) = limits.max_steps {
             steps += 1;
             if steps > limit {
@@ -478,7 +776,8 @@ fn execute(
                     let value = value.map(|v| frame.get(v).clone());
                     let finished = stack.pop().expect("frame exists");
                     let Some(caller) = stack.last_mut() else {
-                        return Ok(0);
+                        state.returned = value;
+                        return Ok(Outcome::Returned);
                     };
                     if let (Some(dest), Some(value)) = (finished.return_to, value) {
                         caller.values[dest.index()] = Some(value);
@@ -543,13 +842,13 @@ fn execute(
             InstKind::Insert(v, index, x) => {
                 let x = frame.get(*x).clone();
                 let mut fields = frame.take(*v).into_fields();
-                Rc::make_mut(&mut fields)[*index] = x;
+                Arc::make_mut(&mut fields)[*index] = x;
                 Value::Struct(fields)
             }
             InstKind::Take(slot) => frame.slots[slot.index()]
                 .take()
                 .expect("slots are initialised before they are read"),
-            InstKind::ListNew(_, args) => Value::List(Rc::new(
+            InstKind::ListNew(_, args) => Value::List(Arc::new(
                 args.iter().map(|a| frame.get(*a).clone()).collect(),
             )),
             InstKind::ListLen(v) => Value::I64(frame.get(*v).list().len() as i64),
@@ -562,37 +861,37 @@ fn execute(
                 let (i, x) = (frame.get(*i).i64(), frame.get(*x).clone());
                 let mut list = frame.take(*v).into_list();
                 let index = checked_index(i, list.len(), false).map_err(fail)?;
-                Rc::make_mut(&mut list)[index] = x;
+                Arc::make_mut(&mut list)[index] = x;
                 Value::List(list)
             }
             InstKind::ListPush(v, x) => {
                 let x = frame.get(*x).clone();
                 let mut list = frame.take(*v).into_list();
-                Rc::make_mut(&mut list).push(x);
+                Arc::make_mut(&mut list).push(x);
                 Value::List(list)
             }
             InstKind::ListTruncate(v, n) => {
                 let n = frame.get(*n).i64();
                 let mut list = frame.take(*v).into_list();
                 let n = checked_index(n, list.len(), true).map_err(fail)?;
-                Rc::make_mut(&mut list).truncate(n);
+                Arc::make_mut(&mut list).truncate(n);
                 Value::List(list)
             }
             InstKind::ListInsert(v, i, x) => {
                 let (i, x) = (frame.get(*i).i64(), frame.get(*x).clone());
                 let mut list = frame.take(*v).into_list();
                 let index = checked_index(i, list.len(), true).map_err(fail)?;
-                Rc::make_mut(&mut list).insert(index, x);
+                Arc::make_mut(&mut list).insert(index, x);
                 Value::List(list)
             }
             InstKind::ListRemove(v, i) => {
                 let i = frame.get(*i).i64();
                 let mut list = frame.take(*v).into_list();
                 let index = checked_index(i, list.len(), false).map_err(fail)?;
-                Rc::make_mut(&mut list).remove(index);
+                Arc::make_mut(&mut list).remove(index);
                 Value::List(list)
             }
-            InstKind::MapNew(_) => Value::Map(Rc::default()),
+            InstKind::MapNew(_) => Value::Map(Arc::default()),
             InstKind::MapLen(v) => Value::I64(frame.get(*v).map().entries.len() as i64),
             InstKind::MapFind(v, k) => {
                 let found = frame.get(*v).map().find(frame.get(*k));
@@ -613,19 +912,19 @@ fn execute(
             InstKind::MapInsert(v, k, x) => {
                 let (k, x) = (frame.get(*k).clone(), frame.get(*x).clone());
                 let mut map = frame.take(*v).into_map();
-                Rc::make_mut(&mut map).insert(k, x);
+                Arc::make_mut(&mut map).insert(k, x);
                 Value::Map(map)
             }
             InstKind::MapSetValueAt(v, i, x) => {
                 let (i, x) = (frame.get(*i).i64() as usize, frame.get(*x).clone());
                 let mut map = frame.take(*v).into_map();
-                Rc::make_mut(&mut map).entries[i].1 = x;
+                Arc::make_mut(&mut map).entries[i].1 = x;
                 Value::Map(map)
             }
             InstKind::MapRemoveAt(v, i) => {
                 let i = frame.get(*i).i64() as usize;
                 let mut map = frame.take(*v).into_map();
-                Rc::make_mut(&mut map).remove_at(i);
+                Arc::make_mut(&mut map).remove_at(i);
                 Value::Map(map)
             }
             InstKind::ListContains(v, x) => {
@@ -639,7 +938,7 @@ fn execute(
             }
             InstKind::CallRuntime(RuntimeFn::Exit, args) => {
                 // Exit codes are the low 8 bits, as on POSIX systems.
-                return Ok((frame.get(args[0]).i64() & 0xff) as i32);
+                return Ok(Outcome::Exit((frame.get(args[0]).i64() & 0xff) as i32));
             }
             InstKind::CallC(c, _) => {
                 return Err(fail(RuntimeError::CCall {
@@ -656,9 +955,51 @@ fn execute(
             InstKind::MakeClosure(func, env) => {
                 let env = match env {
                     Some(env) => frame.get(*env).clone(),
-                    None => Value::List(Rc::default()),
+                    None => Value::List(Arc::default()),
                 };
                 Value::Closure(*func, Box::new(env))
+            }
+            InstKind::TaskSpawn(closure) | InstKind::TaskDetach(closure) => {
+                let closure = frame.get(*closure).clone();
+                let joinable = matches!(inst.kind, InstKind::TaskSpawn(_));
+                let id = state
+                    .start_task(module, limits, closure, joinable)
+                    .map_err(fail)?;
+                if !joinable {
+                    continue;
+                }
+                Value::I64(id)
+            }
+            InstKind::TaskJoin(handle) => {
+                let id = frame.get(*handle).i64();
+                match state.join(id).map_err(fail)? {
+                    Some(result) => result,
+                    None => return Ok(Outcome::Stopped),
+                }
+            }
+            InstKind::ChanNew(capacity) => {
+                let capacity = frame.get(*capacity).i64();
+                Value::I64(state.new_channel(capacity))
+            }
+            InstKind::ChanSend(chan, list) => {
+                let (id, list) = (frame.get(*chan).i64(), frame.get(*list).clone());
+                match state.send(id, list) {
+                    Some(sent) => Value::Bool(sent),
+                    None => return Ok(Outcome::Stopped),
+                }
+            }
+            InstKind::ChanReceive(chan) => {
+                let id = frame.get(*chan).i64();
+                match state.receive(id) {
+                    Some(Some(list)) => list,
+                    Some(None) => Value::List(Arc::default()),
+                    None => return Ok(Outcome::Stopped),
+                }
+            }
+            InstKind::ChanClose(chan) => {
+                let id = frame.get(*chan).i64();
+                state.close_channel(id);
+                continue;
             }
             InstKind::CallClosure(closure, args) => {
                 let Value::Closure(callee, env) = frame.get(*closure) else {
@@ -834,7 +1175,7 @@ fn fs_call(
 
 /// Bytes as a `List[u8]`.
 fn byte_list(data: &[u8]) -> Value {
-    Value::List(Rc::new(
+    Value::List(Arc::new(
         data.iter().map(|b| Value::I64(i64::from(*b))).collect(),
     ))
 }
@@ -849,20 +1190,20 @@ fn float(x: f64) -> Value {
 }
 
 fn str_list(items: Vec<BrimStr>) -> Value {
-    Value::List(Rc::new(items.into_iter().map(Value::Str).collect()))
+    Value::List(Arc::new(items.into_iter().map(Value::Str).collect()))
 }
 
 /// Runs a socket operation, recording its error as the last error.
 fn net<T>(
-    state: &mut State<'_, '_>,
-    op: impl FnOnce(&mut brim_runtime::net::Sockets) -> Result<T, String>,
+    state: &mut State<'_, '_, '_>,
+    op: impl FnOnce(&brim_runtime::net::Sockets) -> Result<T, String>,
     failed: Value,
     ok: impl FnOnce(T) -> Value,
 ) -> Option<Value> {
     state.last_error.clear();
     // Output written so far reaches the terminal before the program waits.
-    let _ = state.host.out.flush();
-    Some(match op(&mut state.sockets) {
+    let _ = state.out().flush();
+    Some(match op(&state.shared.sockets) {
         Ok(value) => ok(value),
         Err(e) => {
             state.last_error = e;
@@ -874,7 +1215,7 @@ fn net<T>(
 fn call_runtime(
     rt: RuntimeFn,
     args: &[&Value],
-    state: &mut State<'_, '_>,
+    state: &mut State<'_, '_, '_>,
 ) -> Result<Option<Value>, RuntimeError> {
     use brim_runtime as r;
     let io = |e: std::io::Error| RuntimeError::Io {
@@ -884,15 +1225,15 @@ fn call_runtime(
     let s = |i: usize| args[i].str();
     Ok(match rt {
         RuntimeFn::PrintI64 => {
-            r::print_i64(state.host.out, args[0].i64()).map_err(io)?;
+            r::print_i64(&mut **state.out(), args[0].i64()).map_err(io)?;
             None
         }
         RuntimeFn::PrintBool => {
-            r::print_bool(state.host.out, args[0].bool()).map_err(io)?;
+            r::print_bool(&mut **state.out(), args[0].bool()).map_err(io)?;
             None
         }
         RuntimeFn::PrintU64 => {
-            r::print_str(state.host.out, &(args[0].i64() as u64).to_string()).map_err(io)?;
+            r::print_str(&mut **state.out(), &(args[0].i64() as u64).to_string()).map_err(io)?;
             None
         }
         RuntimeFn::AbsI64 => Some(Value::I64(ops::abs(args[0].i64())?)),
@@ -906,7 +1247,7 @@ fn call_runtime(
         RuntimeFn::U64ToStr => str_value(BrimStr::from((args[0].i64() as u64).to_string())),
         RuntimeFn::U64ToF64 => Some(float(args[0].i64() as u64 as f64)),
         RuntimeFn::PrintF64 => {
-            r::print_str(state.host.out, &r::float::format_f64(args[0].f64())).map_err(io)?;
+            r::print_str(&mut **state.out(), &r::float::format_f64(args[0].f64())).map_err(io)?;
             None
         }
         RuntimeFn::F64ToStr => str_value(BrimStr::from(r::float::format_f64(args[0].f64()))),
@@ -922,13 +1263,13 @@ fn call_runtime(
         RuntimeFn::StrParseFloatOk => Some(Value::Bool(r::float::parse_f64(s(0)).is_some())),
         RuntimeFn::StrParseFloat => Some(float(r::float::parse_f64(s(0)).unwrap_or(0.0))),
         RuntimeFn::PrintStr => {
-            r::print_str(state.host.out, s(0)).map_err(io)?;
+            r::print_str(&mut **state.out(), s(0)).map_err(io)?;
             None
         }
         RuntimeFn::EPrintStr => {
             // Keep stdout and stderr in order when both go to a terminal.
-            state.host.out.flush().map_err(io)?;
-            r::eprint_str(state.host.err, s(0)).map_err(io)?;
+            state.out().flush().map_err(io)?;
+            r::eprint_str(&mut **state.err(), s(0)).map_err(io)?;
             None
         }
         RuntimeFn::StrConcat => str_value(r::str_concat(s(0), s(1))),
@@ -953,7 +1294,7 @@ fn call_runtime(
         RuntimeFn::StrSplit => Some(str_list(r::str_split(s(0), s(1)))),
         RuntimeFn::StrLines => Some(str_list(r::str_lines(s(0)))),
         RuntimeFn::StrChars => Some(str_list(r::str_chars(s(0)))),
-        RuntimeFn::StrCodePoints => Some(Value::List(Rc::new(
+        RuntimeFn::StrCodePoints => Some(Value::List(Arc::new(
             s(0).chars()
                 .map(|c| Value::I64(i64::from(u32::from(c))))
                 .collect(),
@@ -978,7 +1319,7 @@ fn call_runtime(
                 RuntimeFn::ListSortU64 => items.sort_by_key(|v| v.i64() as u64),
                 _ => items.sort_by(|a, b| a.str().as_bytes().cmp(b.str().as_bytes())),
             }
-            Some(Value::List(Rc::new(items)))
+            Some(Value::List(Arc::new(items)))
         }
         RuntimeFn::Sha256 => Some(byte_list(&r::crypto::sha256(&bytes(args[0])))),
         RuntimeFn::HmacSha256 => Some(byte_list(&r::crypto::hmac_sha256(
@@ -999,7 +1340,7 @@ fn call_runtime(
         RuntimeFn::NetReadBytes => net(
             state,
             |n| n.read_bytes(args[0].i64(), args[1].i64()),
-            Value::List(Rc::default()),
+            Value::List(Arc::default()),
             |b| byte_list(&b),
         ),
         RuntimeFn::NetWriteBytes => {
@@ -1011,7 +1352,7 @@ fn call_runtime(
                 Value::I64,
             )
         }
-        RuntimeFn::StrBytes => Some(Value::List(Rc::new(
+        RuntimeFn::StrBytes => Some(Value::List(Arc::new(
             s(0).bytes().map(|b| Value::I64(i64::from(b))).collect(),
         ))),
         RuntimeFn::BytesUtf8Ok => Some(Value::Bool(std::str::from_utf8(&bytes(args[0])).is_ok())),
@@ -1022,10 +1363,10 @@ fn call_runtime(
         RuntimeFn::StrParseIntOk => Some(Value::Bool(r::str_parse_int(s(0)).is_some())),
         RuntimeFn::StrParseInt => Some(Value::I64(r::str_parse_int(s(0)).unwrap_or(0))),
         RuntimeFn::ReadLine => {
-            state.host.out.flush().map_err(io)?;
+            state.out().flush().map_err(io)?;
             let mut line = String::new();
             state.last_error.clear();
-            match state.host.input.read_line(&mut line) {
+            match lock(&state.shared.input).read_line(&mut line) {
                 Ok(0) => state.last_error = "end of input".into(),
                 Ok(_) => {
                     if line.ends_with('\n') {
@@ -1044,7 +1385,7 @@ fn call_runtime(
         }
         RuntimeFn::ReadFile => {
             state.last_error.clear();
-            match std::fs::read_to_string(state.host.cwd.join(s(0))) {
+            match std::fs::read_to_string(state.shared.cwd.join(s(0))) {
                 Ok(text) => str_value(BrimStr::from(text)),
                 Err(e) => {
                     state.last_error = r::file_error("read", s(0), &e);
@@ -1054,7 +1395,7 @@ fn call_runtime(
         }
         RuntimeFn::WriteFile => {
             state.last_error.clear();
-            match std::fs::write(state.host.cwd.join(s(0)), s(1)) {
+            match std::fs::write(state.shared.cwd.join(s(0)), s(1)) {
                 Ok(()) => Some(Value::I64(s(1).len() as i64)),
                 Err(e) => {
                     state.last_error = r::file_error("write", s(0), &e);
@@ -1063,8 +1404,8 @@ fn call_runtime(
             }
         }
         RuntimeFn::LastError => str_value(BrimStr::from(state.last_error.as_str())),
-        RuntimeFn::FsExists => Some(Value::Bool(state.host.cwd.join(s(0)).exists())),
-        RuntimeFn::FsIsDir => Some(Value::Bool(state.host.cwd.join(s(0)).is_dir())),
+        RuntimeFn::FsExists => Some(Value::Bool(state.shared.cwd.join(s(0)).exists())),
+        RuntimeFn::FsIsDir => Some(Value::Bool(state.shared.cwd.join(s(0)).is_dir())),
         RuntimeFn::FsList
         | RuntimeFn::FsCreateDir
         | RuntimeFn::FsRemove
@@ -1074,13 +1415,13 @@ fn call_runtime(
         | RuntimeFn::FsModified
         | RuntimeFn::FsAppend => {
             state.last_error.clear();
-            let cwd = state.host.cwd.clone();
+            let cwd = state.shared.cwd.clone();
             match fs_call(rt, &cwd, args) {
                 Ok(value) => Some(value),
                 Err((verb, e)) => {
                     state.last_error = r::fs_error(verb, s(0), &e);
                     Some(match rt {
-                        RuntimeFn::FsList => Value::List(Rc::default()),
+                        RuntimeFn::FsList => Value::List(Arc::default()),
                         RuntimeFn::FsSize | RuntimeFn::FsModified | RuntimeFn::FsAppend => {
                             Value::I64(0)
                         }
@@ -1092,7 +1433,7 @@ fn call_runtime(
         RuntimeFn::ProcessRun => {
             let list = args[1].list();
             let argv: Vec<&str> = list.iter().map(Value::str).collect();
-            match r::process_run(&state.host.cwd, s(0), &argv) {
+            match r::process_run(&state.shared.cwd, s(0), &argv) {
                 Ok(out) => {
                     state.last_error.clear();
                     state.process = out;
@@ -1110,7 +1451,7 @@ fn call_runtime(
         RuntimeFn::ProcessStderr => str_value(BrimStr::from(state.process.stderr.as_str())),
         RuntimeFn::Args => Some(str_list(
             state
-                .host
+                .shared
                 .args
                 .iter()
                 .map(|a| BrimStr::from(a.as_str()))
@@ -1137,7 +1478,7 @@ fn call_runtime(
             Value::I64,
         ),
         RuntimeFn::NetKeep => {
-            state.sockets.keep(args[0].i64(), args[1].i64());
+            state.shared.sockets.keep(args[0].i64(), args[1].i64());
             None
         }
         RuntimeFn::NetConnect => net(
@@ -1172,7 +1513,7 @@ fn call_runtime(
         ),
         RuntimeFn::NetClose => {
             state.last_error.clear();
-            state.sockets.close(args[0].i64());
+            state.shared.sockets.close(args[0].i64());
             None
         }
         RuntimeFn::NetLocalPort => net(
@@ -1183,7 +1524,11 @@ fn call_runtime(
         ),
         RuntimeFn::NetSetTimeout => {
             state.last_error.clear();
-            if let Err(e) = state.sockets.set_timeout(args[0].i64(), args[1].i64()) {
+            if let Err(e) = state
+                .shared
+                .sockets
+                .set_timeout(args[0].i64(), args[1].i64())
+            {
                 state.last_error = e;
             }
             None
@@ -1214,7 +1559,7 @@ fn call_runtime(
         )),
         RuntimeFn::HttpRequest => {
             state.last_error.clear();
-            let _ = state.host.out.flush();
+            let _ = state.out().flush();
             match https::request(s(0), s(1), s(2), s(3), args[4].i64()) {
                 Ok(text) => str_value(BrimStr::from(text)),
                 Err(e) => {
@@ -1242,10 +1587,8 @@ fn call_runtime(
             ))
         }
         RuntimeFn::TimeSleepMillis => {
-            let _ = state.host.out.flush();
-            if let Ok(ms) = u64::try_from(args[0].i64()) {
-                std::thread::sleep(std::time::Duration::from_millis(ms));
-            }
+            let _ = state.out().flush();
+            state.sleep(args[0].i64());
             None
         }
         RuntimeFn::UrlEncode => str_value(BrimStr::from(brim_runtime::net::url_encode(s(0)))),

@@ -826,6 +826,93 @@ fn main() {
 | `time.sleep(ms)` | waits |
 | `log.info(m)`, `log.warn(m)`, `log.error(m)` | `2026-10-15T08:30:01.123Z INFO m` on standard error |
 
+## Tasks: std.task
+
+Tasks run functions at the same time, each on a thread of its own. They
+share no changeable memory: a `fn` copies what it uses, and a value a task
+changes is its own copy. Tasks work together through `join` and channels.
+
+```brim
+import std.task
+
+fn square_all(numbers: List[i64]) -> i64 {
+    let jobs: task.Channel[i64] = task.channel()
+    let results: task.Channel[i64] = task.channel()
+    // Four workers take jobs until the channel is closed.
+    for _ in 0..4 {
+        task.detach(fn() {
+            loop {
+                match jobs.receive() {
+                    Some(n) => results.send(n * n)
+                    None => break
+                }
+            }
+        })
+    }
+    for n in numbers {
+        jobs.send(n)
+    }
+    jobs.close()
+    let mut total = 0
+    for _ in numbers {
+        total += results.receive().unwrap_or(0)
+    }
+    return total
+}
+
+fn main() {
+    let sum = task.spawn(fn() -> i64 { return square_all([1, 2, 3, 4]) })
+    print(sum.join())
+}
+```
+
+```text
+30
+```
+
+| | |
+|---|---|
+| `task.spawn(f)` | runs `f`, a `fn() -> T`, on a new task: a `Task[T]` |
+| `t.join()` | waits for the task and returns its result (once) |
+| `task.detach(f)` | runs `f`, a `fn()`, on a task that is never joined |
+| `task.channel()` | a `Channel[T]` without a size limit |
+| `task.bounded(n)` | a `Channel[T]` whose `send` waits while `n` values are queued |
+| `c.send(value)` | queues a value; `false` once the channel is closed |
+| `c.receive()` | waits for the next value: `Some(value)`, or `None` once the channel is closed and empty |
+| `c.close()` | no more values |
+
+A service handles every request on a task of its own:
+
+```brim
+import std.http
+import std.log
+import std.task
+
+fn serve(port: i64) -> Result[bool, string] {
+    let server = http.serve("127.0.0.1", port)?
+    loop {
+        let request = server.next()?
+        task.detach(fn() {
+            let response = http.text(200, f"Hello from {request.path}")
+            match request.respond(response) {
+                Ok(_) => {}
+                Err(e) => log.warn(e)
+            }
+        })
+    }
+}
+
+fn main() {
+    match serve(8080) {
+        Ok(_) => {}
+        Err(e) => log.error(e)
+    }
+}
+```
+
+A run-time error in a task stops the whole program, and the program ends
+when `main` returns, also while detached tasks still run.
+
 ## Tests
 
 | Function | |

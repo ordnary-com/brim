@@ -569,4 +569,36 @@ fn main() {
 }
 ```
 
+## Tasks
+
+`std.task` runs functions at the same time. A task gets copies of what its
+`fn` uses, so tasks never change each other's values; they hand results
+back with `join` and talk through channels:
+
+```brim
+import std.task
+
+fn main() {
+    let total = task.spawn(fn() -> i64 {
+        let mut sum = 0
+        for i in 0..1000 {
+            sum += i
+        }
+        return sum
+    })
+    let words: task.Channel[string] = task.channel()
+    task.detach(fn() {
+        words.send("hello")
+        words.close()
+    })
+    print(total.join())
+    print(words.receive())
+}
+```
+
+```text
+499500
+Some("hello")
+```
+
 The next chapter covers projects, tests and dependencies.

@@ -1,0 +1,14 @@
+// exit: 3
+// `exit` in a task ends the program, also while `main` waits.
+import std.task
+import std.time
+
+fn main() {
+    task.detach(fn() {
+        time.sleep(50)
+        print("leaving")
+        exit(3)
+    })
+    let ch: task.Channel[i64] = task.channel()
+    print(ch.receive())
+}

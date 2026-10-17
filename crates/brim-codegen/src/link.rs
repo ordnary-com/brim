@@ -86,8 +86,9 @@ pub(crate) fn link(
         // Winsock, the random source and the UTF-8 command line.
         command.args(["-lws2_32", "-lbcrypt", "-lshell32"]);
     } else {
-        // The math functions (`sqrt`, `pow`, ...) are in libm on Linux.
-        command.arg("-lm");
+        // The math functions (`sqrt`, `pow`, ...) are in libm on Linux, and
+        // threads for tasks in libpthread on older C libraries.
+        command.args(["-lm", "-pthread"]);
     }
     command.arg("-o").arg(&options.output);
     let shown = format!("{command:?}").replace('"', "");

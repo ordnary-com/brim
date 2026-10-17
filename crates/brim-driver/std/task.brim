@@ -1,0 +1,89 @@
+// Tasks: running functions at the same time, and channels between them.
+//
+//   import std.task
+//
+//   let a = task.spawn(fn() -> i64 { return slow_sum(1) })
+//   let b = task.spawn(fn() -> i64 { return slow_sum(2) })
+//   print(a.join() + b.join())
+//
+//   let lines: task.Channel[string] = task.channel()
+//   task.detach(fn() {
+//       lines.send("hello")
+//       lines.close()
+//   })
+//   print(lines.receive())           // Some("hello")
+//
+// Every task runs on its own thread. Tasks share no changeable memory:
+// values are copied (lazily, when one side changes them), so a task never
+// sees another task change something. They work together through
+// channels and `join`.
+
+// A running task whose function returns a `T`.
+pub struct Task[T] {
+    id: i64,
+    // Only for the type: a task holds its result in the runtime.
+    result: List[T],
+}
+
+// Runs `f` on a new task.
+pub fn spawn[T](f: fn() -> T) -> Task[T] {
+    let id = __task_spawn(fn() -> List[T] {
+        return [f()]
+    })
+    return Task { id: id, result: [] }
+}
+
+// Runs `f` on a new task that is never joined: a request handler or a
+// background job.
+pub fn detach(f: fn()) {
+    __task_detach(f)
+}
+
+impl Task[T] {
+    // Waits for the task to finish and returns its result. A task is
+    // joined once.
+    pub fn join(self) -> T {
+        let result: List[T] = __task_join(self.id)
+        return result[0]
+    }
+}
+
+// A channel carries values of one type between tasks. Copies of a channel
+// refer to the same channel.
+pub struct Channel[T] {
+    id: i64,
+    values: List[T],
+}
+
+// A new channel without a size limit.
+pub fn channel[T]() -> Channel[T] {
+    return Channel { id: __chan_new(0), values: [] }
+}
+
+// A new channel whose `send` waits while `capacity` values are queued.
+pub fn bounded[T](capacity: i64) -> Channel[T] {
+    return Channel { id: __chan_new(max(capacity, 1)), values: [] }
+}
+
+impl Channel[T] {
+    // Queues a value for a receiver. False when the channel is closed.
+    pub fn send(self, value: T) -> bool {
+        return __chan_send(self.id, [value])
+    }
+
+    // The next value, waiting until there is one. `None` once the channel
+    // is closed and every value sent before was received.
+    pub fn receive(self) -> Option[T] {
+        let got: List[T] = __chan_receive(self.id)
+        if got.len() == 0 {
+            return None
+        }
+        return Some(got[0])
+    }
+
+    // Ends the channel: `send` returns false from now on, and `receive`
+    // returns `None` once the values already sent are received.
+    pub fn close(self) {
+        __chan_close(self.id)
+    }
+}

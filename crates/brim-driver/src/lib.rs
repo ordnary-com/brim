@@ -23,6 +23,7 @@ pub const STD_MODULES: &[(&str, &str)] = &[
     ("std.prelude", include_str!("../std/prelude.brim")),
     ("std.process", include_str!("../std/process.brim")),
     ("std.random", include_str!("../std/random.brim")),
+    ("std.task", include_str!("../std/task.brim")),
     ("std.time", include_str!("../std/time.brim")),
 ];
 

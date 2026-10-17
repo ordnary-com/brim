@@ -742,7 +742,7 @@ Any other combination is error `E0209`; in particular `i64` and `f64` never mix 
 
 - A program is one source file, its **root module**, plus the modules it imports (section 9.2).
 - The program must define `fn main()` with no parameters and no return type, or `-> void` (`E0210`, `E0211`).
-- Execution evaluates `main`'s body. The program ends when `main` returns or a run-time error occurs.
+- Execution evaluates `main`'s body. The program ends when `main` returns or a run-time error occurs, also while tasks it started still run (section 9.7).
 
 ### 9.1 Run-time errors
 
@@ -860,6 +860,33 @@ Parameters and the result have types C has too, and are passed as C expects (`E0
 
 The C code comes from the files in `[build] c-sources` (compiled with the C compiler that links the program, where they are, so `#include "..."` works) and the libraries in `[build] link` (`-l<name>`), for every package of the program, or from the C library. Native builds only: the interpreter stops at a call with `R0011`. `brim run` therefore builds a program that has `extern fn`s and runs the executable, when the native backend is available. `brim test` runs in the interpreter, so tests cannot call C yet.
 
+### 9.7 Tasks
+
+`std.task` runs functions at the same time, each on a thread of its own:
+
+```brim
+import std.task
+
+fn main() {
+    let a = task.spawn(fn() -> i64 { return 6 * 7 })
+    let lines: task.Channel[string] = task.channel()
+    task.detach(fn() {
+        lines.send("hello")
+        lines.close()
+    })
+    print(a.join())             // 42
+    print(lines.receive())      // Some("hello")
+    print(lines.receive())      // None
+}
+```
+
+- `spawn(f: fn() -> T) -> Task[T]` starts a task; `Task[T].join() -> T` waits for it and returns its result. A task is joined once: joining it again is the run-time error `R0012`. `detach(f: fn())` starts a task that is never joined.
+- `channel[T]() -> Channel[T]` is a channel without a size limit, `bounded[T](capacity)` one whose `send` waits while `capacity` values are queued. `Channel[T].send(value) -> bool` queues a value (`false` once the channel is closed), `receive() -> Option[T]` waits for the next one (`None` once the channel is closed and every value sent before was received), `close()` ends it. Copies of a channel, in a `fn`, a struct or another channel, refer to the same channel.
+- Tasks share no changeable memory. Every value is a value: a `fn` copies what it captures, and a list, map or struct a task changes is its own copy, made when it changes it. So no task sees another task change something, and there are no data races. Values passed between tasks are shared until one side changes them, as within a task.
+- A run-time error in any task stops the program, with that task's call stack; `exit` in any task ends the program. The program ends when `main` returns, while detached tasks run or wait.
+- `print` writes a line at a time: the lines of different tasks do not mix, in an order that depends on how the tasks run.
+- A task waiting for a value no task sends waits forever: close a channel to end a loop over `receive`.
+
 ## 10. Builtins
 
 Builtins are always in scope and cannot be redefined.
@@ -937,13 +964,14 @@ Some of the standard library is written in Brim and built into the compiler. Its
 | `std.crypto` | `sha256(bytes)`, `sha256_hex(text)`, `hmac_sha256(key, message)`, `pbkdf2_sha256(password, salt, iterations, length)`, `md5(bytes)`, each on `List[u8]`; `random_bytes(n)` from the operating system's secure source (`/dev/urandom`); `hex(bytes)`; `equal(a, b)`, which takes as long whatever the first difference |
 | `std.base64` | `encode(bytes) -> string` and `decode(text) -> Result[List[u8], string]` (RFC 4648, standard alphabet, `=` padding; spaces and line breaks are skipped), `encode_text(text)` and `decode_text(text)` for strings |
 | `std.postgres` | A PostgreSQL client over TCP, without TLS. `connect(url) -> Result[Client, string]` for `postgres://user:password@host:port/database` (port 5432 and the user's database unless given), `connect_to(host, port, user, password, database)`; `Client.query(sql, params) -> Result[Rows, string]`, `execute(sql, params) -> Result[i64, string]` (the rows changed), `query_as[T: Data](sql, params) -> Result[List[T], string]` (each row as an object read with `json.from_json`), `transaction(work)` (`BEGIN`, then `COMMIT` if `work` returns `Ok` and `ROLLBACK` if `Err`), `close()`. Parameters are `$1`, `$2`, ... and a `List[Value]`: `null()`, `int(n)`, `float(x)`, `text(s)`, `bool(b)`, `json_value(v)`, sent separately from the SQL. `Rows` has `columns`, `rows` and `affected`; a `Row` has `get(column) -> Option[string]`, `text`, `int`, `float` and `bool` (`Result`s), `is_null` and `to_json()`, which writes `bool`, integer, `float8`, `numeric` and `json`/`jsonb` columns as themselves. Logins use SCRAM-SHA-256, MD5 or a plain password, as the server asks. Errors: `postgres: ERROR: relation "x" does not exist [42P01]` |
+| `std.task` | Tasks and channels (section 9.7): `spawn(f) -> Task[T]`, `Task.join()`, `detach(f)`; `channel[T]()`, `bounded[T](capacity)`; `Channel.send(value) -> bool`, `receive() -> Option[T]`, `close()` |
 | `std.random` | `int(low, high)` (from `low` up to, not including, `high`; `low` when `high <= low`), `float()` (0 up to 1), `bool()`, `choice(list) -> Option[T]`, `shuffle(list) -> List[T]`, `seed(n)`. The generator is xoshiro256**: fast, not for passwords or keys. After `seed(n)` the numbers are the same on every run, in the interpreter and native code alike; without it they come from the operating system's randomness |
 | `std.json` | `enum Json { Null, Bool(bool), Number(string), Str(string), Array(List[Json]), Object(Map[string, Json]) }`; `parse(text) -> Result[Json, string]`, `stringify(value)`, `pretty(value)`, `quote(text)`; building: `null()`, `from_bool`, `from_int`, `from_float`, `from_string`, `array`, `object`; reading: `Json.get(key)`, `at(index)`, `as_string()`, `as_int()`, `as_float()`, `as_bool()`, `as_array()`, `as_object()`, `is_null()`, `kind()`; typed values (`T: Data`): `encode(value) -> string`, `decode(text) -> Result[T, string]`, `to_json(value) -> Json`, `from_json(json) -> Result[T, string]` |
 | `std.http` | HTTP/1.1. Server: `serve(host, port) -> Result[Server, string]`, `Server.next() -> Result[Request, string]`, `Request.respond(Response)`, `Request.header(name)`, `Request.param(name)`. Client: `get(url)`, `post(url, content_type, body)`, `request(method, url, headers, body)`, each `-> Result[Response, string]`. Responses: `text`, `json`, `html`, `response`, `redirect`, `not_found`, `Response.with_header`, `header`, `ok`. URLs: `encode`, `decode`. `new_request(method, path, body)` for tests; the built-in `serve_api(module, request)` serves API functions (section 9.5) |
 
 Network data is text: what a connection reads must be valid UTF-8. Network errors are messages such as `cannot connect to example.com:80: connection refused`; the reasons are `connection refused`, `connection reset`, `connection closed`, `timed out`, `host not found`, `address in use`, `address not available`, `permission denied`, `invalid port` and `network error`, and for `https://` also `certificate not trusted`, `TLS handshake failed` and `invalid URL`.
 
-The HTTP server handles one request at a time. It keeps a connection open after the response for the client's next request (HTTP keep-alive) when the request is HTTP/1.1 without `connection: close`, or HTTP/1.0 with `connection: keep-alive`, and the response has no `connection: close` header; the response says `connection: keep-alive` or `connection: close`. `Server.next()` waits for a new connection and for the kept ones at once, so a quiet client keeps no one else out; a kept connection that stays quiet for five seconds, or that the client closes, is closed. Concurrent handling of requests waits for concurrency in the language. It protects itself against clients that send too much: request heads over 64 KiB get 431, bodies over the limit (10 MiB, or `Server.with_max_body(bytes)`) get 413, and a client gets ten seconds to send its request. `Conn.read_until_max(delimiter, max)` gives the same protection to programs that use `std.net` directly. Header names are kept in lower case; query parameters and paths are percent-decoded. The client reads bodies with a `content-length`, `chunked` bodies and bodies that last until the connection closes; `https://` URLs go through libcurl, which checks certificates; a native program that uses the HTTP client links with libcurl (`-lcurl`, so building it needs libcurl's development files on Linux), and other programs, servers included, do not. Only the functions a program can reach from `main` (or its tests) are compiled. Redirects are not followed: the 3xx response is returned.
+The HTTP server handles a request at a time; a task per request (`task.detach`, section 9.7) handles them at the same time, and `Server.next()` and `Request.respond` may be called from different tasks. It keeps a connection open after the response for the client's next request (HTTP keep-alive) when the request is HTTP/1.1 without `connection: close`, or HTTP/1.0 with `connection: keep-alive`, and the response has no `connection: close` header; the response says `connection: keep-alive` or `connection: close`. `Server.next()` waits for a new connection and for the kept ones at once, so a quiet client keeps no one else out; a kept connection that stays quiet for five seconds, or that the client closes, is closed. It protects itself against clients that send too much: request heads over 64 KiB get 431, bodies over the limit (10 MiB, or `Server.with_max_body(bytes)`) get 413, and a client gets ten seconds to send its request. `Conn.read_until_max(delimiter, max)` gives the same protection to programs that use `std.net` directly. Header names are kept in lower case; query parameters and paths are percent-decoded. The client reads bodies with a `content-length`, `chunked` bodies and bodies that last until the connection closes; `https://` URLs go through libcurl, which checks certificates; a native program that uses the HTTP client links with libcurl (`-lcurl`, so building it needs libcurl's development files on Linux), and other programs, servers included, do not. Only the functions a program can reach from `main` (or its tests) are compiled. Redirects are not followed: the 3xx response is returned.
 
 `std.json` follows RFC 8259. Numbers keep the text they were written with (`Number("-2.5e3")`), so no precision is lost; `as_int` reads whole numbers and `as_float` any number. `from_float` writes NaN and infinities, which JSON cannot hold, as `null`. Object members keep their order, and a repeated key keeps its last value. Parsing rejects lone surrogates (`"\ud83d"`), which are not characters, and values nested more than 128 deep. Parse errors name the problem and the character position: `expected ':' at character 6`.
 

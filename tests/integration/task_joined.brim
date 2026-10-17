@@ -1,0 +1,9 @@
+// exit: 101
+// A task is joined once.
+import std.task
+
+fn main() {
+    let t = task.spawn(fn() -> i64 { return 1 })
+    print(t.join())
+    print(t.join())
+}

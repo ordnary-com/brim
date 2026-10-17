@@ -35,9 +35,11 @@ fn main() -> ExitCode {
         .name("brim".into())
         .stack_size(STACK_SIZE)
         .spawn(move || {
-            let mut stdout = BufWriter::new(io::stdout().lock());
-            let mut stderr = io::stderr().lock();
-            let mut stdin = io::stdin().lock();
+            // Not locked: tasks of an interpreted program write and read
+            // from other threads.
+            let mut stdout = BufWriter::new(io::stdout());
+            let mut stderr = io::stderr();
+            let mut stdin = io::BufReader::new(io::stdin());
             let mut ctx = Context {
                 cwd,
                 stdout: &mut stdout,

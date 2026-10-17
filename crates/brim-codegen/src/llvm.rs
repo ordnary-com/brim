@@ -554,6 +554,117 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
                         let fn_type = self.fn_type(ret, &params);
                         self.call_indirect(fn_type, function, name, &all, inst.span)?
                     }
+                    InstKind::TaskSpawn(closure) | InstKind::TaskDetach(closure) => {
+                        let joinable = matches!(inst.kind, InstKind::TaskSpawn(_));
+                        let closure = get(*closure).into_struct_value();
+                        let mut args: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
+                        for index in 0..3 {
+                            args.push(self.builder.build_extract_value(closure, index, "")?.into());
+                        }
+                        let flag = self.context.i8_type().const_int(u64::from(joinable), false);
+                        args.push(flag.into());
+                        let i64_type = self.context.i64_type();
+                        let ptr = self.context.ptr_type(AddressSpace::default());
+                        let spawn = self.task_runtime(
+                            "brim_rt_task_spawn",
+                            i64_type.fn_type(
+                                &[
+                                    ptr.into(),
+                                    ptr.into(),
+                                    ptr.into(),
+                                    self.context.i8_type().into(),
+                                ],
+                                false,
+                            ),
+                        );
+                        let id = self
+                            .builder
+                            .build_call(spawn, &args, "")?
+                            .try_as_basic_value()
+                            .basic();
+                        if joinable { id } else { None }
+                    }
+                    InstKind::TaskJoin(handle) => {
+                        let ptr = self.context.ptr_type(AddressSpace::default());
+                        let join = self.task_runtime(
+                            "brim_rt_task_join",
+                            ptr.fn_type(
+                                &[
+                                    self.context.i64_type().into(),
+                                    ptr.into(),
+                                    ptr.into(),
+                                    ptr.into(),
+                                ],
+                                false,
+                            ),
+                        );
+                        let [head, sep, note] =
+                            self.trap_text(&RuntimeError::TaskJoined, inst.span);
+                        self.builder
+                            .build_call(
+                                join,
+                                &[get(*handle).into(), head.into(), sep.into(), note.into()],
+                                "",
+                            )?
+                            .try_as_basic_value()
+                            .basic()
+                    }
+                    InstKind::ChanNew(capacity) => {
+                        let i64_type = self.context.i64_type();
+                        let new = self.task_runtime(
+                            "brim_rt_chan_new",
+                            i64_type.fn_type(&[i64_type.into()], false),
+                        );
+                        self.builder
+                            .build_call(new, &[get(*capacity).into()], "")?
+                            .try_as_basic_value()
+                            .basic()
+                    }
+                    InstKind::ChanSend(chan, list) => {
+                        let i8_type = self.context.i8_type();
+                        let ptr = self.context.ptr_type(AddressSpace::default());
+                        let send = self.task_runtime(
+                            "brim_rt_chan_send",
+                            i8_type.fn_type(&[self.context.i64_type().into(), ptr.into()], false),
+                        );
+                        let sent = self
+                            .builder
+                            .build_call(send, &[get(*chan).into(), get(*list).into()], "")?
+                            .try_as_basic_value()
+                            .basic()
+                            .expect("a result");
+                        Some(
+                            self.builder
+                                .build_int_compare(
+                                    IntPredicate::NE,
+                                    sent.into_int_value(),
+                                    i8_type.const_zero(),
+                                    "",
+                                )?
+                                .into(),
+                        )
+                    }
+                    InstKind::ChanReceive(chan) => {
+                        let ptr = self.context.ptr_type(AddressSpace::default());
+                        let receive = self.task_runtime(
+                            "brim_rt_chan_receive",
+                            ptr.fn_type(&[self.context.i64_type().into()], false),
+                        );
+                        self.builder
+                            .build_call(receive, &[get(*chan).into()], "")?
+                            .try_as_basic_value()
+                            .basic()
+                    }
+                    InstKind::ChanClose(chan) => {
+                        let close = self.task_runtime(
+                            "brim_rt_chan_close",
+                            self.context
+                                .void_type()
+                                .fn_type(&[self.context.i64_type().into()], false),
+                        );
+                        self.builder.build_call(close, &[get(*chan).into()], "")?;
+                        None
+                    }
                     InstKind::CallRuntime(rt, args) => {
                         let args: Vec<BasicValueEnum<'ctx>> =
                             args.iter().map(|a| get(*a)).collect();
@@ -1015,6 +1126,14 @@ impl<'ctx, 'a> Lowerer<'ctx, 'a> {
             ),
             (result, _) => result,
         })
+    }
+
+    /// A function of the runtime's `std.task` section, declared on first
+    /// use.
+    fn task_runtime(&self, name: &str, ty: FunctionType<'ctx>) -> FunctionValue<'ctx> {
+        self.module
+            .get_function(name)
+            .unwrap_or_else(|| self.module.add_function(name, ty, Some(Linkage::External)))
     }
 
     /// Branches to a call of `brim_rt_trap` when `cond` is true.

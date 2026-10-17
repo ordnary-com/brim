@@ -39,11 +39,11 @@ pub struct Context<'a> {
     /// Directory relative paths are resolved against.
     pub cwd: PathBuf,
     /// Program output and `--emit` output.
-    pub stdout: &'a mut dyn Write,
+    pub stdout: &'a mut (dyn Write + Send),
     /// Diagnostics and status messages; also the program's standard error.
-    pub stderr: &'a mut dyn Write,
+    pub stderr: &'a mut (dyn Write + Send),
     /// The program's standard input.
-    pub stdin: &'a mut dyn io::BufRead,
+    pub stdin: &'a mut (dyn io::BufRead + Send),
     /// Whether diagnostics on `stderr` are colored.
     pub color: ColorChoice,
 }

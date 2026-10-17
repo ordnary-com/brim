@@ -266,6 +266,10 @@ fn space_between(
     {
         return false;
     }
+    // `0 .0` is a field of `0`: written as `0.0` it would be a float.
+    if *next == T::Dot && matches!(prev, T::Int(_)) {
+        return true;
+    }
     match next {
         T::RParen
         | T::RBracket

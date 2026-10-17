@@ -1,0 +1,30 @@
+// `spawn` runs functions at the same time; `join` gives their results.
+import std.task
+
+fn fib(n: i64) -> i64 {
+    return if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+}
+
+fn main() {
+    let a = task.spawn(fn() -> i64 { return fib(20) })
+    let b = task.spawn(fn() -> i64 { return fib(21) })
+    print(a.join() + b.join())
+
+    let words = task.spawn(fn() -> List[string] { return ["a", "b"] })
+    print(words.join())
+
+    let results: task.Channel[string] = task.channel()
+    for name in ["a", "b", "c"] {
+        task.detach(fn() {
+            results.send(f"done: {name}")
+        })
+    }
+    let mut lines: List[string] = []
+    for _ in 0..3 {
+        match results.receive() {
+            Some(line) => lines.push(line)
+            None => {}
+        }
+    }
+    print(lines.sorted())
+}

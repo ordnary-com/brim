@@ -164,6 +164,8 @@ Guidelines for writing diagnostics:
 | R0009 | Step limit exceeded; only for embedders that set `brim_interp::Limits::max_steps`, never in `brim run` or native executables |
 | R0010 | `to_int` of NaN or of a number outside the `i64` range |
 | R0011 | A call to an `extern fn` in the interpreter (`brim test`, or `brim run` without a native backend) |
+| R0012 | `join` of a task that was already joined |
+| R0013 | Starting a task where there are no threads (the interpreter compiled to WebAssembly) |
 
 Run-time errors are reported like compile-time diagnostics, with the source location of the failing operation and the call stack:
 

@@ -1,0 +1,7 @@
+error[R0005]: index out of bounds: the index is 5 but the length is 2
+ --> tests/integration/task_error.brim:6:12
+  |
+6 |     return xs[5]
+  |            ^^^^^
+  |
+  = note: call stack: std.task.spawn.<fn>[i64] -> main.<fn> -> boom

@@ -31,6 +31,15 @@ fn spaces_between_tokens() {
 }
 
 #[test]
+fn a_field_of_an_integer_stays_apart() {
+    // Written as `0.5` it would be a float.
+    assert_eq!(
+        fmt("fn main() { let a = 0. 5 }\n"),
+        "fn main() { let a = 0 .5 }\n"
+    );
+}
+
+#[test]
 fn indentation_and_blank_lines() {
     let src = "\n\nfn main() {\n\n\nlet x: i64 = 1\n      if x > 0 {\nprint(x)\n  } else {\n  print(0)\n\n}\n\n\n\n}\n\n\nfn other() {\n}\n\n";
     assert_eq!(

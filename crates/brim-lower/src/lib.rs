@@ -2202,6 +2202,19 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
                 let args = self.values(&args.iter().collect::<Vec<_>>());
                 return self.emit(InstKind::CallRuntime(*runtime, args), Some(ty), span);
             }
+            // std.task's intrinsics without a result.
+            CheckedExprKind::Intrinsic {
+                op: op @ (Intrinsic::TaskDetach | Intrinsic::ChanClose),
+                args,
+            } => {
+                let arg = self.value(&args[0]);
+                let kind = if *op == Intrinsic::TaskDetach {
+                    InstKind::TaskDetach(arg)
+                } else {
+                    InstKind::ChanClose(arg)
+                };
+                return self.emit(kind, None, span);
+            }
             CheckedExprKind::CallMut {
                 func,
                 type_args,
@@ -2428,6 +2441,16 @@ impl<'m, 'p> FnLowerer<'m, 'p> {
             Intrinsic::ServeApi => {
                 let module = api_module.expect("the module's index");
                 self.serve_api(module, args[1], span)
+            }
+            Intrinsic::TaskSpawn => self.emit_value(InstKind::TaskSpawn(args[0]), i64_ty, span),
+            Intrinsic::TaskJoin => self.emit_value(InstKind::TaskJoin(args[0]), ty, span),
+            Intrinsic::ChanNew => self.emit_value(InstKind::ChanNew(args[0]), i64_ty, span),
+            Intrinsic::ChanSend => {
+                self.emit_value(InstKind::ChanSend(args[0], args[1]), bool_ty, span)
+            }
+            Intrinsic::ChanReceive => self.emit_value(InstKind::ChanReceive(args[0]), ty, span),
+            Intrinsic::TaskDetach | Intrinsic::ChanClose => {
+                unreachable!("lowered without a result in `expr`")
             }
             Intrinsic::ToJson => {
                 let value_ty = self.concrete(first_ty.expect("one argument"));

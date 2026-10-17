@@ -17,8 +17,13 @@
  * objects), a byte length, then the UTF-8 bytes (not NUL-terminated).
  *
  * Memory management: heap strings are reference counted and freed when the
- * count drops to zero. Static strings (rc -1) are never counted. Brim has no
- * threads yet, so the counts are not atomic.
+ * count drops to zero. Static strings (rc -1) are never counted. The counts
+ * become atomic once a program starts its first task (std.task); before
+ * that, only one thread exists and plain counts are cheaper.
+ *
+ * Tasks run on threads of their own. The call stack for error messages,
+ * the last error and the output of the last process are per thread; the
+ * socket table is shared behind a lock.
  *
  * With the environment variable BRIM_RT_CHECK=1, memory is checked instead
  * of freed: a retain or release of a freed string aborts the program, and
@@ -77,9 +82,57 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include <pthread.h>
 #endif
 
 /* ---- platform differences ------------------------------------------------ */
+
+#define BRIM_TLS _Thread_local
+
+#ifdef _WIN32
+typedef SRWLOCK brim_mutex;
+typedef CONDITION_VARIABLE brim_cond;
+#define BRIM_MUTEX_INIT SRWLOCK_INIT
+#define BRIM_COND_INIT CONDITION_VARIABLE_INIT
+static void mutex_lock(brim_mutex *m) { AcquireSRWLockExclusive(m); }
+static void mutex_unlock(brim_mutex *m) { ReleaseSRWLockExclusive(m); }
+static void cond_wait(brim_cond *c, brim_mutex *m) { SleepConditionVariableSRW(c, m, INFINITE, 0); }
+static void cond_broadcast(brim_cond *c) { WakeAllConditionVariable(c); }
+#define lock_stream _lock_file
+#define unlock_stream _unlock_file
+#else
+typedef pthread_mutex_t brim_mutex;
+typedef pthread_cond_t brim_cond;
+#define BRIM_MUTEX_INIT PTHREAD_MUTEX_INITIALIZER
+#define BRIM_COND_INIT PTHREAD_COND_INITIALIZER
+static void mutex_lock(brim_mutex *m) { pthread_mutex_lock(m); }
+static void mutex_unlock(brim_mutex *m) { pthread_mutex_unlock(m); }
+static void cond_wait(brim_cond *c, brim_mutex *m) { pthread_cond_wait(c, m); }
+static void cond_broadcast(brim_cond *c) { pthread_cond_broadcast(c); }
+#define lock_stream flockfile
+#define unlock_stream funlockfile
+#endif
+
+/* Set before the first task starts: from then on, reference counts and
+ * the memory check's count change atomically. */
+static int threaded;
+
+static void count_up(int64_t *count) {
+    if (threaded) {
+        __atomic_fetch_add(count, 1, __ATOMIC_RELAXED);
+    } else {
+        (*count)++;
+    }
+}
+
+/* The count after taking one off. */
+static int64_t count_down(int64_t *count) {
+    return threaded ? __atomic_sub_fetch(count, 1, __ATOMIC_ACQ_REL) : --(*count);
+}
+
+static int64_t count_of(const int64_t *count) {
+    return threaded ? __atomic_load_n(count, __ATOMIC_ACQUIRE) : *count;
+}
 
 #ifdef _WIN32
 #ifndef __MINGW32__
@@ -235,8 +288,9 @@ typedef struct BrimStr {
 extern const int64_t brim_max_call_depth;
 extern void brim_entry(void);
 
-static const char **frames;
-static int64_t depth;
+/* The Brim call stack of this thread, for error messages. */
+static BRIM_TLS const char **frames;
+static BRIM_TLS int64_t depth;
 
 /* Memory checking (BRIM_RT_CHECK=1). */
 static int checking;
@@ -355,8 +409,11 @@ void brim_rt_print_bool(uint8_t value) {
 }
 
 void brim_rt_print_str(const BrimStr *s) {
+    /* One line at a time: lines of different tasks do not mix. */
+    lock_stream(stdout);
     fwrite(s->data, 1, (size_t)s->len, stdout);
     fputc('\n', stdout);
+    unlock_stream(stdout);
 }
 
 /* ---- memory -------------------------------------------------------------- */
@@ -368,7 +425,7 @@ static BrimStr *str_alloc(int64_t len) {
     }
     s->rc = 1;
     s->len = len;
-    live_strings++;
+    count_up(&live_strings);
     return s;
 }
 
@@ -389,7 +446,7 @@ void brim_rt_retain(BrimStr *s) {
         check_live(s, "retain");
     }
     if (s->rc >= 0) {
-        s->rc++;
+        count_up(&s->rc);
     }
 }
 
@@ -401,10 +458,10 @@ void brim_rt_release(BrimStr *s) {
     if (checking) {
         check_live(s, "release");
     }
-    if (s->rc < 0 || --s->rc > 0) {
+    if (s->rc < 0 || count_down(&s->rc) > 0) {
         return;
     }
-    live_strings--;
+    count_down(&live_strings);
     if (checking) {
         s->rc = FREED; /* keep the memory to detect later use */
     } else {
@@ -486,7 +543,7 @@ static BrimList *list_alloc(int64_t elem_size, BrimElemFn release, int64_t cap) 
     l->elem_size = elem_size;
     l->release = release;
     if (checking) {
-        live_strings++;
+        count_up(&live_strings);
     }
     return l;
 }
@@ -497,7 +554,7 @@ static char *elem_at(BrimList *l, int64_t i) {
 
 void brim_rt_list_retain(BrimList *l) {
     if (l != NULL) {
-        l->rc++;
+        count_up(&l->rc);
     }
 }
 
@@ -512,10 +569,10 @@ typedef struct Dead {
     int is_map;
 } Dead;
 
-static Dead *dead;
-static int64_t dead_len;
-static int64_t dead_cap;
-static int freeing;
+static BRIM_TLS Dead *dead;
+static BRIM_TLS int64_t dead_len;
+static BRIM_TLS int64_t dead_cap;
+static BRIM_TLS int freeing;
 
 static void free_list(BrimList *l);
 struct BrimMap;
@@ -556,13 +613,13 @@ static void free_list(BrimList *l) {
         }
     }
     if (checking) {
-        live_strings--;
+        count_down(&live_strings);
     }
     free(l);
 }
 
 void brim_rt_list_release(BrimList *l) {
-    if (l == NULL || --l->rc > 0) {
+    if (l == NULL || count_down(&l->rc) > 0) {
         return;
     }
     bury(l, 0);
@@ -578,7 +635,7 @@ static BrimList *unique(BrimList *l, int64_t elem_size, BrimElemFn retain, BrimE
     if (l == NULL) {
         return list_alloc(elem_size, release, extra);
     }
-    if (l->rc == 1) {
+    if (count_of(&l->rc) == 1) {
         return l;
     }
     BrimList *copy = list_alloc(elem_size, release, l->len + extra);
@@ -589,7 +646,7 @@ static BrimList *unique(BrimList *l, int64_t elem_size, BrimElemFn retain, BrimE
             retain(elem_at(copy, i));
         }
     }
-    l->rc--;
+    brim_rt_list_release(l);
     return copy;
 }
 
@@ -842,19 +899,19 @@ static BrimMap *map_alloc(int64_t key_kind, int64_t value_size, BrimElemFn relea
     }
     rebuild_index(m);
     if (checking) {
-        live_strings++;
+        count_up(&live_strings);
     }
     return m;
 }
 
 void brim_rt_map_retain(BrimMap *m) {
     if (m != NULL) {
-        m->rc++;
+        count_up(&m->rc);
     }
 }
 
 void brim_rt_map_release(BrimMap *m) {
-    if (m == NULL || --m->rc > 0) {
+    if (m == NULL || count_down(&m->rc) > 0) {
         return;
     }
     bury(m, 1);
@@ -870,7 +927,7 @@ static void free_map(BrimMap *m) {
         }
     }
     if (checking) {
-        live_strings--;
+        count_down(&live_strings);
     }
     free(m->index);
     free(m->entries);
@@ -922,7 +979,7 @@ static BrimMap *map_unique(BrimMap *m, int64_t key_kind, int64_t value_size, Bri
     if (m == NULL) {
         return map_alloc(key_kind, value_size, release, 4);
     }
-    if (m->rc == 1) {
+    if (count_of(&m->rc) == 1) {
         return m;
     }
     BrimMap *copy = map_alloc(key_kind, value_size, release, m->len + 1);
@@ -937,7 +994,7 @@ static BrimMap *map_unique(BrimMap *m, int64_t key_kind, int64_t value_size, Bri
         }
     }
     rebuild_index(copy);
-    m->rc--;
+    brim_rt_map_release(m);
     return copy;
 }
 
@@ -1103,8 +1160,10 @@ static char *c_string(const BrimStr *s) {
 
 void brim_rt_eprint_str(const BrimStr *s) {
     fflush(stdout);
+    lock_stream(stderr);
     fwrite(s->data, 1, (size_t)s->len, stderr);
     fputc('\n', stderr);
+    unlock_stream(stderr);
 }
 
 int64_t brim_rt_str_compare(const BrimStr *a, const BrimStr *b) {
@@ -1524,7 +1583,7 @@ int64_t brim_rt_str_parse_int(const BrimStr *s) {
 
 /* ---- input, files and the environment ------------------------------------ */
 
-static BrimStr *last_error;
+static BRIM_TLS BrimStr *last_error;
 static int program_argc;
 static char **program_argv;
 
@@ -2006,9 +2065,9 @@ _Noreturn void brim_rt_exit(int64_t code) {
 extern char **environ;
 #endif
 
-static int64_t process_code;
-static BrimStr *process_stdout;
-static BrimStr *process_stderr;
+static BRIM_TLS int64_t process_code;
+static BRIM_TLS BrimStr *process_stdout;
+static BRIM_TLS BrimStr *process_stderr;
 
 static void set_process_output(int64_t code, BrimStr *out, BrimStr *err) {
     process_code = code;
@@ -2290,7 +2349,12 @@ BrimStr *brim_rt_process_stderr(void) {
 
 /* ---- sockets (std.net) ---------------------------------------------------- */
 /* The same functions and error reasons as brim-runtime's net.rs, which the
- * interpreter uses. Handles start at 1 and are never reused. */
+ * interpreter uses. Handles start at 1 and are never reused.
+ *
+ * Tasks share the table: `net_lock` guards it and the kept connections,
+ * and is held only to find a socket, never while waiting for one. Sockets
+ * are allocated one by one, so a task using one is not disturbed when the
+ * table grows. */
 
 typedef struct Socket {
     int fd;          /* -1 once closed */
@@ -2300,8 +2364,9 @@ typedef struct Socket {
     int64_t cap;
 } Socket;
 
-static Socket *sockets;
+static Socket **sockets;
 static int64_t socket_count;
+static brim_mutex net_lock = BRIM_MUTEX_INIT;
 
 static const char *net_reason(int error) {
     switch (error) {
@@ -2332,6 +2397,7 @@ static void net_fail(const char *reason) {
  * makes writes to a closed connection an error instead of a signal. */
 static void net_start(void) {
     static int ready;
+    mutex_lock(&net_lock);
     if (!ready) {
 #ifdef _WIN32
         WSADATA data;
@@ -2341,29 +2407,45 @@ static void net_start(void) {
 #endif
         ready = 1;
     }
+    mutex_unlock(&net_lock);
     fflush(stdout);
     set_error(NULL);
 }
 
 static int64_t socket_add(int fd, int listening) {
-    Socket *grown = realloc(sockets, sizeof(Socket) * (size_t)(socket_count + 1));
+    Socket *s = malloc(sizeof(Socket));
+    if (s == NULL) {
+        fatal("out of memory");
+    }
+    *s = (Socket){fd, listening, NULL, 0, 0};
+    mutex_lock(&net_lock);
+    Socket **grown = realloc(sockets, sizeof(Socket *) * (size_t)(socket_count + 1));
     if (grown == NULL) {
         fatal("out of memory");
     }
     sockets = grown;
-    sockets[socket_count] = (Socket){fd, listening, NULL, 0, 0};
-    socket_count++;
-    return socket_count;
+    sockets[socket_count] = s;
+    int64_t handle = ++socket_count;
+    mutex_unlock(&net_lock);
+    return handle;
 }
 
-static Socket *socket_get(int64_t handle, int listening) {
+/* With `net_lock` held. */
+static Socket *socket_find(int64_t handle, int listening) {
     if (handle < 1 || handle > socket_count) {
         return NULL;
     }
-    Socket *s = &sockets[handle - 1];
+    Socket *s = sockets[handle - 1];
     if (s->fd < 0 || s->listening != listening) {
         return NULL;
     }
+    return s;
+}
+
+static Socket *socket_get(int64_t handle, int listening) {
+    mutex_lock(&net_lock);
+    Socket *s = socket_find(handle, listening);
+    mutex_unlock(&net_lock);
     return s;
 }
 
@@ -2697,11 +2779,12 @@ static void kept_remove(int64_t i) {
 
 int64_t brim_rt_time_monotonic_millis(void);
 
+/* With `net_lock` held. */
 static void close_socket(int64_t handle) {
     if (handle < 1 || handle > socket_count) {
         return;
     }
-    Socket *s = &sockets[handle - 1];
+    Socket *s = sockets[handle - 1];
     if (s->fd >= 0 && s->listening) {
         for (int64_t i = 0; i < kept_count;) {
             if (kept[i].listener == handle) {
@@ -2733,13 +2816,17 @@ static void close_socket(int64_t handle) {
 
 void brim_rt_net_close(int64_t handle) {
     net_start();
+    mutex_lock(&net_lock);
     close_socket(handle);
+    mutex_unlock(&net_lock);
 }
 
 void brim_rt_net_keep(int64_t listener, int64_t conn) {
     net_start();
-    if (socket_get(listener, 1) == NULL || socket_get(conn, 0) == NULL) {
+    mutex_lock(&net_lock);
+    if (socket_find(listener, 1) == NULL || socket_find(conn, 0) == NULL) {
         close_socket(conn);
+        mutex_unlock(&net_lock);
         return;
     }
     Kept *grown = realloc(kept, sizeof(Kept) * (size_t)(kept_count + 1));
@@ -2763,12 +2850,13 @@ void brim_rt_net_keep(int64_t listener, int64_t conn) {
         kept_remove(oldest);
         close_socket(c);
     }
+    mutex_unlock(&net_lock);
 }
 
 /* 1 if a kept connection has something to read, 0 if not, -1 if the
- * other side closed it. */
+ * other side closed it. With `net_lock` held. */
 static int kept_readiness(int64_t handle) {
-    Socket *s = socket_get(handle, 0);
+    Socket *s = socket_find(handle, 0);
     if (s == NULL) {
         return -1;
     }
@@ -2803,6 +2891,7 @@ int64_t brim_rt_net_next_ready(int64_t listener, int64_t idle_ms) {
         return 0;
     }
     for (;;) {
+        mutex_lock(&net_lock);
         int64_t now = brim_rt_time_monotonic_millis();
         int64_t wait = -1;
         for (int64_t i = 0; i < kept_count;) {
@@ -2814,6 +2903,7 @@ int64_t brim_rt_net_next_ready(int64_t listener, int64_t idle_ms) {
             int ready = kept_readiness(conn);
             if (ready > 0) {
                 kept_remove(i);
+                mutex_unlock(&net_lock);
                 return conn;
             }
             int64_t left = kept[i].since + idle_ms - now;
@@ -2827,8 +2917,15 @@ int64_t brim_rt_net_next_ready(int64_t listener, int64_t idle_ms) {
             }
             i++;
         }
-        if (wait < 0) {
+        /* Alone, with nothing kept, a program can wait in `accept`. With
+         * tasks, another one may keep a connection meanwhile: look again
+         * every few milliseconds. */
+        if (wait < 0 && !threaded) {
+            mutex_unlock(&net_lock);
             return brim_rt_net_accept(listener);
+        }
+        if (threaded && (wait < 0 || wait > 5)) {
+            wait = 5;
         }
         /* The listener and the kept connections, until one can be read. */
         int64_t n = 1;
@@ -2839,9 +2936,10 @@ int64_t brim_rt_net_next_ready(int64_t listener, int64_t idle_ms) {
         fds[0] = (struct pollfd){l->fd, POLLIN, 0};
         for (int64_t i = 0; i < kept_count; i++) {
             if (kept[i].listener == listener) {
-                fds[n++] = (struct pollfd){sockets[kept[i].conn - 1].fd, POLLIN, 0};
+                fds[n++] = (struct pollfd){sockets[kept[i].conn - 1]->fd, POLLIN, 0};
             }
         }
+        mutex_unlock(&net_lock);
         int got = poll(fds, (brim_nfds_t)n, (int)wait);
         int listener_ready = got > 0 && (fds[0].revents & POLLIN);
         free(fds);
@@ -2852,11 +2950,13 @@ int64_t brim_rt_net_next_ready(int64_t listener, int64_t idle_ms) {
         if (listener_ready) {
             /* Kept connections first, as the interpreter checks them. */
             int any = 0;
+            mutex_lock(&net_lock);
             for (int64_t i = 0; i < kept_count; i++) {
                 if (kept[i].listener == listener && kept_readiness(kept[i].conn) != 0) {
                     any = 1;
                 }
             }
+            mutex_unlock(&net_lock);
             if (!any) {
                 return brim_rt_net_accept(listener);
             }
@@ -2867,9 +2967,11 @@ int64_t brim_rt_net_next_ready(int64_t listener, int64_t idle_ms) {
 int64_t brim_rt_net_local_port(int64_t handle) {
     net_start();
     Socket *s = NULL;
-    if (handle >= 1 && handle <= socket_count && sockets[handle - 1].fd >= 0) {
-        s = &sockets[handle - 1];
+    mutex_lock(&net_lock);
+    if (handle >= 1 && handle <= socket_count && sockets[handle - 1]->fd >= 0) {
+        s = sockets[handle - 1];
     }
+    mutex_unlock(&net_lock);
     if (s == NULL) {
         net_fail("invalid socket");
         return 0;
@@ -3371,8 +3473,8 @@ BrimList *brim_rt_random_bytes(int64_t n) {
 
 /* ---- std.random: xoshiro256**, as brim_runtime::random ------------------ */
 
-static uint64_t random_state[4];
-static int random_ready = 0;
+static BRIM_TLS uint64_t random_state[4];
+static BRIM_TLS int random_ready = 0;
 
 static uint64_t splitmix64(uint64_t *x) {
     *x += 0x9e3779b97f4a7c15ULL;
@@ -3679,6 +3781,267 @@ int64_t brim_rt_f64_to_i64(double x, const char *head, const char *sep, const ch
     return (int64_t)x;
 }
 
+/* ---- tasks and channels (std.task) ----------------------------------------- */
+/*
+ * As the interpreter runs them: a task is a thread, joined through the
+ * runtime rather than the operating system, and a channel is a queue of
+ * lists (each holding one value). Tasks and channels have handles from one
+ * counter; a handle that is gone is a joined task or a drained, closed
+ * channel.
+ */
+
+/* A Brim function behind a closure: the environment list, then nothing. */
+typedef BrimList *(*BrimTaskFn)(BrimList *env);
+typedef void (*BrimDetachFn)(BrimList *env);
+
+typedef struct Task {
+    int done;
+    BrimList *result;
+} Task;
+
+typedef struct Chan {
+    int closed;
+    int64_t capacity; /* 0: no limit */
+    BrimList **queue; /* a ring */
+    int64_t head;
+    int64_t len;
+    int64_t cap;
+} Chan;
+
+typedef struct Handle {
+    Task *task;
+    Chan *chan;
+} Handle;
+
+static brim_mutex task_lock = BRIM_MUTEX_INIT;
+static brim_cond task_wake = BRIM_COND_INIT;
+static Handle *handles;
+static int64_t handle_count;
+/* Tasks still running, so the memory check can tell whether everything
+ * was given back. */
+static int64_t running;
+
+/* With `task_lock` held. */
+static int64_t handle_new(Task *task, Chan *chan) {
+    Handle *grown = realloc(handles, sizeof(Handle) * (size_t)(handle_count + 1));
+    if (grown == NULL) {
+        fatal("out of memory");
+    }
+    handles = grown;
+    handles[handle_count] = (Handle){task, chan};
+    return ++handle_count;
+}
+
+static Handle *handle_at(int64_t id) {
+    if (id < 1 || id > handle_count) {
+        return NULL;
+    }
+    return &handles[id - 1];
+}
+
+typedef struct Start {
+    void *fn;
+    BrimList *env;
+    const char *name;
+    Task *task;
+} Start;
+
+#define TASK_STACK (8 * 1024 * 1024)
+
+#ifdef _WIN32
+static DWORD WINAPI task_main(LPVOID arg)
+#else
+static void *task_main(void *arg)
+#endif
+{
+    Start start = *(Start *)arg;
+    free(arg);
+    frames = malloc(sizeof(const char *) * (size_t)brim_max_call_depth);
+    if (frames == NULL) {
+        fatal("out of memory");
+    }
+    /* The closure's function is the first call on this task's stack. */
+    frames[depth++] = start.name;
+    if (start.task != NULL) {
+        BrimList *result = ((BrimTaskFn)start.fn)(start.env);
+        mutex_lock(&task_lock);
+        start.task->result = result;
+        start.task->done = 1;
+        cond_broadcast(&task_wake);
+        mutex_unlock(&task_lock);
+    } else {
+        ((BrimDetachFn)start.fn)(start.env);
+    }
+    depth--;
+    brim_rt_list_release(start.env);
+    set_error(NULL);
+    set_process_output(0, NULL, NULL);
+    free(frames);
+    free(dead);
+    count_down(&running);
+    return 0;
+}
+
+/* Starts a task running a closure: its function, environment and name.
+ * The handle; a joinable task keeps its result until `join`. */
+int64_t brim_rt_task_spawn(void *fn, BrimList *env, const char *name, uint8_t joinable) {
+    Start *start = malloc(sizeof(Start));
+    if (start == NULL) {
+        fatal("out of memory");
+    }
+    brim_rt_list_retain(env);
+    *start = (Start){fn, env, name, NULL};
+    mutex_lock(&task_lock);
+    threaded = 1;
+    if (joinable) {
+        start->task = calloc(1, sizeof(Task));
+        if (start->task == NULL) {
+            fatal("out of memory");
+        }
+    }
+    int64_t id = handle_new(start->task, NULL);
+    mutex_unlock(&task_lock);
+    count_up(&running);
+#ifdef _WIN32
+    HANDLE thread = CreateThread(NULL, TASK_STACK, task_main, start,
+                                 STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
+    if (thread == NULL) {
+        fatal("cannot start a task");
+    }
+    CloseHandle(thread);
+#else
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, TASK_STACK);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_t thread;
+    if (pthread_create(&thread, &attr, task_main, start) != 0) {
+        fatal("cannot start a task");
+    }
+    pthread_attr_destroy(&attr);
+#endif
+    return id;
+}
+
+/* Waits for a task and returns its result. Joining a task again is the
+ * run-time error R0012, rendered by the backend. */
+BrimList *brim_rt_task_join(int64_t id, const char *head, const char *sep, const char *note) {
+    mutex_lock(&task_lock);
+    Handle *h = handle_at(id);
+    if (h == NULL || h->task == NULL) {
+        mutex_unlock(&task_lock);
+        brim_rt_trap(head, sep, note);
+    }
+    Task *task = h->task;
+    while (!task->done) {
+        cond_wait(&task_wake, &task_lock);
+    }
+    h = handle_at(id);
+    h->task = NULL;
+    BrimList *result = task->result;
+    free(task);
+    mutex_unlock(&task_lock);
+    return result;
+}
+
+int64_t brim_rt_chan_new(int64_t capacity) {
+    Chan *c = calloc(1, sizeof(Chan));
+    if (c == NULL) {
+        fatal("out of memory");
+    }
+    c->capacity = capacity > 0 ? capacity : 0;
+    mutex_lock(&task_lock);
+    int64_t id = handle_new(NULL, c);
+    mutex_unlock(&task_lock);
+    return id;
+}
+
+/* With `task_lock` held: a channel that is closed and drained goes. */
+static void chan_forget(int64_t id, Chan *c) {
+    if (c->closed && c->len == 0) {
+        free(c->queue);
+        free(c);
+        handle_at(id)->chan = NULL;
+    }
+}
+
+/* Queues a list (taking a reference); 0 when the channel is closed. */
+uint8_t brim_rt_chan_send(int64_t id, BrimList *value) {
+    mutex_lock(&task_lock);
+    for (;;) {
+        Handle *h = handle_at(id);
+        Chan *c = h == NULL ? NULL : h->chan;
+        if (c == NULL || c->closed) {
+            mutex_unlock(&task_lock);
+            return 0;
+        }
+        if (c->capacity == 0 || c->len < c->capacity) {
+            if (c->len == c->cap) {
+                int64_t cap = c->cap < 8 ? 8 : c->cap * 2;
+                BrimList **queue = malloc(sizeof(BrimList *) * (size_t)cap);
+                if (queue == NULL) {
+                    fatal("out of memory");
+                }
+                for (int64_t i = 0; i < c->len; i++) {
+                    queue[i] = c->queue[(c->head + i) % c->cap];
+                }
+                free(c->queue);
+                c->queue = queue;
+                c->head = 0;
+                c->cap = cap;
+            }
+            brim_rt_list_retain(value);
+            c->queue[(c->head + c->len) % c->cap] = value;
+            c->len++;
+            cond_broadcast(&task_wake);
+            mutex_unlock(&task_lock);
+            return 1;
+        }
+        cond_wait(&task_wake, &task_lock);
+    }
+}
+
+/* The next list queued, waiting for one; an empty list (NULL) once the
+ * channel is closed and drained. */
+BrimList *brim_rt_chan_receive(int64_t id) {
+    mutex_lock(&task_lock);
+    for (;;) {
+        Handle *h = handle_at(id);
+        Chan *c = h == NULL ? NULL : h->chan;
+        if (c == NULL) {
+            mutex_unlock(&task_lock);
+            return NULL;
+        }
+        if (c->len > 0) {
+            BrimList *value = c->queue[c->head];
+            c->head = (c->head + 1) % c->cap;
+            c->len--;
+            chan_forget(id, c);
+            /* A sender may wait for room. */
+            cond_broadcast(&task_wake);
+            mutex_unlock(&task_lock);
+            return value;
+        }
+        if (c->closed) {
+            chan_forget(id, c);
+            mutex_unlock(&task_lock);
+            return NULL;
+        }
+        cond_wait(&task_wake, &task_lock);
+    }
+}
+
+void brim_rt_chan_close(int64_t id) {
+    mutex_lock(&task_lock);
+    Handle *h = handle_at(id);
+    if (h != NULL && h->chan != NULL) {
+        h->chan->closed = 1;
+        chan_forget(id, h->chan);
+    }
+    cond_broadcast(&task_wake);
+    mutex_unlock(&task_lock);
+}
+
 /* ---- process entry ------------------------------------------------------- */
 
 #ifdef _WIN32
@@ -3727,7 +4090,9 @@ int main(int argc, char **argv) {
     }
     set_error(NULL);
     set_process_output(0, NULL, NULL);
-    if (checking && live_strings != 0) {
+    /* Tasks still running hold values: only a program whose tasks all
+     * finished can be checked for leaks. */
+    if (checking && count_of(&running) == 0 && count_of(&live_strings) != 0) {
         fprintf(stderr, "error: brim runtime check: %" PRId64 " string(s) or list(s) leaked\n",
                 live_strings);
         return 102;

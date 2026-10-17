@@ -373,6 +373,27 @@ pub enum InstKind {
     /// Calls a closure with the arguments after the environment. The
     /// instruction's result type is the function's return type.
     CallClosure(ValueId, Vec<ValueId>),
+    /// Starts a task that calls a closure without arguments returning a
+    /// list (its result, see `std.task`). The result is the task's handle,
+    /// an `i64`.
+    TaskSpawn(ValueId),
+    /// Starts a task that calls a closure without arguments returning
+    /// `void`, and is never joined.
+    TaskDetach(ValueId),
+    /// Waits for the task with a handle and gives the list its closure
+    /// returned. The instruction's result type is that list's type.
+    TaskJoin(ValueId),
+    /// A new channel: the handle, an `i64`. The operand is the most values
+    /// it queues before `send` waits; `0` means no limit.
+    ChanNew(ValueId),
+    /// Queues a list on a channel; `bool`, false when it is closed.
+    ChanSend(ValueId, ValueId),
+    /// The next list queued on a channel, waiting for one; an empty list
+    /// once it is closed and drained. The instruction's result type is
+    /// the list's type.
+    ChanReceive(ValueId),
+    /// Closes a channel.
+    ChanClose(ValueId),
 }
 
 impl InstKind {
@@ -408,6 +429,12 @@ impl InstKind {
                 all
             }
             InstKind::Store(_, v)
+            | InstKind::TaskSpawn(v)
+            | InstKind::TaskDetach(v)
+            | InstKind::TaskJoin(v)
+            | InstKind::ChanNew(v)
+            | InstKind::ChanReceive(v)
+            | InstKind::ChanClose(v)
             | InstKind::Unary(_, v)
             | InstKind::Extract(v, _)
             | InstKind::ListLen(v)
@@ -424,7 +451,8 @@ impl InstKind {
             | InstKind::MapIndex(a, b)
             | InstKind::MapKeyAt(a, b)
             | InstKind::MapValueAt(a, b)
-            | InstKind::MapRemoveAt(a, b) => vec![*a, *b],
+            | InstKind::MapRemoveAt(a, b)
+            | InstKind::ChanSend(a, b) => vec![*a, *b],
             InstKind::ListSet(a, b, c)
             | InstKind::ListInsert(a, b, c)
             | InstKind::MapInsert(a, b, c)

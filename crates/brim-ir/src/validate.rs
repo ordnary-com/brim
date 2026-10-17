@@ -406,6 +406,38 @@ impl FnValidator<'_> {
                 // type the instruction declares.
                 result.and_then(|v| f.values.get(v.index()).copied())
             }
+            InstKind::TaskSpawn(closure) => {
+                self.expect_operand(*closure, Type::Closure, local);
+                Some(Type::I64)
+            }
+            InstKind::TaskDetach(closure) => {
+                self.expect_operand(*closure, Type::Closure, local);
+                None
+            }
+            InstKind::TaskJoin(handle) | InstKind::ChanReceive(handle) => {
+                self.expect_operand(*handle, Type::I64, local);
+                let ty = result.and_then(|v| f.values.get(v.index()).copied());
+                if !matches!(ty, Some(Type::List(_))) {
+                    self.error("`task.join` and `chan.receive` give a list".to_string());
+                }
+                ty
+            }
+            InstKind::ChanNew(capacity) => {
+                self.expect_operand(*capacity, Type::I64, local);
+                Some(Type::I64)
+            }
+            InstKind::ChanSend(chan, list) => {
+                self.expect_operand(*chan, Type::I64, local);
+                match self.operand(*list, local) {
+                    Some(Type::List(_)) | None => {}
+                    Some(other) => self.error(format!("`chan.send` sends a list, not {other}")),
+                }
+                Some(Type::Bool)
+            }
+            InstKind::ChanClose(chan) => {
+                self.expect_operand(*chan, Type::I64, local);
+                None
+            }
             InstKind::CallRuntime(rt, args) => {
                 // A list parameter or result is any list type with the
                 // right element type.

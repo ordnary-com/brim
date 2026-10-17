@@ -613,6 +613,23 @@ pub enum Intrinsic {
     /// std.json: `__from_json(json)`, a `Result[T, string]` of the
     /// expression's type.
     FromJson,
+    /// std.task: `__task_spawn(f)`, a task running `f`, a `fn() ->
+    /// List[T]`; its handle.
+    TaskSpawn,
+    /// std.task: `__task_detach(f)`, a task running `f`, a `fn()`.
+    TaskDetach,
+    /// std.task: `__task_join(handle)`, the list the task's function
+    /// returned, of the expected type.
+    TaskJoin,
+    /// std.task: `__chan_new(capacity)`, a channel's handle.
+    ChanNew,
+    /// std.task: `__chan_send(handle, list)`: `bool`.
+    ChanSend,
+    /// std.task: `__chan_receive(handle)`, the next list sent, of the
+    /// expected type; empty once the channel is closed and drained.
+    ChanReceive,
+    /// std.task: `__chan_close(handle)`.
+    ChanClose,
     /// `s.find(t)`: `Option[i64]`.
     StrFind,
     /// `s.parse_int()`: `Option[i64]`.

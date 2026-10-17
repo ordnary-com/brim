@@ -1,0 +1,7 @@
+error[R0012]: the task was already joined
+  --> std/task.brim:46:31
+   |
+46 |         let result: List[T] = __task_join(self.id)
+   |                               ^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: call stack: main -> std.task.Task.join[i64]

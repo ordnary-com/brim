@@ -1,0 +1,13 @@
+// exit: 101
+// A run-time error in a task stops the program, with the task's calls.
+import std.task
+
+fn boom(xs: List[i64]) -> i64 {
+    return xs[5]
+}
+
+fn main() {
+    let t = task.spawn(fn() -> i64 { return boom([1, 2]) })
+    print(t.join())
+    print("not reached")
+}

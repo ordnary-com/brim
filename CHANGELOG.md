@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Tasks: `std.task` runs functions at the same time, each on a thread of its own, in the interpreter and in native code. `task.spawn(f)` gives a `Task[T]` to `join`, `task.detach(f)` starts a task that is never joined, and channels (`task.channel()`, `task.bounded(n)`) carry values between tasks with `send`, `receive` and `close`. Tasks share no changeable memory, so there are no data races: values are shared until one side changes them, as before. A run-time error in a task stops the program with that task's call stack; joining a task twice is `R0012`. The design is in `docs/design/concurrency.md`.
+- HTTP servers handle requests at the same time with a task per request; `Server.next()` and `Request.respond` work from different tasks, keep-alive included.
+
 - Version requirements and a package registry: `router = "1.2"` in `[dependencies]` picks the newest version that meets every requirement on the package in the project (`^`, `~`, `=`, comparisons and `*`, as in `docs/registry.md`), records it with its checksum in `brim.lock` and works offline from there. Conflicts say who requires what (`M0014`). `brim update` picks the newest versions again.
 - `brim publish` (with `--dry-run`), `brim login` and `brim yank NAME@VERSION [--undo]`. A path dependency can carry a `version` for publishing: `shared = { path = "../shared", version = "0.1" }`. `[package]` takes `description`, `license` and `repository`.
 - The registry service itself, in `registry/`: index, downloads, publishing with API tokens, yanking, search and package pages.

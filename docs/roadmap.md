@@ -50,7 +50,7 @@ Status legend: **done**, **in progress**, **planned**. Only items marked done ex
 
 Still open from this phase: cross-compilation, and linking without a C compiler.
 
-**Current milestone: concurrency (designed first) and the road to 1.0.**
+**Current milestone: the road to 1.0.** Concurrency is built (`std.task`).
 
 ## Phase 5: Runtime and standard library (in progress)
 
@@ -65,7 +65,8 @@ Still open from this phase: cross-compilation, and linking without a C compiler.
 - **Done:** methods in `impl` blocks, with `self`, `mut self` and type-level methods, also for generic types.
 - **Done:** a first standard library: string methods and comparison, standard input and error, files, command-line arguments, environment variables and exit codes.
 - **Done:** standard library modules for backend services: `std.fs`, `std.process`, `std.time`, `std.log`, `std.random`, `std.net`, `std.http` (client, server with keep-alive, API functions), `std.json` (with typed `encode` and `decode`), `std.postgres`, `std.crypto` and `std.base64`.
-- Open: handling requests concurrently, which waits for concurrency in the language; TLS for `std.postgres` and HTTP servers.
+- **Done:** concurrency: tasks and channels (`std.task`, `docs/design/concurrency.md`), on threads in the interpreter and in native code, and HTTP servers that handle requests at the same time.
+- Open: TLS for `std.postgres` and HTTP servers; `select` over channels and `receive` with a timeout.
 
 ## Phase 6: Package manager and project tooling (done, first version)
 

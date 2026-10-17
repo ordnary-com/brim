@@ -1,0 +1,77 @@
+// Tasks and channels (std.task): results by join, values over channels,
+// bounded channels, worker pools, copies, nested tasks, and a program
+// that ends while a detached task still runs.
+import std.task
+
+fn producer(out: task.Channel[i64], n: i64) {
+    for i in 0..n {
+        out.send(i)
+    }
+    out.close()
+}
+
+fn main() {
+    let ch: task.Channel[i64] = task.bounded(2)
+    task.detach(fn() { producer(ch, 100) })
+    let mut total = 0
+    loop {
+        match ch.receive() {
+            Some(n) => total = total + n
+            None => break
+        }
+    }
+    print(total)
+    print(ch.send(1))
+    print(ch.receive())
+
+    // Workers share a jobs channel and report on another.
+    let jobs: task.Channel[i64] = task.channel()
+    let done: task.Channel[i64] = task.channel()
+    for _ in 0..4 {
+        task.detach(fn() {
+            loop {
+                match jobs.receive() {
+                    Some(n) => done.send(n * n)
+                    None => break
+                }
+            }
+        })
+    }
+    for i in 1..11 {
+        jobs.send(i)
+    }
+    jobs.close()
+    let mut sum = 0
+    for _ in 0..10 {
+        sum = sum + done.receive().unwrap_or(0)
+    }
+    print(sum)
+
+    // A task gets its own copy of what it changes.
+    let mut xs = [1, 2, 3]
+    let t = task.spawn(fn() -> List[i64] {
+        let mut mine = xs
+        mine.push(4)
+        return mine
+    })
+    xs.push(99)
+    print(t.join())
+    print(xs)
+
+    // Nested tasks.
+    let outer = task.spawn(fn() -> i64 {
+        let inner = task.spawn(fn() -> i64 { return 20 })
+        return inner.join() + 22
+    })
+    print(outer.join())
+
+    // A detached task that never ends does not keep the program alive.
+    task.detach(fn() {
+        let mut n = 0
+        loop {
+            n = n + 1
+            if n > 1000000000 { n = 0 }
+        }
+    })
+    print("end")
+}

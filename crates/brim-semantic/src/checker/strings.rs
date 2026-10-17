@@ -364,6 +364,119 @@ impl<'a> Checker<'a> {
         }
     }
 
+    /// std.task's intrinsics (see [`Intrinsic::TaskSpawn`] and the ones
+    /// after it). Values cross between tasks as one-element lists.
+    fn check_task_intrinsic(
+        &mut self,
+        callee: &ast::Ident,
+        args: &[ast::Expr],
+        span: Span,
+        expected: Option<Type>,
+        ctx: &mut FnCtx,
+    ) -> Option<CheckedExpr> {
+        let is_list = |c: &Self, ty: Type| match ty {
+            Type::Named(id) => c.types.get(id).def == Def::List,
+            _ => false,
+        };
+        let (op, ty, checked) = match callee.name.as_str() {
+            "__task_spawn" | "__task_detach" => {
+                let checked: Vec<CheckedExpr> =
+                    args.iter().map(|a| self.check_expr(a, ctx)).collect();
+                let spawn = callee.name == "__task_spawn";
+                let fits = match checked.as_slice() {
+                    [f] => match self.fn_type_parts(f.ty) {
+                        Some((params, ret)) => {
+                            params.is_empty()
+                                && if spawn {
+                                    is_list(self, ret)
+                                } else {
+                                    ret == Type::Void
+                                }
+                        }
+                        None => false,
+                    },
+                    _ => false,
+                };
+                if !fits {
+                    let want = if spawn {
+                        "a `fn() -> List[T]`"
+                    } else {
+                        "a `fn()`"
+                    };
+                    self.diags.push(
+                        Diagnostic::error(format!("`{}` takes {want}", callee.name))
+                            .with_code("E0205")
+                            .with_primary(span, ""),
+                    );
+                    return Some(error_expr(span));
+                }
+                if spawn {
+                    (Intrinsic::TaskSpawn, Type::I64, checked)
+                } else {
+                    (Intrinsic::TaskDetach, Type::Void, checked)
+                }
+            }
+            "__task_join" | "__chan_receive" => {
+                let Some(checked) = self.fixed_args(&callee.name, &[Type::I64], args, span, ctx)
+                else {
+                    return Some(error_expr(span));
+                };
+                let Some(ty) = expected.filter(|t| is_list(self, *t)) else {
+                    self.diags.push(
+                        Diagnostic::error(format!(
+                            "`{}` needs a `List[T]` to be expected",
+                            callee.name
+                        ))
+                        .with_code("E0206")
+                        .with_primary(span, ""),
+                    );
+                    return Some(error_expr(span));
+                };
+                let op = if callee.name == "__task_join" {
+                    Intrinsic::TaskJoin
+                } else {
+                    Intrinsic::ChanReceive
+                };
+                (op, ty, checked)
+            }
+            "__chan_send" => {
+                let checked: Vec<CheckedExpr> =
+                    args.iter().map(|a| self.check_expr(a, ctx)).collect();
+                let fits = matches!(checked.as_slice(),
+                    [chan, list] if chan.ty == Type::I64 && is_list(self, list.ty));
+                if !fits {
+                    self.diags.push(
+                        Diagnostic::error("`__chan_send` takes an `i64` and a `List[T]`")
+                            .with_code("E0205")
+                            .with_primary(span, ""),
+                    );
+                    return Some(error_expr(span));
+                }
+                (Intrinsic::ChanSend, Type::Bool, checked)
+            }
+            "__chan_new" => {
+                let Some(checked) = self.fixed_args(&callee.name, &[Type::I64], args, span, ctx)
+                else {
+                    return Some(error_expr(span));
+                };
+                (Intrinsic::ChanNew, Type::I64, checked)
+            }
+            "__chan_close" => {
+                let Some(checked) = self.fixed_args(&callee.name, &[Type::I64], args, span, ctx)
+                else {
+                    return Some(error_expr(span));
+                };
+                (Intrinsic::ChanClose, Type::Void, checked)
+            }
+            _ => return None,
+        };
+        Some(CheckedExpr {
+            kind: CheckedExprKind::Intrinsic { op, args: checked },
+            ty,
+            span,
+        })
+    }
+
     /// `serve_api(module, request)`: an `http.Response` for a call of one of
     /// the module's `pub fn`s (see std.http).
     fn check_serve_api(&mut self, args: &[ast::Expr], span: Span, ctx: &mut FnCtx) -> CheckedExpr {
@@ -538,6 +651,9 @@ impl<'a> Checker<'a> {
         }
         if callee.name == "__to_json" || callee.name == "__from_json" {
             return Some(self.check_json_intrinsic(callee, args, span, expected, ctx));
+        }
+        if callee.name.starts_with("__task_") || callee.name.starts_with("__chan_") {
+            return self.check_task_intrinsic(callee, args, span, expected, ctx);
         }
         let (op, params, ret) = intrinsic_function(&callee.name)?;
         let bytes = self.list_of(Type::U8);

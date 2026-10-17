@@ -142,6 +142,13 @@ impl Display for InstDisplay<'_> {
             InstKind::CallClosure(closure, args) => {
                 write!(f, "call.closure {closure}({})", list(args))
             }
+            InstKind::TaskSpawn(c) => write!(f, "task.spawn {c}"),
+            InstKind::TaskDetach(c) => write!(f, "task.detach {c}"),
+            InstKind::TaskJoin(t) => write!(f, "task.join {t}"),
+            InstKind::ChanNew(n) => write!(f, "chan.new {n}"),
+            InstKind::ChanSend(c, x) => write!(f, "chan.send {c}, {x}"),
+            InstKind::ChanReceive(c) => write!(f, "chan.receive {c}"),
+            InstKind::ChanClose(c) => write!(f, "chan.close {c}"),
             InstKind::Extract(v, index) => write!(f, "extract {v}.{index}"),
             InstKind::Insert(v, index, x) => write!(f, "insert {v}.{index}, {x}"),
             InstKind::Take(slot) => write!(f, "take {slot}"),
