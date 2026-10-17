@@ -190,20 +190,20 @@ Integer arithmetic is **not** a runtime call. The backend emits the operation to
 
 | Option | For | Against |
 |--------|-----|---------|
-| ARC (recommended) | Deterministic and predictable latency (important for services). No collector thread. Simple runtime. Easy C interop. In 0.1, values are immutable and there are no aggregate types, so **reference cycles are impossible** and ARC is complete. | Refcount traffic costs throughput, and atomic counts would be needed once threads exist. Cycles become possible once mutable aggregates are added, which would need weak references, a cycle collector, or language rules that prevent cycles. |
+| ARC (chosen) | Deterministic and predictable latency (important for services). No collector thread. Simple runtime. Easy C interop. Values never refer to themselves except through `Box`, `List` and `Map`, which hold copies, so **reference cycles are impossible** and ARC is complete. | Refcount traffic costs throughput; counts are atomic once a program starts a task. |
 | Tracing GC | Handles cycles. High allocation throughput. | Pause times, a much larger runtime, and harder FFI. It needs stack maps from the backend. It is the kind of elaborate runtime this phase should avoid. |
 | Ownership / borrowing | Zero runtime cost and strong guarantees. | It is a large language-design commitment, explicitly out of scope for the first implementation, and it would dominate the language's learning curve. |
 | Arenas / leak-everything | Trivial to implement. | Unbounded memory growth makes it unsuitable for long-running servers, a primary use case. |
 
 ARC keeps the runtime small, matches the use cases (long-running servers favor predictable memory over peak throughput), and leaves room to add escape analysis (stack allocation) or ownership-style optimizations later without changing language semantics. This decision should be revisited before aggregate types (structs, collections) are added, because that is when cycles become possible.
 
-**Safety claims.** Brim 0.1 programs cannot express pointers, manual memory management or out-of-bounds access, and the interpreter is written in safe Rust. That is a property of today's tiny language, **not a memory-safety guarantee** of the native implementation: native executables run generated code and a C runtime. The runtime is small and only handles strings whose lengths the generated code never changes, but FFI and richer runtime types will need their own explicit safety design.
+**Safety claims.** Brim programs cannot express pointers, manual memory management or unchecked indexing, and the interpreter is written in safe Rust. Native executables run generated code and a C runtime, so their memory safety rests on the backend and the runtime being correct: the differential tests run every program in both, with the runtime's memory checks on (`BRIM_RT_CHECK=1`). `extern fn` calls C code, which is outside these guarantees.
 
 ## Code generation (LLVM)
 
 `brim build` compiles a program to a native executable. The LLVM backend lives in `brim-codegen` behind the non-default Cargo feature `llvm`, so the frontend, its tests and the default CI jobs never need LLVM. Without the feature, `brim build` checks the program and reports the backend as unavailable (exit 4).
 
-**Supported toolchain.** LLVM 22, through `inkwell` 0.10 (its `llvm22-1` feature; LLVM 23 is not supported by `inkwell` yet). Linking uses the system C compiler: `$BRIM_CC`, else `$CC`, else `cc`. Tested on Linux (x86-64) and macOS (arm64) in CI. Windows is not supported yet: the runtime assumes a C11 compiler with the `cc` command-line interface.
+**Supported toolchain.** LLVM 22, through `inkwell` 0.10 (its `llvm22-1` feature; LLVM 23 is not supported by `inkwell` yet). Linking uses the system C compiler: `$BRIM_CC`, else `$CC`, else `cc` (`clang` on Windows). Tested on Linux (x86-64), macOS (arm64) and Windows (x86-64) in CI.
 
 **Lowering.** Each IR function is translated directly:
 
@@ -219,7 +219,7 @@ ARC keeps the runtime small, matches the use cases (long-running servers favor p
 
 **Testing.** With the feature enabled, `crates/brim-cli/tests/fixtures.rs` builds every `tests/integration` program and every example natively, in debug and release mode, and requires stdout, stderr and the exit code to be identical to the interpreter's. A separate CI job installs LLVM 22 and runs the whole test suite with `--features brim-cli/llvm`.
 
-**Not yet done:** debug information (DWARF), cross-compilation, Windows, and avoiding the C compiler by linking with the system linker directly.
+**Not yet done:** cross-compilation, and linking with the system linker directly instead of through the C compiler.
 
 ## Decisions and trade-offs
 

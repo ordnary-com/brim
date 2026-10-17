@@ -39,7 +39,7 @@ fn main() {
 }
 ```
 
-> **Brim is early (0.1).** The language is small. Programs run on a reference interpreter or compile to native executables with LLVM. Go is still Ordnary's production backend. See [Status](#status) for exactly what works.
+> **Brim is heading for 1.0.** Programs run on a reference interpreter or compile to native executables with LLVM, on Linux, macOS and Windows. Go is still Ordnary's production backend. See [Status](#status) for what 1.0 covers.
 
 ## Why Brim
 
@@ -50,16 +50,16 @@ Brim is our answer: keep what makes Go productive, and design out the parts that
 ### What keeps going wrong in Go
 
 **1. The backend and the frontend do not share a type system.**
-Every API type exists twice: as a Go struct with `json:"..."` tags, and as a hand-written TypeScript interface in Angular. Rename a field in Go and the Angular app still compiles; it only breaks at run time, in a browser. Brim's direction is to declare API types once and generate the TypeScript types for Angular from them, so a breaking change becomes a compile error on both sides.
+Every API type exists twice: as a Go struct with `json:"..."` tags, and as a hand-written TypeScript interface in Angular. Rename a field in Go and the Angular app still compiles; it only breaks at run time, in a browser. In Brim, API types are declared once: `brim gen ts --angular` generates the TypeScript types and an Angular client from them, so a breaking change becomes a compile error on both sides.
 
 **2. Errors are easy to ignore.**
-`if err != nil { return err }` appears everywhere, and `result, _ := doSomething()` silently throws an error away. Nothing forces the caller to look at it. Brim will treat errors as values the compiler makes you handle, with short syntax for passing them up.
+`if err != nil { return err }` appears everywhere, and `result, _ := doSomething()` silently throws an error away. Nothing forces the caller to look at it. In Brim, errors are `Result` values the compiler makes you handle, and `?` passes them up.
 
 **3. `nil` is everywhere.**
-Nil pointer dereferences, writes to nil maps, and the "typed nil inside an interface is not equal to nil" trap are all run-time panics in Go. Brim has no null value at all: absence will be expressed with an explicit optional type that the compiler checks.
+Nil pointer dereferences, writes to nil maps, and the "typed nil inside an interface is not equal to nil" trap are all run-time panics in Go. Brim has no null value at all: absence is an `Option`, which the compiler checks.
 
 **4. No real enums.**
-Go has `iota` constants, not enums. A `switch` over them is never checked for missing cases, and any integer can sneak in as a "status". Brim plans proper enums (sum types) with exhaustive `match`: add a new case and the compiler lists every place that needs to handle it.
+Go has `iota` constants, not enums. A `switch` over them is never checked for missing cases, and any integer can sneak in as a "status". Brim has enums (sum types) with exhaustive `match`: add a new case and the compiler lists every place that needs to handle it.
 
 **5. Integer overflow is silent.**
 In Go, `math.MaxInt64 + 1` quietly wraps around to a large negative number. Brim checks every integer operation and stops with an error that points at the exact expression:
@@ -99,13 +99,14 @@ error[E0218]: cannot assign to immutable variable `count`
 | Integer overflow | wraps silently | stops with a located error | **available** |
 | Variables | mutable by default | immutable by default, `let mut` to opt in | **available** |
 | Uninitialised values | implicit zero values | every variable is initialised explicitly | **available** |
-| Null | `nil` pointers, maps, interfaces | no null value | **available** (no pointers yet); optional type **planned** |
+| Null | `nil` pointers, maps, interfaces | no null value; `Option[T]` | **available** |
 | Unused code | build error | warning | **available** |
 | Compiler errors | short messages | error codes, excerpts, suggestions | **available** |
-| Enums | `iota` constants | sum types with exhaustive `match` | planned |
-| Error handling | `if err != nil`, easy to ignore | errors as values the compiler enforces | planned (design open) |
-| API types shared with Angular | written twice, by hand | declared once, TypeScript generated | planned |
-| Native single-binary deploys | yes | yes | **available** (LLVM, Linux and macOS) |
+| Enums | `iota` constants | sum types with exhaustive `match` | **available** |
+| Error handling | `if err != nil`, easy to ignore | `Result` values and `?`, enforced by the compiler | **available** |
+| API types shared with Angular | written twice, by hand | declared once, TypeScript and an Angular client generated | **available** |
+| Concurrency | goroutines with shared memory, data races possible | tasks and channels, no shared changeable memory | **available** |
+| Native single-binary deploys | yes | yes | **available** (LLVM; Linux, macOS, Windows) |
 
 ### What we keep from Go
 
@@ -113,33 +114,16 @@ Fast builds, a small language you can learn in a day, readable code without clev
 
 ## Status
 
-Brim is at **version 0.1**. It is a working foundation, **not ready for production use**.
+Brim is heading for **1.0**: the language and its standard library are complete for backend services and command-line tools, and from 1.0 they are stable (see [Releasing](docs/releasing.md#stability)).
 
-**Works today**
+- **Language:** structs, enums with exhaustive `match`, generics, traits, closures, tuples, `Option` and `Result` with `?`, lists, maps and sets with copy-on-write value semantics, `i64`, `i32`, `u8`, `u64`, `f64`, checked arithmetic, f-strings, modules with `pub`. The [specification](docs/language-spec.md) describes all of it.
+- **Concurrency:** tasks on threads with channels (`std.task`), without shared changeable memory.
+- **Standard library:** files, processes, time, logging, random numbers, TCP, an HTTP/1.1 server and client (HTTPS through the system), JSON with typed `encode`/`decode`, PostgreSQL, hashes and base64.
+- **Tools:** one `brim` command to run, check, build, test, format, document (`brim doc`), generate TypeScript and Angular clients (`brim gen ts`), and manage packages (`brim publish`, workspaces, `brim.lock`); a language server and packages for 13 editors (see `editors/`).
+- **Backends:** a reference interpreter, and native executables through LLVM 22 on Linux, macOS and Windows, with debug information for lldb and gdb. Both behave the same; the tests compare them on every program.
+- **Packages:** a registry at [registry.brimlang.com](https://registry.brimlang.com), and dependencies from directories and git.
 
-- Functions with typed parameters and return types, `main` as entry point
-- Structs with value semantics: `struct Point { x: i64, y: i64 }`, literals, field access and field assignment
-- Enums with payloads and exhaustive `match`; generic functions, structs and enums; `Option[T]` and `Result[T, E]` with the `?` operator
-- `let` and `let mut`, assignment and compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`)
-- `if` / `else` / `else if`, `while` with `break` and `continue`
-- `i64`, `f64`, `bool`, `string`; arithmetic, comparison and logical operators; string concatenation and equality
-- `List[T]` and `Map[K, V]` with indexing and methods, and `for` loops over lists and ranges
-- Methods in `impl` blocks, including `mut self` methods that change the caller's value
-- A standard library for command-line tools: string methods, `read_line`, `read_file`, `write_file`, `args`, `env`, `exit`
-- Networking for backend services: `std.net` (TCP), `std.http` (HTTP/1.1 server and client) and `std.json`
-- Programs of several files: modules with `import` and `pub`; dependencies on other packages from a directory or git repository, locked in `brim.lock`
-- Builtins `print` and `to_string`, and `assert`/`assert_eq` for tests: `brim test` runs every `fn test_...()`
-- Full static type checking, return checking on all paths, and detailed diagnostics
-- Editor support: `brim lsp` (diagnostics, completion, go to definition, references, rename, hover, signature help, quick fixes, formatting, outline) and packages for VS Code, Neovim, Vim, Helix, Zed, Emacs, Sublime Text, JetBrains IDEs, Kate, Kakoune, nano, micro and Notepad++ (see `editors/`)
-- `brim build` (native executables via LLVM 22, opt-in at compile time), `brim run` (reference interpreter), `brim check`, `brim test`, `brim fmt`, `brim gen ts` (TypeScript types for a web frontend), `brim.toml` projects created with `brim new`
-
-**Not yet**
-
-- Debug information and Windows builds for native executables
-- Traits (interfaces), networking and HTTP, closures, concurrency
-- A package registry; completion in the language server
-
-The [roadmap](docs/roadmap.md) lists the milestones in order.
+Not in 1.0: the items in [section 12 of the specification](docs/language-spec.md#12-not-in-10), TLS for `std.postgres` and HTTP servers (put a proxy in front), and cross-compilation. The [roadmap](docs/roadmap.md) lists what comes next.
 
 ## Getting started
 

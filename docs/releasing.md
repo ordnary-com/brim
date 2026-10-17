@@ -1,24 +1,64 @@
 # Releasing
 
-Brim follows [Semantic Versioning](https://semver.org/) once it reaches
-1.0. Before 1.0, a minor version (0.x.0) may change the language or the
-command line; a patch version (0.x.y) only fixes bugs.
+Brim follows [Semantic Versioning](https://semver.org/) from 1.0. A minor
+version (1.x.0) adds features; a patch version (1.x.y) only fixes bugs.
+Nothing in 1.x breaks what the next section calls stable. Before 1.0, a
+minor version (0.x.0) could change anything.
 
 ## Stability
 
-- **Editions.** A program declares its edition in `brim.toml`
-  (`edition = "2026"`). Within an edition, a program that compiles keeps
-  compiling and keeps its meaning in every later compiler, apart from fixes
-  to bugs that made the compiler accept wrong programs. Changes that break
-  programs wait for a new edition, and a compiler supports every earlier
-  edition. Before 1.0 this is a goal, not yet a promise.
-- **Diagnostic codes** (`E0201`, `R0001`, ...) keep their meaning; new
-  codes are added, old ones are not reused.
-- **Exit codes** of `brim` (see `error-handling.md`) are stable.
-- **`brim.lock`** has a format version; newer compilers read older lock
-  files.
-- Not stable: the text of messages, the IR text form, the runtime ABI
-  between the compiler and its C runtime, and the Rust crates' APIs.
+These are stable from 1.0, for every 1.x release:
+
+- **The language**, per edition (below), as `docs/language-spec.md`
+  describes it.
+- **The standard library**: the `pub` items of the `std` modules, the
+  builtins and the prelude, with their behaviour. New items, methods and
+  modules may be added. A program's own names win over the prelude's, and
+  built-in types cannot get methods in programs, so additions do not clash
+  with existing code.
+- **The command line**: the commands and options of `brim` and their
+  meaning, and its exit codes (see `error-handling.md`).
+- **`brim.toml`** and **`brim.lock`**: newer compilers read every earlier
+  manifest and lock file.
+- **Diagnostic codes** (`E0201`, `W0003`, `R0001`, `M0014`, ...) keep their
+  meaning; new codes are added, old ones are not reused.
+- **The registry protocol**, version 1 (`docs/registry.md`).
+- **Behaviour.** A program prints the same and exits the same way with
+  every 1.x compiler, in the interpreter and in native code. The exceptions
+  are the order in which tasks run, and so the order of their output, and
+  messages: see below.
+
+Not stable: the text of messages (diagnostics, run-time errors and error
+strings such as `connection refused` are meant for people and may become
+clearer), new warnings, performance, the IR text form, the runtime ABI
+between the compiler and its C runtime, and the Rust crates' APIs.
+
+Fixing a bug may make the compiler reject a program it wrongly accepted,
+or stop a program that relied on a wrong result. Such fixes are listed
+under **Fixed** in the changelog, and where it is possible the compiler
+warns in an earlier release first.
+
+## Editions
+
+A package declares its edition in `brim.toml` (`edition = "2026"`). 1.0
+has one edition, `2026`.
+
+- Within an edition, a program that compiles keeps compiling and keeps its
+  meaning in every later compiler.
+- Changes that would break programs, such as a new keyword or a different
+  meaning for existing code, wait for a new edition. Editions are named
+  after their year and come only when such a change is worth it, at most
+  once every three years.
+- Every compiler supports every earlier edition, so a package moves to a
+  new edition when its authors choose, not when they update `brim`.
+- Packages of different editions work together in one program: an edition
+  changes how a package's source is read, not its types and functions as
+  other packages see them.
+- A new edition comes with a migration guide, and with an automatic
+  migration in `brim fmt` where the change allows one.
+- The reserved words (`async`, `await`, `type`, `use`) are already
+  unavailable as names, so features that use them can arrive in a 1.x
+  release without a new edition.
 
 ## Release binaries
 

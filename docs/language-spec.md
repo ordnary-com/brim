@@ -1,13 +1,13 @@
 # Brim Language Specification
 
-**Version:** 0.1 (draft), edition `2026`
-**Status:** describes exactly what the reference compiler in this repository accepts. Anything not described here is not part of the language yet. Open design questions are listed in [section 11](#11-open-design-questions).
+**Version:** 1.0, edition `2026`
+**Status:** describes exactly what the reference compiler in this repository accepts. Anything not described here is not part of the language. The design decisions behind it are in [section 11](#11-design-decisions), and what 1.0 leaves out in [section 12](#12-not-in-10).
 
 This document is normative for the language. The implementation lives in `crates/`, and where the two disagree, that is a bug in one of them.
 
 ## 1. Overview
 
-Brim is a statically typed, compiled, general-purpose language from Ordnary, aimed at backend services, APIs, CLI tools and developer tooling. Version 0.1 is a deliberately small core: functions, typed variables (immutable unless declared `mut`), integers, booleans, strings, `if`/`else`, `while` loops, and the builtins `print` and `to_string`.
+Brim is a statically typed, compiled, general-purpose language from Ordnary, aimed at backend services, APIs, CLI tools and developer tooling. Its values are values: structs, enums, lists, maps and sets are copied on assignment (cheaply, with copy-on-write), there is no null (`Option`) and there are no exceptions (`Result` and `?`), `match` must cover every case, and integer overflow is an error rather than a wrap. Programs run in an interpreter and compile to native code through LLVM, with the same behaviour. Generics, traits, closures, modules, packages and tasks (section 9.7) are part of the language; section 10 lists the builtins and the standard library.
 
 ```brim
 fn fizzbuzz(n: i64) -> string {
@@ -52,7 +52,7 @@ letter     = "A".."Z" | "a".."z" ;
 digit      = "0".."9" ;
 ```
 
-Identifiers are ASCII-only in 0.1. Identifiers are case-sensitive. A word that is a keyword or a reserved word is never an identifier.
+Identifiers are ASCII-only and case-sensitive. A word that is a keyword or a reserved word is never an identifier.
 
 ### 3.3 Keywords
 
@@ -130,7 +130,7 @@ The grammar below uses EBNF. `NEWLINE` is a newline token; `EOF` is the end of i
 
 ```ebnf
 program     = { separator } { ( import | item ) { separator } } EOF ;
-import      = [ "pub" ] "import" identifier { "." identifier } [ "." "{" identifier { "," identifier } [ "," ] "}" | "as" identifier ] ;
+import      = [ "pub" ] "import" path [ "." "{" identifier { "," identifier } [ "," ] "}" | "as" identifier ] ;
 item        = [ "pub" ] ( function | extern_fn | struct | enum | trait | const ) | impl ;
 extern_fn   = "extern" "fn" identifier "(" [ param { "," param } [ "," ] ] ")" [ "->" type ] ;
 impl        = "impl" [ path "for" ] identifier [ type_params ] "{" { separator } { [ "pub" ] function { separator } } "}" ;
@@ -138,6 +138,7 @@ trait       = "trait" identifier "{" { separator } { trait_fn { separator } } "}
 trait_fn    = "fn" identifier "(" "self" { "," param } [ "," ] ")" [ "->" type ] ;
 const       = "const" identifier [ ":" type ] "=" expression ;
 separator   = NEWLINE | ";" ;
+path        = identifier { "." identifier } ;
 
 struct      = "struct" identifier [ type_params ] "{" { field_sep } [ field { field_sep { field_sep } field } ] { field_sep } "}" ;
 field       = [ "pub" ] identifier ":" type ;
@@ -146,32 +147,37 @@ field_sep   = NEWLINE | ";" | "," ;
 enum        = "enum" identifier [ type_params ] "{" { field_sep } [ variant { field_sep { field_sep } variant } ] { field_sep } "}" ;
 variant     = identifier [ "(" type { "," type } [ "," ] ")" ] ;
 
-type_params = "[" identifier { "," identifier } [ "," ] "]" ;
+type_params = "[" type_param { "," type_param } [ "," ] "]" ;
+type_param  = identifier [ ":" path { "+" path } ] ;
 
 function    = "fn" identifier [ type_params ] "(" [ params ] ")" [ "->" type ] block ;
 params      = ( receiver [ "," param { "," param } ] | param { "," param } ) [ "," ] ;
 receiver    = [ "mut" ] "self" ;
 param       = identifier ":" type ;
-type        = identifier { "." identifier } [ "[" type { "," type } [ "," ] "]" ] ;
+type        = path [ "[" type { "," type } [ "," ] "]" ]
+            | "(" type "," type { "," type } [ "," ] ")"                 (* a tuple *)
+            | "fn" "(" [ type { "," type } [ "," ] ] ")" [ "->" type ] ;  (* a function *)
 
 block       = "{" { separator } [ statement { terminator statement } ] { separator } "}" ;
 terminator  = separator { separator } ;     (* see 6.1; "}" also ends a statement *)
 
-statement   = let_stmt | assign_stmt | if_stmt | while_stmt | for_stmt | match_stmt
+statement   = let_stmt | assign_stmt | if_stmt | while_stmt | loop_stmt | for_stmt | match_stmt
             | "break" | "continue" | return_stmt | block | expr_stmt ;
 let_stmt    = "let" [ "mut" ] ( identifier [ ":" type ] | tuple_pat ) "=" expression ;
 assign_stmt = place assign_op expression ;
-place       = identifier { "." identifier | "[" expression "]" } ;
+place       = identifier { "." ( identifier | integer_literal ) | "[" expression "]" } ;
 assign_op   = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
 if_stmt     = "if" expression block [ "else" ( if_stmt | block ) ] ;
 while_stmt  = "while" expression block ;
+loop_stmt   = "loop" block ;
 for_stmt    = "for" identifier "in" expression [ ".." expression ] block ;
 match_stmt  = "match" expression "{" { arm_sep } [ arm { arm_sep { arm_sep } arm } ] { arm_sep } "}" ;
 arm         = pattern [ "if" expression ] "=>" ( block | statement ) ;
 arm_sep     = NEWLINE | ";" | "," ;
 pattern     = single_pat { "|" single_pat } ;
-single_pat  = "_" | [ "-" ] integer_literal | string_literal | "true" | "false"
+single_pat  = "_" | [ "-" ] integer_literal | string_literal | "true" | "false" | tuple_pat
             | [ identifier "." ] identifier [ "(" pattern { "," pattern } [ "," ] ")" ] ;
+tuple_pat   = "(" pattern "," pattern { "," pattern } [ "," ] ")" ;
 return_stmt = "return" [ expression ] ;
 expr_stmt   = expression ;
 
@@ -183,16 +189,18 @@ cmp_expr    = add_expr [ ( "<" | "<=" | ">" | ">=" ) add_expr ] ;
 add_expr    = mul_expr { ( "+" | "-" ) mul_expr } ;
 mul_expr    = unary { ( "*" | "/" | "%" ) unary } ;
 unary       = ( "-" | "!" ) unary | postfix ;
-postfix     = primary { call | "." identifier [ call ] | struct_lit | "[" expression "]" | "?" } ;
-call        = "(" [ args ] ")" ;                 (* only directly after a name *)
-struct_lit  = "{" [ field_init { "," field_init } [ "," ] ] "}" ;   (* only directly after a name *)
+postfix     = primary { call | "." ( identifier | integer_literal ) | struct_lit | "[" expression "]" | "?" } ;
+call        = "(" [ args ] ")" ;
+struct_lit  = "{" [ field_init { "," field_init } [ "," ] ] "}" ;   (* only directly after a type's name *)
 field_init  = identifier ":" expression ;
 args        = expression { "," expression } [ "," ] ;
-primary     = integer_literal | string_literal | "true" | "false"
-            | identifier | "(" expression ")" | list_lit | map_lit
+primary     = integer_literal | float_literal | string_literal | fstring | "true" | "false" | "self"
+            | identifier | "(" expression ")" | tuple_lit | list_lit | map_lit
             | if_stmt | match_stmt | fn_expr ;
+tuple_lit   = "(" expression "," expression { "," expression } [ "," ] ")" ;
 list_lit    = "[" [ expression { "," expression } [ "," ] ] "]" ;
 map_lit     = "[" ":" "]" | "[" expression ":" expression { "," expression ":" expression } [ "," ] "]" ;
+fn_expr     = "fn" "(" [ param { "," param } [ "," ] ] ")" [ "->" type ] block ;
 ```
 
 ### 4.1 Precedence and associativity
@@ -214,10 +222,10 @@ Comparison operators at the same level cannot be chained: `a < b < c` and `a == 
 
 ### 4.2 Restrictions enforced by the parser
 
-- Only function and struct declarations may appear at the top level, and structs cannot be declared inside functions (`E0103`).
+- Only imports and items may appear at the top level; a `let` there is `E0103` (a constant is a `const`). Items other than functions (`struct`, `enum`, `trait`, `impl`, `const`) cannot be declared inside functions (`E0103`).
 - In the condition of an `if` or `while`, `Name {` starts the body, not a struct literal: write `if p == (Point { x: 0, y: 0 }) {`, with parentheses, to use a literal there.
-- A field access must start on the same line as the expression it applies to.
-- `let` requires a type annotation (`E0102`) and an initializer.
+- A line that starts with `.` continues the expression on the line above it (section 6.1).
+- `let` requires an initial value (`E0100`); parameters and fields require a type (`E0102`).
 - Only a variable or a field path starting at a variable (`p.from.x`) can be assigned to: `f() = 1` is error `E0104`.
 - The body of `if`, `else` and `while` must be a block in braces. `else` must be followed by `{` or `if`.
 - A call's callee is a function name, a variable or field holding a function value, or any expression of a function type: `f(1)`, `button.on_click(3)`, `make_adder(1)(2)`. Calling a value that is not a function is `E0107` (or `E0214` for a variable).
@@ -704,8 +712,8 @@ A function with a return type other than `void` must not be able to reach the en
 
 ## 7. Names and scopes
 
-- **Types**: the built-in types, `Option`, `Result`, `List`, `Map`, `Box`, and all structs and enums in the file, which are visible everywhere in the file. Type parameters are visible in their declaration.
-- **Functions** form one global namespace. All functions in the file are visible everywhere, including before their declaration, so mutual recursion works. Defining two functions with the same name is `E0202`. Defining a function with a builtin's name is `E0216`.
+- **Types**: the built-in types, `Option`, `Result`, `List`, `Map`, `Set`, `Box`, and the structs, enums and traits of the module, which are visible everywhere in the module, together with the types it imports (section 9.2). Type parameters are visible in their declaration.
+- **Functions and constants** of a module form one namespace, together with the items it imports by name. They are visible everywhere in the module, including before their declaration, so mutual recursion works. Defining two with the same name is `E0202`. Defining a function with a builtin's name is `E0216`.
 - **Variables** live in lexical scopes. A function's parameters and its body's top-level statements share one scope. Each nested block opens a new scope.
 - Declaring a variable twice in the same scope is `E0203`, and duplicate parameter names are `E0204`. A nested block may **shadow** an outer variable.
 - A `let` binding is visible from the statement after it until the end of its block. In `let x: i64 = x`, the `x` on the right refers to an outer `x`.
@@ -720,16 +728,16 @@ Operands are evaluated left to right. Function arguments are evaluated left to r
 
 | Operator            | Operand types              | Result   | Notes |
 |---------------------|----------------------------|----------|-------|
-| `+` `-` `*`         | `i64`, `i64`               | `i64`    | overflow is a run-time error |
-| `/`                 | `i64`, `i64`               | `i64`    | truncates toward zero; division by zero and `i64::MIN / -1` are run-time errors |
-| `%`                 | `i64`, `i64`               | `i64`    | result has the sign of the left operand; `% 0` is a run-time error |
+| `+` `-` `*`         | two integers of the same type (`i64`, `i32`, `u8`, `u64`) | that type | a result outside the type is a run-time error |
+| `/`                 | two integers of the same type | that type | truncates toward zero; division by zero and `i64::MIN / -1` are run-time errors |
+| `%`                 | two integers of the same type | that type | result has the sign of the left operand; `% 0` is a run-time error |
 | `+` `-` `*` `/`     | `f64`, `f64`               | `f64`    | IEEE 754: never a run-time error; `1.0 / 0.0` is `inf`, `0.0 / 0.0` is `NaN` |
 | `%`                 | `f64`, `f64`               | `f64`    | remainder with the sign of the left operand (like C's `fmod`) |
 | `+`                 | `string`, `string`         | `string` | concatenation |
-| `<` `<=` `>` `>=`   | two `i64`, two `f64` or two `string` | `bool`   | strings compare byte by byte; comparisons with `NaN` are false |
-| `==` `!=`           | two values of the same type: `i64`, `f64`, `bool`, `string`, or a struct, enum, list or map of such values | `bool` | strings compare by content; `NaN == NaN` is false and `NaN != NaN` true; other values compare structurally (section 5.8) |
+| `<` `<=` `>` `>=`   | two integers of the same type, two `f64`, two `string`, or two values of a type parameter bounded by `Ord` | `bool`   | strings compare byte by byte; comparisons with `NaN` are false |
+| `==` `!=`           | two values of the same type that implements `Eq`: numbers, `bool`, `string`, and structs, enums, tuples, lists, maps and sets of such values | `bool` | strings compare by content; `NaN == NaN` is false and `NaN != NaN` true; other values compare structurally (section 5.8) |
 | `&&` `\|\|`         | `bool`, `bool`             | `bool`   | short-circuit: the right side is evaluated only if needed |
-| unary `-`           | `i64` or `f64`             | same     | `-i64::MIN` is a run-time error |
+| unary `-`           | `i64`, `i32` or `f64`      | same     | `-i64::MIN` is a run-time error; `u8` and `u64` cannot be negated |
 | unary `!`           | `bool`                     | `bool`   | |
 
 Any other combination is error `E0209`; in particular `i64` and `f64` never mix (`1.5 * 2` is an error, `1.5 * 2.0` is not).
@@ -757,8 +765,14 @@ These stop the program immediately, after the output produced so far has been fl
 | `R0005` | a list index outside the list |
 | `R0006` | a map key that is not in the map |
 | `R0007` | a string slice outside the string or not on a character boundary |
+| `R0008` | a failed `assert` or `assert_eq` |
+| `R0009` | the step limit an embedder of the interpreter set (never in `brim run` or native executables) |
+| `R0010` | `to_int` of NaN or of a number outside the `i64` range |
+| `R0011` | a call to an `extern fn` in the interpreter |
+| `R0012` | `join` of a task that was already joined |
+| `R0013` | starting a task where there are no threads (the interpreter compiled to WebAssembly) |
 
-Integers never wrap silently.
+Integers never wrap silently. `docs/error-handling.md` lists every code with an example.
 
 ### 9.2 Modules
 
@@ -902,14 +916,10 @@ Builtins are always in scope and cannot be redefined.
 | `pow` | `pow(i64, i64) -> i64`, `pow(f64, f64) -> f64` | `a` to the power `b`. On integers a result outside `i64` is `R0001`, and a negative power divides, rounding toward zero (`pow(2, -1)` is 0, `pow(0, -1)` is `R0001`) |
 | `min`, `max` | `min[T: Ord](a: T, b: T) -> T` | from the prelude; `a` when the two are equal |
 | `clamp` | `clamp[T: Ord](x: T, low: T, high: T) -> T` | from the prelude: `min(max(x, low), high)` |
-
-The prelude also has the constants `PI` and `E` (`f64`). Its functions and constants can be used by name everywhere, unless a module defines its own with the same name. A program may also define its own `abs`, `sqrt`, `floor`, `ceil`, `round` or `pow`, which it then uses instead of the builtin; redefining other builtins is `E0216`.
 | `to_int` | `to_int(f64) -> i64`, `to_int(i32) -> i64`, `to_int(u8) -> i64`, `to_int(u64) -> i64` | rounds an `f64` toward zero; NaN and numbers outside the `i64` range are run-time error `R0010`; a `u64` above the `i64` range is `R0001` |
 | `to_i32`, `to_u8`, `to_u64` | `to_i32(x) -> i32` and so on, for any integer `x` | the same number in another integer type; `R0001` if it does not fit |
 | `string_from_bytes` | `string_from_bytes(List[u8]) -> Option[string]` | the text of UTF-8 bytes, or `None` if they are not valid UTF-8 |
 | `from_code_point` | `from_code_point(i64) -> Option[string]` | the character with a Unicode code point, or `None` for a surrogate or a number outside `0..=10FFFF` (hex) |
-
-The prelude's struct `StringBuilder` builds a string from pieces: `StringBuilder.new()`, `b.add(text)`, `b.add_line(text)`, `b.is_empty()` and `b.build()`. Joining with `+` in a loop copies the text so far every time; a builder joins once.
 | `read_line` | `read_line() -> Option[string]` | the next line of standard input without its line ending (`\n` or `\r\n`); `None` at the end of input |
 | `read_file` | `read_file(path: string) -> Result[string, string]` | a file's contents; `Err` with a message if it cannot be read or is not UTF-8 |
 | `write_file` | `write_file(path: string, text: string) -> Result[i64, string]` | creates or replaces a file; `Ok` with the number of bytes written |
@@ -918,6 +928,10 @@ The prelude's struct `StringBuilder` builds a string from pieces: `StringBuilder
 | `exit` | `exit(code: i64)` | ends the program with an exit code (its low 8 bits); a statement calling `exit` diverges |
 | `assert` | `assert(bool)` | stops the program with run-time error `R0008` if the condition is false |
 | `assert_eq` | `assert_eq(i64, i64)`, `assert_eq(bool, bool)`, `assert_eq(string, string)` | stops the program with `R0008` if the values differ; the message shows both |
+
+The prelude also has the constants `PI` and `E` (`f64`). Its functions and constants can be used by name everywhere, unless a module defines its own with the same name. A program may also define its own `abs`, `sqrt`, `floor`, `ceil`, `round` or `pow`, which it then uses instead of the builtin; redefining other builtins is `E0216`.
+
+The prelude's struct `StringBuilder` builds a string from pieces: `StringBuilder.new()`, `b.add(text)`, `b.add_line(text)`, `b.is_empty()` and `b.build()`. Joining with `+` in a loop copies the text so far every time; a builder joins once.
 
 An `f64` is written with the fewest digits that read back as exactly the same number: `0.1`, `0.30000000000000004`. Numbers from `0.00001` up to (not including) `1e16` are written as decimals, with `.0` when whole (`2.0`); others in scientific notation (`1e16`, `1.5e-7`). The special values are `NaN`, `inf` and `-inf`, and negative zero is `-0.0`.
 
@@ -979,34 +993,40 @@ The HTTP server handles a request at a time; a task per request (`task.detach`, 
 
 The standard library modules use builtins whose names start with `__` (`__net_listen`, ...). Programs cannot call them (`E0201`).
 
-## 11. Open design questions
+## 11. Design decisions
 
-These questions are not settled. The current behavior is a reversible default.
+The questions that were open before 1.0, and how 1.0 answers them. Each answer is part of the stable language (see `docs/releasing.md`); where 1.0 leaves something out, adding it later does not break programs written for 1.0.
 
-1. **More type inference.** `let` infers its type from the value. Inferring it from later uses (`let mut xs = []` followed by `xs.push(1)`) is not supported.
-2. **`if` as an expression.** `if` is a statement. Making it an expression (`let x: i64 = if c { 1 } else { 2 }`) is attractive but needs rules for blocks with values.
-3. **Integer types.** Only `i64` exists. Sized (`i32`, `u8`, ...) and pointer-sized types are needed for systems work. Literal typing rules depend on this.
-4. **Overflow semantics.** Checked arithmetic that traps is the current rule. Whether release builds keep the checks, and whether explicit wrapping operations are added, is open.
-5. **String model.** Strings are immutable, reference-counted UTF-8. Methods work on byte positions. Unicode-aware case conversion, grapheme handling and a byte type are undecided.
-6. **Error handling in the language.** Recoverable errors are `Result` values with `?` propagation. `?` wraps errors in a variant of the function's error enum. Open: a standard error type with context, and whether `main` may return a `Result`. Run-time errors (`R` codes) still abort. See `docs/error-handling.md`.
-7. **Statement termination.** Newline termination, with continuation after operators and before a line that starts with `.`, is the current rule.
-8. **`main` signature.** `main` takes no parameters and returns nothing; arguments come from `args()` and the exit code from `exit`. Returning a `Result` from `main` is undecided.
-9. **Unicode identifiers.** Identifiers are ASCII-only. Allowing Unicode (UAX #31) is possible later.
-10. **Modules.** Modules are files and `pub` controls visibility, of items and of fields; `pub import` re-exports items; dependencies add their modules under the package's name. Re-exporting whole modules is undecided; packages come from a registry with version requirements (`docs/registry.md`), directories or git.
-11. **Loop forms.** `while`, `loop` and `for` exist. Labeled `break` for nested loops and `for` over other collections are candidates.
-12. **Struct literals.** Field-shorthand literals (`Point { x, y }`) and default values are undecided. Ordering structs with `<` is not supported.
-13. **More patterns.** Patterns for struct fields, ranges (`1..5`) and binding a whole value while matching its parts (`x @ Some(_)`) are not supported yet.
-14. **More from traits.** Default method bodies, traits with static methods (`T.new()`), traits for built-in types, and trait objects (a list of values of different types that share a trait) are not supported yet.
+1. **Type inference.** `let` takes the type of its value. Types are not inferred from later uses (`let mut xs = []` followed by `xs.push(1)` needs `List[i64]`): a declaration says everything about the variable. Type arguments of calls and literals are inferred from arguments and the expected type (section 5.3).
+2. **`if` and `match` as values.** Both are expressions (section 6.4); at the start of a line they are statements.
+3. **Integer types.** `i64`, `i32`, `u8` and `u64` (section 5). `i64` is the default. More widths (`i8`, `i16`, `u16`, `u32`) may be added as new types.
+4. **Overflow.** Integer operations are checked in every build, debug and release, in the interpreter and in native code: a result that does not fit is `R0001`. Wrapping arithmetic, if it comes, will be functions with their own names, never a change to the operators.
+5. **Strings.** Immutable UTF-8 text, reference-counted. Positions and lengths count bytes (section 10.1); `chars`, `char_count` and `code_points` work on characters. Case conversion covers ASCII letters; full Unicode case mapping and grapheme clusters belong in a library.
+6. **Errors.** Expected failures are `Result` values, passed on with `?`, which converts between error enums (section 5.4). Bugs (overflow, an index out of range, a failed assertion) are run-time errors (`R` codes) that stop the program. There are no exceptions and no catching of run-time errors.
+7. **Statement termination.** A newline ends a statement, except after an operator, inside brackets and before a line that starts with `.` (section 6.1).
+8. **`main`.** `fn main()` takes nothing and returns nothing; arguments come from `args()` and the exit code from `exit`. A `main` returning `Result` may be added later.
+9. **Identifiers.** ASCII letters, digits and `_`. Unicode identifiers may be allowed later.
+10. **Modules.** A file is a module; items and fields are private unless `pub`; `pub import` re-exports named items. Packages come from the registry by version, from directories or from git (Appendix A).
+11. **Loops.** `while`, `loop` and `for` over lists, sets and ranges, with `break` and `continue` for the innermost loop. Labeled loops are not in 1.0.
+12. **Struct literals.** Every field is written out: `Point { x: x, y: y }`. Shorthand and default values are not in 1.0.
+13. **Patterns.** Literals, names, `_`, variants, tuples, `|` and guards, nested to any depth, checked for exhaustiveness (section 6.10). Struct patterns, ranges and `name @ pattern` are not in 1.0.
+14. **Traits.** Methods with `self`, bounds on type parameters, and the built-in traits `Eq`, `Show`, `Ord`, `Key` and `Data` (section 5.11). Default method bodies, static trait methods, traits for built-in types and trait objects are not in 1.0.
+15. **Memory.** Automatic reference counting with copy-on-write, for every value. Values cannot refer to themselves except through `Box`, `List` and `Map`, which hold copies, so there are no cycles to collect and no garbage collector.
+16. **Concurrency.** Tasks on threads, joined or detached, with channels between them (section 9.7). There is no shared changeable memory, so there are no data races; there is no `async`/`await`.
 
-## 12. Possible future features
+## 12. Not in 1.0
 
-These are explicitly **not** part of 0.1. Their keywords are reserved where applicable, and none of them should be assumed to work: `loop`, recursive enums, generics, modules and imports, collections, error handling, async/await, macros, reflection, an ownership or borrowing system, and FFI.
+These are not part of the language. The reserved words `async`, `await`, `type` and `use` keep room for some of them; using one is `E0101`.
 
-See `docs/roadmap.md` for the order in which these are planned.
+- Type aliases (`type`), and the items of section 11 that 1.0 leaves out: labeled loops, struct patterns, field shorthand, default method bodies, trait objects, a `main` that returns `Result`, Unicode identifiers.
+- `select` over several channels, `receive` with a timeout, and shared mutable state between tasks.
+- Macros, reflection, operator overloading, and an ownership or borrowing system.
+
+`docs/roadmap.md` says what comes after 1.0.
 
 ## Appendix A. The `brim.toml` manifest
 
-Brim projects are described by a `brim.toml` file. This is a **proposed format** defined by this project, not an established standard.
+Brim projects are described by a `brim.toml` file. Its format is part of the stable interface (see `docs/releasing.md`).
 
 ```toml
 [package]

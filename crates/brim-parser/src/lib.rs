@@ -446,7 +446,9 @@ impl Parser {
                         Diagnostic::error("variables cannot be declared outside a function")
                             .with_code("E0103")
                             .with_primary(token.span, "")
-                            .with_note("global variables and constants are not supported yet"),
+                            .with_help(
+                                "for a value every function can use, write `const NAME: T = value`",
+                            ),
                     );
                     self.bump();
                     self.recover_item();
