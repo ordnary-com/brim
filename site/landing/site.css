@@ -57,9 +57,9 @@ p code, li code { font: .85em var(--font-code); opacity: .8; margin: 0 2px; }
 .navbar .logo img { height: 30px; display: block; }
 
 .hero { position: relative; overflow: hidden; padding-bottom: var(--waves); text-align: center; }
-.hero .content { display: flex; align-items: center; justify-content: center; gap: calc(var(--gap) * 6); padding: calc(var(--gap) * 4) calc(var(--gap) * 2); }
-.hero-logo { width: 300px; flex-shrink: 0; }
-.hero-logo img { width: 100%; display: block; }
+.hero .content { display: flex; align-items: center; justify-content: center; gap: calc(var(--gap) * 5); padding: calc(var(--gap) * 4) calc(var(--gap) * 2); }
+.hero-image { width: 420px; flex-shrink: 0; }
+.hero-image img { width: 100%; height: auto; display: block; }
 .hero .text { font: 2.25rem/1.35 var(--font-title); max-width: 560px; text-align: left; }
 .hero .text b { font-weight: 700; }
 .button {
@@ -145,7 +145,7 @@ pre { scrollbar-color: #3a4a75 transparent; }
 
 @media (max-width: 860px) {
   .hero .content { flex-direction: column; gap: calc(var(--gap) * 3); }
-  .hero-logo { width: 200px; }
+  .hero-image { width: 300px; max-width: 100%; }
   .hero .text { text-align: center; font-size: 1.8rem; }
   .navbar .links { width: 100%; }
   .navbar .links a:first-child { margin-left: 0; }
