@@ -13,7 +13,7 @@
 //! [[package]]
 //! name = "router"
 //! version = "1.2.0"
-//! source = "registry+https://registry.ordnary.com"
+//! source = "registry+https://registry.brimlang.com"
 //! checksum = "9a1e..."
 //! ```
 

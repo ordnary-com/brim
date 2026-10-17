@@ -17,7 +17,7 @@ use brim_manifest::{Version, VersionReq};
 use serde::Deserialize;
 
 /// The registry used when `$BRIM_REGISTRY` is not set.
-pub const DEFAULT_REGISTRY: &str = "https://registry.ordnary.com";
+pub const DEFAULT_REGISTRY: &str = "https://registry.brimlang.com";
 
 /// The largest archive the registry accepts.
 pub const MAX_ARCHIVE: usize = 10 * 1024 * 1024;

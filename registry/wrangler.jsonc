@@ -7,6 +7,9 @@
     "enabled": true,
     "head_sampling_rate": 1
   },
+  "routes": [
+    { "pattern": "registry.brimlang.com", "custom_domain": true }
+  ],
   "r2_buckets": [
     {
       "binding": "ARCHIVES",
@@ -17,8 +20,7 @@
     {
       "binding": "DB",
       "database_name": "brim-registry",
-      // Placeholder. Set to the id printed by `wrangler d1 create brim-registry` at deploy time.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "ecc94d0f-2cb1-42a6-9846-972e2ada3ec8",
       "migrations_dir": "migrations"
     }
   ],
