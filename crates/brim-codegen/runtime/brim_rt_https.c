@@ -245,6 +245,8 @@ done:
     return result;
 }
 #else
+/* For `strtok_r` with a strict C11 compiler. */
+#define _POSIX_C_SOURCE 200809L
 #include <curl/curl.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -339,7 +341,10 @@ BrimStr *brim_rt_http_request(const BrimStr *method, const BrimStr *url, const B
     char *c_url = brim_rt_internal_c_string(url);
     char *c_headers = brim_rt_internal_c_string(headers);
     struct curl_slist *list = curl_slist_append(NULL, "Expect:");
-    for (char *line = strtok(c_headers, "\r\n"); line != NULL; line = strtok(NULL, "\r\n")) {
+    /* strtok_r: tasks make requests at the same time. */
+    char *rest = NULL;
+    for (char *line = strtok_r(c_headers, "\r\n", &rest); line != NULL;
+         line = strtok_r(NULL, "\r\n", &rest)) {
         list = curl_slist_append(list, line);
     }
     Bytes head = {0};

@@ -37,6 +37,7 @@ fn resolve_in(cwd: &Path, dir: &str, update: bool) -> Result<(Graph, Report), Fa
             home: cwd.join("home"),
             update,
             registry: None,
+            offline: false,
         },
     )
 }
@@ -309,6 +310,7 @@ fn resolve_with(cwd: &Path, registry: &str, update: bool) -> Result<(Graph, Repo
             home: cwd.join("home"),
             update,
             registry: Some(registry.to_string()),
+            offline: false,
         },
     )
 }
@@ -533,6 +535,7 @@ fn workspaces() {
         home: cwd.join("home"),
         update: false,
         registry: Some(reg.url()),
+        offline: false,
     };
     let (graphs, _) = resolve_workspace(Path::new("ws"), root_file, &members, &options).unwrap();
     let names =
@@ -580,4 +583,60 @@ fn workspaces() {
         failure.diagnostic.message,
         "two workspace members are named `api`"
     );
+}
+
+#[test]
+fn a_changed_version_is_not_believed() {
+    let cwd = scratch("changed");
+    let mut reg = TestRegistry::new(cwd.join("registry"));
+    reg.add("router", "1.0.0", &[])
+        .add("json_extra", "0.3.1", &[]);
+    write_package(&cwd.join("app"), "app", "router = \"1.0\"\n");
+    resolve_with(&cwd, &reg.url(), false).unwrap();
+    let lock = fs::read_to_string(cwd.join("app/brim.lock")).unwrap();
+
+    // The registry swaps 1.0.0 for other contents, and the cache is empty
+    // (a new machine, CI).
+    reg.index.remove("router");
+    reg.add("router", "1.0.0", &[("json_extra", "^0.3")]);
+    fs::remove_dir_all(cwd.join("home")).unwrap();
+    let failure = resolve_with(&cwd, &reg.url(), false).unwrap_err();
+    assert_eq!(failure.diagnostic.code.map(|c| c.0), Some("M0015"));
+    assert_eq!(fs::read_to_string(cwd.join("app/brim.lock")).unwrap(), lock);
+
+    // `brim update` records the new archive.
+    resolve_with(&cwd, &reg.url(), true).unwrap();
+    assert_ne!(fs::read_to_string(cwd.join("app/brim.lock")).unwrap(), lock);
+}
+
+#[test]
+fn offline_resolution_fetches_nothing() {
+    let cwd = scratch("offline");
+    let mut reg = TestRegistry::new(cwd.join("registry"));
+    reg.add("router", "1.0.0", &[]);
+    write_package(&cwd.join("app"), "app", "router = \"1.0\"\n");
+    let path = Path::new("app").join("brim.toml");
+    let file = SourceFile::new(
+        path.display().to_string(),
+        fs::read_to_string(cwd.join(&path)).unwrap(),
+    );
+    let manifest = brim_manifest::parse(file.text()).unwrap();
+    let options = Options {
+        cwd: cwd.clone(),
+        home: cwd.join("home"),
+        update: false,
+        registry: Some(reg.url()),
+        offline: true,
+    };
+    let failure = resolve(Path::new("app"), manifest, file, &options).unwrap_err();
+    assert!(
+        failure
+            .diagnostic
+            .notes
+            .iter()
+            .any(|n| n.contains("not fetched yet")),
+        "{failure:?}"
+    );
+    assert!(!cwd.join("home").exists());
+    assert!(!cwd.join("app/brim.lock").exists());
 }

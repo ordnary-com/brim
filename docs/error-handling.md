@@ -54,7 +54,7 @@ Guidelines for writing diagnostics:
 | Code  | Meaning |
 |-------|---------|
 | E0100 | Unexpected token ("expected X, found Y"), including unclosed blocks and parentheses |
-| E0101 | Reserved keyword used (`for`, `trait`, `impl`, ...): the feature is not supported yet |
+| E0101 | A reserved word (`async`, `await`, `type`, `use`) used as a name |
 | E0102 | Missing type annotation on a parameter or a struct field |
 | E0103 | Something other than a declaration at the top level, or a struct, enum or `const` declared inside a function |
 | E0104 | Invalid assignment target, or a list method that changes the list called on something other than a variable (only variables, their fields and list elements can be changed) |
@@ -148,6 +148,7 @@ Guidelines for writing diagnostics:
 | M0012 | Invalid workspace member |
 | M0013 | A registry package that does not exist, or whose archive does not match |
 | M0014 | No version of a registry package meets every requirement |
+| M0015 | The registry's checksum of a locked version differs from `brim.lock`: a published version never changes, so the registry, a mirror or the network may be compromised (`brim update` records the new archive if it is trusted) |
 
 ### Run-time errors (`brim-runtime`)
 
@@ -232,6 +233,6 @@ Brim has two kinds of failures:
   }
   ```
 
-Not designed yet: a standard error type with context, and returning a `Result` from `main`.
+Not in 1.0: a standard error type with context, and returning a `Result` from `main` (see section 11 of the specification).
 
 Brim has no exceptions with stack unwinding: they complicate the native runtime and make control flow invisible.

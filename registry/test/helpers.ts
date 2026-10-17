@@ -85,12 +85,19 @@ export async function sha256(bytes: Uint8Array): Promise<string> {
 }
 
 /** A valid archive for `name`@`version`. */
-export function packageArchive(name: string, version: string, extra: TarEntry[] = []): Promise<Uint8Array> {
+export function packageArchive(
+  name: string,
+  version: string,
+  extra: TarEntry[] = [],
+  dependencies: Record<string, string> = {},
+): Promise<Uint8Array> {
   const root = `${name}-${version}`;
+  const deps = Object.entries(dependencies);
+  const depText = deps.length ? `\n[dependencies]\n${deps.map(([d, r]) => `${d} = "${r}"\n`).join("")}` : "";
   return gzip(
     tar([
       { path: `${root}/`, type: "5" },
-      { path: `${root}/brim.toml`, data: `[package]\nname = "${name}"\nversion = "${version}"\nedition = "2026"\n` },
+      { path: `${root}/brim.toml`, data: `[package]\nname = "${name}"\nversion = "${version}"\nedition = "2026"\n${depText}` },
       { path: `${root}/src/`, type: "5" },
       { path: `${root}/src/lib.brim`, data: "pub fn hello() -> Int { 42 }\n" },
       ...extra,
@@ -108,12 +115,16 @@ export function frame(metadata: unknown, archive: Uint8Array): Uint8Array {
   return concat([head, meta, mid, archive]);
 }
 
+/** A token for `user`, also when the user exists already. */
 export async function createToken(user: string): Promise<string> {
-  const res = await call("/api/v1/admin/tokens", {
-    method: "POST",
-    headers: { authorization: `Bearer ${ADMIN_TOKEN}`, "content-type": "application/json" },
-    body: JSON.stringify({ user }),
-  });
+  const post = (existing: boolean) =>
+    call("/api/v1/admin/tokens", {
+      method: "POST",
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ user, existing }),
+    });
+  let res = await post(false);
+  if (res.status === 409) res = await post(true);
   if (res.status !== 200) throw new Error(`token creation failed: ${res.status} ${await res.text()}`);
   return ((await res.json()) as { token: string }).token;
 }
@@ -126,7 +137,7 @@ export interface PublishOptions {
 }
 
 export async function publish(token: string, name: string, version: string, opts: PublishOptions = {}): Promise<Response> {
-  const archive = opts.archive ?? (await packageArchive(name, version));
+  const archive = opts.archive ?? (await packageArchive(name, version, [], opts.dependencies ?? {}));
   const metadata = {
     name,
     version,

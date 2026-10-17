@@ -127,6 +127,10 @@ fn from_lock(
             return None;
         }
         let dir = registry.source_dir(&options.home, &name, &version);
+        // Only an archive with the locked checksum counts as unpacked.
+        if crate::registry::cached_checksum(&dir).as_deref() != Some(checksum.as_str()) {
+            return None;
+        }
         let text = std::fs::read_to_string(dir.join(brim_manifest::MANIFEST_FILE)).ok()?;
         let manifest = brim_manifest::parse(&text).ok()?;
         let mut dependencies = Vec::new();
@@ -239,10 +243,23 @@ fn pick(
         checksum: v.checksum.clone(),
         dependencies: v.dependencies.clone(),
     };
-    // A locked version stays even when it was yanked later.
-    if let Some((version, _)) = &locked
+    // A locked version stays even when it was yanked later, and it must be
+    // the very archive the lock file recorded: a registry or mirror that
+    // changed a published version is not believed.
+    if let Some((version, checksum)) = &locked
         && let Some(v) = versions.iter().find(|v| v.version == *version && fits(v))
     {
+        if !checksum.is_empty() && v.checksum != *checksum {
+            let diag = Diagnostic::error(format!(
+                "the registry changed `{name}` {version} since brim.lock recorded it"
+            ))
+            .with_code("M0015")
+            .with_note(format!("brim.lock has the checksum {checksum}"))
+            .with_note(format!("the registry now says {}", v.checksum))
+            .with_note("a published version never changes: the registry, a mirror or the network may be compromised")
+            .with_help("if you trust the new archive, run `brim update` to record it");
+            return Err(failure(diag, reqs, packages));
+        }
         return Ok(to_pick(v));
     }
     if let Some(v) = versions.iter().rev().find(|v| !v.yanked && fits(v)) {

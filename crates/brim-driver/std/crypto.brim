@@ -61,11 +61,11 @@ pub fn equal(a: List[u8], b: List[u8]) -> bool {
     if a.len() != b.len() {
         return false
     }
+    // Adds up every difference without a branch on the bytes, so the time
+    // does not depend on where they differ.
     let mut diff = 0
     for i in 0..a.len() {
-        if a[i] != b[i] {
-            diff += 1
-        }
+        diff += abs(to_int(a[i]) - to_int(b[i]))
     }
     return diff == 0
 }

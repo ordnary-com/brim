@@ -23,7 +23,9 @@ relative to it and have no trailing slash.
   packages are imported by name, so names on the registry may not contain `-`
   (`brim_manifest::valid_import_name`). Names are compared exactly; the
   registry also refuses a new name that equals an existing one after `_` is
-  removed, so `httprouter` and `http_router` cannot both exist.
+  removed, so `httprouter` and `http_router` cannot both exist. The names
+  `std`, `core`, `brim`, `brimlang`, `stdlib`, `prelude`, `registry`,
+  `ordnary`, `test` and `tests` are reserved.
 - Versions are semantic versions, `MAJOR.MINOR.PATCH` with an optional
   `-pre.release` part. Build metadata (`+...`) is not allowed.
 - A published version never changes and is never deleted. It can be yanked:
@@ -122,19 +124,28 @@ The metadata:
 }
 ```
 
-`description`, `license` and `repository` may be absent or `null`.
+`description` (at most 1000 characters), `license` (128) and `repository`
+(512, an `http` or `https` URL) may be absent or `null`. A package has at
+most 100 dependencies, each requirement at most 128 characters.
 
 Without a valid token the registry answers `401`. It checks, and answers
 `400` (or `403`, `409`, `413`) with an error otherwise:
 
 - the body framing, and that the archive's SHA-256 is `checksum`;
 - the name, the version (no build metadata) and the edition (`2026`);
-- that the archive is at most 10 MiB;
+- that the archive is at most 10 MiB and unpacks to at most 128 MiB, holds
+  only regular files and directories under `{name}-{version}/` with paths
+  every system can unpack (no `..`, `:`, `<>"|?*`, control characters,
+  trailing dots or spaces, Windows device names such as `CON`, or two paths
+  that differ only in case);
+- that its `brim.toml` is as `brim publish` writes it, with the same name,
+  version, edition and dependencies as the metadata;
 - that every dependency name exists on the registry and every requirement
   is well-formed;
 - that the name is new (it then belongs to the token's user) or belongs to
   the token's user (`403` otherwise);
-- that the version does not exist yet (`409`).
+- that the version does not exist yet (`409`); an archive once stored is
+  never written again.
 
 Success: `200` with `{"ok": true}`.
 
@@ -164,10 +175,23 @@ when `q` is empty), newest first:
 ### `POST /api/v1/admin/tokens`
 
 `Authorization: Bearer <ADMIN_TOKEN>` (a secret of the service). Body
-`{"user": "<name>"}`. Creates an API token for that user (and the user, if
-new): `200` with `{"token": "brim_<random>"}`. The registry stores only the
-token's SHA-256. Until accounts come from Ordnary's identity service, this is
-how publishers get a token.
+`{"user": "<name>"}` creates a user and an API token for them: `200` with
+`{"token": "brim_<random>"}`. For a user that exists the body must say
+`{"user": "<name>", "existing": true}` (`409` otherwise, `404` when
+`existing` names no user), so a typo cannot hand someone's packages to
+another person. The registry stores only the token's SHA-256. Until
+accounts come from Ordnary's identity service, this is how publishers get a
+token.
+
+### `DELETE /api/v1/admin/tokens`
+
+`Authorization: Bearer <ADMIN_TOKEN>`. Body `{"user": "<name>"}`. Revokes
+every token of the user: `200` with `{"revoked": <count>}`.
+
+### `DELETE /api/v1/me/token`
+
+`Authorization: Bearer <token>`. Revokes that token: `200` with
+`{"ok": true}`, or `401`.
 
 ## On the client
 

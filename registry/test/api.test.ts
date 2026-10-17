@@ -392,3 +392,77 @@ describe("pages", () => {
     }
   });
 });
+
+describe("hardening", () => {
+  const admin = (method: string, body: unknown) =>
+    call("/api/v1/admin/tokens", {
+      method,
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("gives an existing user another token only when asked", async () => {
+    await createToken("carol");
+    const typo = await admin("POST", { user: "carol" });
+    expect(typo.status).toBe(409);
+    const asked = await admin("POST", { user: "carol", existing: true });
+    expect(asked.status).toBe(200);
+    const unknown = await admin("POST", { user: "nobody_here", existing: true });
+    expect(unknown.status).toBe(404);
+  });
+
+  it("revokes tokens", async () => {
+    const token = await createToken("dave");
+    const me = () => call("/api/v1/me", { headers: { authorization: `Bearer ${token}` } });
+    expect((await me()).status).toBe(200);
+    const own = await call("/api/v1/me/token", { method: "DELETE", headers: { authorization: `Bearer ${token}` } });
+    expect(own.status).toBe(200);
+    expect((await me()).status).toBe(401);
+
+    const other = await createToken("dave");
+    const all = await admin("DELETE", { user: "dave" });
+    expect(((await all.json()) as { revoked: number }).revoked).toBeGreaterThanOrEqual(1);
+    const res = await call("/api/v1/me", { headers: { authorization: `Bearer ${other}` } });
+    expect(res.status).toBe(401);
+  });
+
+  it("refuses reserved names", async () => {
+    const token = await createToken("erin");
+    const res = await publish(token, "std", "1.0.0");
+    expect(res.status).toBe(400);
+    expect(await errorOf(res)).toMatch(/reserved/);
+  });
+
+  it("limits the metadata", async () => {
+    const token = await createToken("erin");
+    const name = uniqueName("limits");
+    const long = await publish(token, name, "1.0.0", { description: "x".repeat(1001) });
+    expect(await errorOf(long)).toMatch(/description/);
+    const script = await publish(token, name, "1.0.0", { metadata: { repository: "javascript:alert(1)" } });
+    expect(await errorOf(script)).toMatch(/http or https/);
+  });
+
+  it("requires the manifest to match the metadata", async () => {
+    const token = await createToken("erin");
+    const name = uniqueName("manifest");
+    const archive = await packageArchive(name, "1.0.0", [], { other_dep: "1" });
+    const res = await publish(token, name, "1.0.0", { archive });
+    expect(res.status).toBe(400);
+    expect(await errorOf(res)).toMatch(/other dependencies/);
+  });
+
+  it("rejects paths that are not portable", async () => {
+    const token = await createToken("erin");
+    for (const bad of ["src/a:b.brim", "src/CON", "src/aux.brim", "src/dot.", "src/x?.brim"]) {
+      const name = uniqueName("portable");
+      const archive = await packageArchive(name, "1.0.0", [{ path: `${name}-1.0.0/${bad}`, data: "x" }]);
+      const res = await publish(token, name, "1.0.0", { archive });
+      expect(res.status, bad).toBe(400);
+      expect(await errorOf(res)).toMatch(/not portable/);
+    }
+    const name = uniqueName("case");
+    const archive = await packageArchive(name, "1.0.0", [{ path: `${name}-1.0.0/SRC/LIB.brim`, data: "x" }, { path: `${name}-1.0.0/src/lib.BRIM`, data: "y" }]);
+    const res = await publish(token, name, "1.0.0", { archive });
+    expect(await errorOf(res)).toMatch(/twice/);
+  });
+});

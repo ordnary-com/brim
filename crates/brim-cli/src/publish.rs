@@ -100,7 +100,16 @@ pub(crate) fn publish(target: &Target<'_>, dry_run: bool, ctx: &mut Context<'_>)
     crate::analyze(&lib_input, None, true, ctx)?;
 
     let dir = package.dir.clone();
-    let files = package_files(&ctx.cwd.join(&dir), manifest);
+    let (files, links) = package_files(&ctx.cwd.join(&dir), manifest);
+    // A link could put a file from anywhere in a package that never changes.
+    if let Some(link) = links.first() {
+        let _ = writeln!(
+            ctx.stderr,
+            "error: {link} is a symbolic link; `brim publish` does not follow links\n  \
+             = help: put the files themselves in the package"
+        );
+        return Err(exit::INPUT);
+    }
     // Ustar headers hold paths of up to 255 bytes, with the prefix.
     if let Some(long) = files
         .iter()
@@ -208,9 +217,11 @@ pub(crate) fn publish(target: &Target<'_>, dry_run: bool, ctx: &mut Context<'_>)
 /// The files of a package to publish, relative to its directory with `/`:
 /// the library's directory (and `src/`), and the README, LICENSE and
 /// CHANGELOG files at the top. Hidden files and `target` are left out; the
-/// manifest is added separately.
-fn package_files(dir: &Path, manifest: &Manifest) -> Vec<String> {
+/// manifest is added separately. Also the symbolic links among them, which
+/// are never followed.
+fn package_files(dir: &Path, manifest: &Manifest) -> (Vec<String>, Vec<String>) {
     let mut files = Vec::new();
+    let mut links = Vec::new();
     let mut roots = vec![PathBuf::from("src")];
     if let Some(parent) = manifest.build.lib.parent()
         && !parent.as_os_str().is_empty()
@@ -219,27 +230,28 @@ fn package_files(dir: &Path, manifest: &Manifest) -> Vec<String> {
         roots.push(parent.to_path_buf());
     }
     for root in roots {
-        collect(dir, &root, &mut files);
+        collect(dir, &root, &mut files, &mut links);
     }
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.filter_map(Result::ok) {
             let name = entry.file_name().to_string_lossy().into_owned();
             let upper = name.to_ascii_uppercase();
-            if entry.path().is_file()
-                && ["README", "LICENSE", "CHANGELOG"]
-                    .iter()
-                    .any(|p| upper.starts_with(p))
-            {
-                files.push(name);
+            let top = ["README", "LICENSE", "CHANGELOG"]
+                .iter()
+                .any(|p| upper.starts_with(p));
+            match entry.file_type() {
+                Ok(t) if t.is_symlink() && top => links.push(name),
+                Ok(t) if t.is_file() && top => files.push(name),
+                _ => {}
             }
         }
     }
     files.sort();
     files.dedup();
-    files
+    (files, links)
 }
 
-fn collect(base: &Path, dir: &Path, files: &mut Vec<String>) {
+fn collect(base: &Path, dir: &Path, files: &mut Vec<String>, links: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(base.join(dir)) else {
         return;
     };
@@ -249,10 +261,13 @@ fn collect(base: &Path, dir: &Path, files: &mut Vec<String>) {
             continue;
         }
         let path = dir.join(&name);
-        if entry.path().is_dir() {
-            collect(base, &path, files);
-        } else if entry.path().is_file() {
-            files.push(path.display().to_string().replace('\\', "/"));
+        let shown = path.display().to_string().replace('\\', "/");
+        // `file_type` does not follow links, as `is_dir` would.
+        match entry.file_type() {
+            Ok(t) if t.is_symlink() => links.push(shown),
+            Ok(t) if t.is_dir() => collect(base, &path, files, links),
+            Ok(t) if t.is_file() => files.push(shown),
+            _ => {}
         }
     }
 }
@@ -354,7 +369,7 @@ pub(crate) fn login(token: Option<String>, ctx: &mut Context<'_>) -> CmdResult {
     let written = path
         .parent()
         .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| std::fs::write(&path, text));
+        .and_then(|()| write_private(&path, &text));
     if let Err(e) = written {
         let _ = writeln!(ctx.stderr, "error: cannot write {}: {e}", path.display());
         return Err(exit::INPUT);
@@ -439,3 +454,22 @@ fn restrict(path: &Path) {
 
 #[cfg(not(unix))]
 fn restrict(_: &Path) {}
+
+/// Writes a file only its owner can read, from the first byte on.
+#[cfg(unix)]
+fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(text.as_bytes())
+}
+
+#[cfg(not(unix))]
+fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+    std::fs::write(path, text)
+}

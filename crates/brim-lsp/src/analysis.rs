@@ -82,6 +82,8 @@ fn find_project(path: &Path) -> Option<(brim_package::Graph, PathBuf, bool)> {
         home: brim_package::default_home()?,
         update: false,
         registry: None,
+        // Opening a file must not clone, download or write anything.
+        offline: true,
     };
     let (graph, _) = brim_package::resolve(&dir, manifest, file, &options).ok()?;
     Some((graph, root, is_lib))

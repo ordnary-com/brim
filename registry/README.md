@@ -10,7 +10,7 @@ It is a Cloudflare Worker written in TypeScript:
 - **D1** (binding `DB`) holds the index: users, token hashes, packages and versions.
   The schema is in [`migrations/`](migrations/).
 - **R2** (binding `ARCHIVES`) holds the archives, at `{name}/{name}-{version}.tar.gz`.
-- The secret **`ADMIN_TOKEN`** guards `POST /api/v1/admin/tokens`.
+- The secret **`ADMIN_TOKEN`** guards `POST` and `DELETE /api/v1/admin/tokens`.
 
 | Path | What |
 |------|------|
@@ -72,6 +72,11 @@ curl -X POST https://registry.brimlang.com/api/v1/admin/tokens \
   -d '{"user": "alice"}'
 # {"token":"brim_..."}
 ```
+
+Another token for a user who has one: `{"user": "alice", "existing": true}`.
+A leaked token: `curl -X DELETE` on the same URL with `{"user": "alice"}`
+revokes all of Alice's tokens, or the token itself is revoked with
+`DELETE /api/v1/me/token`.
 
 The publisher then runs `brim login` and pastes it.
 

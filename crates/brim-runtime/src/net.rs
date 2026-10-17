@@ -43,6 +43,9 @@ struct Conn {
     stream: TcpStream,
     /// Bytes read from the stream but not yet returned.
     buffer: Vec<u8>,
+    /// `set_timeout`: how long one read may take in all, however the data
+    /// arrives, so a client sending a byte now and then cannot hold it.
+    timeout: Option<Duration>,
 }
 
 enum Ready {
@@ -108,6 +111,7 @@ impl Table {
         let conn = Conn {
             stream,
             buffer: Vec::new(),
+            timeout: None,
         };
         self.conns.insert(self.next, Arc::new(Mutex::new(conn)));
         self.next
@@ -219,6 +223,7 @@ impl Sockets {
         let max = usize::try_from(max).map_err(|_| "invalid length".to_string())?;
         let conn = self.conn(handle)?;
         let mut conn = lock(&conn);
+        let deadline = conn.timeout.map(|t| Instant::now() + t);
         let delim = delimiter.as_bytes();
         let mut searched = 0;
         loop {
@@ -237,7 +242,7 @@ impl Sockets {
             if searched > max {
                 return Err(TOO_LARGE.into());
             }
-            if fill(&mut conn)? == 0 {
+            if fill(&mut conn, deadline)? == 0 {
                 return Err(if conn.buffer.is_empty() {
                     "connection closed".into()
                 } else {
@@ -258,8 +263,9 @@ impl Sockets {
         let count = usize::try_from(count).map_err(|_| "invalid length".to_string())?;
         let conn = self.conn(handle)?;
         let mut conn = lock(&conn);
+        let deadline = conn.timeout.map(|t| Instant::now() + t);
         while conn.buffer.len() < count {
-            if fill(&mut conn)? == 0 {
+            if fill(&mut conn, deadline)? == 0 {
                 return Err(CLOSED_EARLY.into());
             }
         }
@@ -276,7 +282,8 @@ impl Sockets {
     pub fn read_all(&self, handle: i64) -> Result<String, NetError> {
         let conn = self.conn(handle)?;
         let mut conn = lock(&conn);
-        while fill(&mut conn)? > 0 {}
+        let deadline = conn.timeout.map(|t| Instant::now() + t);
+        while fill(&mut conn, deadline)? > 0 {}
         let text = std::mem::take(&mut conn.buffer);
         String::from_utf8(text).map_err(|_| "data is not valid UTF-8".into())
     }
@@ -382,7 +389,8 @@ impl Sockets {
         let timeout = u64::try_from(millis).map_err(|_| "invalid timeout".to_string())?;
         let timeout = (timeout > 0).then(|| Duration::from_millis(timeout));
         let conn = self.conn(handle)?;
-        let conn = lock(&conn);
+        let mut conn = lock(&conn);
+        conn.timeout = timeout;
         conn.stream
             .set_read_timeout(timeout)
             .and_then(|()| conn.stream.set_write_timeout(timeout))
@@ -391,7 +399,14 @@ impl Sockets {
 }
 
 /// Reads more bytes into the buffer; 0 at the end of the stream.
-fn fill(conn: &mut Conn) -> Result<usize, NetError> {
+fn fill(conn: &mut Conn, deadline: Option<Instant>) -> Result<usize, NetError> {
+    if let Some(deadline) = deadline {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err("timed out".into());
+        }
+        let _ = conn.stream.set_read_timeout(Some(left));
+    }
     let mut chunk = [0u8; 8192];
     loop {
         match conn.stream.read(&mut chunk) {

@@ -1,5 +1,5 @@
-import { ArchiveError, checkArchive } from "./archive";
-import { newToken, requireAdmin, requireUser } from "./auth";
+import { ArchiveError, checkArchive, parsePublishedManifest } from "./archive";
+import { bearer, newToken, requireAdmin, requireUser } from "./auth";
 import { HttpError, json, now, ok, readBody, sha256Hex } from "./http";
 import { compareVersionStrings, parseRequirement, parseVersion } from "./semver";
 
@@ -7,6 +7,13 @@ export const MAX_ARCHIVE_BYTES = 10 * 1024 * 1024;
 export const MAX_METADATA_BYTES = 1024 * 1024;
 const MAX_BODY_BYTES = 4 + MAX_METADATA_BYTES + 4 + MAX_ARCHIVE_BYTES;
 export const EDITIONS = ["2026"];
+
+/** Names kept for the project: `std` is the built-in library, the rest
+ * would look official. */
+export const RESERVED_NAMES = new Set(["std", "core", "brim", "brimlang", "stdlib", "prelude", "registry", "ordnary", "test", "tests"]);
+
+/** Limits on what a package's metadata may hold, so lists and pages stay small. */
+export const LIMITS = { description: 1000, license: 128, repository: 512, dependencies: 100, requirement: 128 };
 
 const NAME_RULES =
   "package names start with a lowercase ASCII letter and contain only lowercase letters, digits and `_` (at most 64 characters)";
@@ -138,12 +145,19 @@ function parseMetadata(bytes: Uint8Array): Metadata {
   if (typeof deps !== "object" || deps === null || Array.isArray(deps)) {
     throw new HttpError(400, "The metadata's `dependencies` must be an object of names to version requirements.");
   }
-  for (const [dep, req] of Object.entries(deps)) {
+  const entries = Object.entries(deps);
+  if (entries.length > LIMITS.dependencies) {
+    throw new HttpError(400, `A package may have at most ${LIMITS.dependencies} dependencies.`);
+  }
+  for (const [dep, req] of entries) {
     if (typeof req !== "string") {
       throw new HttpError(400, `The requirement for dependency \`${dep}\` must be a string.`);
     }
+    if (req.length > LIMITS.requirement) {
+      throw new HttpError(400, `The requirement for dependency \`${dep}\` is longer than ${LIMITS.requirement} characters.`);
+    }
   }
-  return {
+  const result: Metadata = {
     name: m.name as string,
     version: m.version as string,
     edition: m.edition as string,
@@ -153,6 +167,16 @@ function parseMetadata(bytes: Uint8Array): Metadata {
     license: optionalString(m, "license"),
     repository: optionalString(m, "repository"),
   };
+  for (const key of ["description", "license", "repository"] as const) {
+    const value = result[key];
+    if (value !== null && value.length > LIMITS[key]) {
+      throw new HttpError(400, `The package's \`${key}\` is longer than ${LIMITS[key]} characters.`);
+    }
+  }
+  if (result.repository !== null && !/^https?:\/\//.test(result.repository)) {
+    throw new HttpError(400, "The package's `repository` must be an http or https URL.");
+  }
+  return result;
 }
 
 /** Splits the publish body into metadata and archive. */
@@ -181,6 +205,9 @@ export async function publish(request: Request, env: Env): Promise<Response> {
   const { name, version, edition } = meta;
 
   if (!validName(name)) throw new HttpError(400, `\`${name}\` is not a valid registry package name: ${NAME_RULES}.`);
+  if (RESERVED_NAMES.has(normalizeName(name))) {
+    throw new HttpError(400, `The name \`${name}\` is reserved.`);
+  }
   if (version.includes("+")) throw new HttpError(400, `Version ${version} has build metadata (\`+...\`), which the registry does not allow.`);
   if (!parseVersion(version)) {
     throw new HttpError(400, `\`${version}\` is not a valid version; use MAJOR.MINOR.PATCH with an optional -pre.release part.`);
@@ -198,7 +225,20 @@ export async function publish(request: Request, env: Env): Promise<Response> {
   }
 
   try {
-    await checkArchive(framed.archive, name, version);
+    // The manifest in the archive is what the compiler reads: it must say
+    // what the index will say.
+    const manifest = parsePublishedManifest(await checkArchive(framed.archive, name, version));
+    const pkg = manifest.get("package") ?? new Map<string, string>();
+    for (const [key, want] of [["name", name], ["version", version], ["edition", edition]] as const) {
+      if (pkg.get(key) !== want) {
+        throw new ArchiveError(`The archive's brim.toml has ${key} ${JSON.stringify(pkg.get(key) ?? null)}, not ${JSON.stringify(want)}.`);
+      }
+    }
+    const listed = manifest.get("dependencies") ?? new Map<string, string>();
+    const same =
+      listed.size === Object.keys(meta.dependencies).length &&
+      [...listed].every(([dep, req]) => meta.dependencies[dep] === req);
+    if (!same) throw new ArchiveError("The archive's brim.toml has other dependencies than the metadata.");
   } catch (e) {
     if (e instanceof ArchiveError) throw new HttpError(400, e.message);
     throw e;
@@ -273,12 +313,29 @@ export async function publish(request: Request, env: Env): Promise<Response> {
     throw e;
   }
 
+  const key = archiveKey(name, version);
   try {
-    await env.ARCHIVES.put(archiveKey(name, version), framed.archive, {
+    // A published archive never changes: never write over one.
+    if (await env.ARCHIVES.head(key)) {
+      throw new HttpError(409, `Version ${version} of \`${name}\` already has an archive; published versions never change.`);
+    }
+    await env.ARCHIVES.put(key, framed.archive, {
       httpMetadata: { contentType: "application/gzip" },
       sha256: meta.checksum,
     });
   } catch (e) {
+    // A write that reported a failure may still have landed: then the
+    // version stays published.
+    const landed = await env.ARCHIVES.head(key).catch(() => null);
+    if (landed && landed.checksums.sha256 && hex(landed.checksums.sha256) === meta.checksum) {
+      console.log(JSON.stringify({ event: "publish", package: name, version, user, size: framed.archive.byteLength }));
+      return ok();
+    }
+    if (e instanceof HttpError) {
+      const undo = [env.DB.prepare("DELETE FROM versions WHERE package = ? AND version = ?").bind(name, version)];
+      await env.DB.batch(undo);
+      throw e;
+    }
     // Undo the index rows so the version can be published again.
     const undo = [env.DB.prepare("DELETE FROM versions WHERE package = ? AND version = ?").bind(name, version)];
     if (!existing) undo.push(env.DB.prepare("DELETE FROM packages WHERE name = ?").bind(name));
@@ -349,19 +406,37 @@ export async function search(env: Env, url: URL): Promise<Response> {
   return json({ packages: await searchPackages(env, q) }, 200, { "cache-control": "public, max-age=60" });
 }
 
-// POST /api/v1/admin/tokens
-export async function createToken(request: Request, env: Env): Promise<Response> {
-  await requireAdmin(request, env);
+function hex(buffer: ArrayBuffer): string {
+  return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** The admin request's `{"user": ..., "existing": ...}`. */
+async function adminUser(request: Request): Promise<{ user: string; existing: boolean }> {
   const body = await readBody(request, 64 * 1024, "The request body is too large.");
-  let user: unknown;
+  let parsed: { user?: unknown; existing?: unknown };
   try {
-    user = (JSON.parse(new TextDecoder().decode(body)) as { user?: unknown }).user;
+    parsed = JSON.parse(new TextDecoder().decode(body)) as { user?: unknown; existing?: unknown };
   } catch {
     throw new HttpError(400, 'The body must be JSON like {"user": "<name>"}.');
   }
+  const user = parsed.user;
   if (typeof user !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(user)) {
     throw new HttpError(400, "User names start with a lowercase ASCII letter and contain only lowercase letters, digits, `_` and `-` (at most 64 characters).");
   }
+  return { user, existing: parsed.existing === true };
+}
+
+// POST /api/v1/admin/tokens
+export async function createToken(request: Request, env: Env): Promise<Response> {
+  await requireAdmin(request, env);
+  const { user, existing } = await adminUser(request);
+  // A token for a user that exists gives control of their packages: only
+  // when the request says so, so a typo cannot.
+  const known = await env.DB.prepare("SELECT name FROM users WHERE name = ?").bind(user).first();
+  if (known && !existing) {
+    throw new HttpError(409, `The user \`${user}\` exists; send "existing": true to give them another token.`);
+  }
+  if (!known && existing) throw new HttpError(404, `There is no user \`${user}\`.`);
   const token = newToken();
   const time = now();
   await env.DB.batch([
@@ -370,4 +445,22 @@ export async function createToken(request: Request, env: Env): Promise<Response>
   ]);
   console.log(JSON.stringify({ event: "token_created", user }));
   return json({ token });
+}
+
+// DELETE /api/v1/admin/tokens: every token of a user.
+export async function revokeUserTokens(request: Request, env: Env): Promise<Response> {
+  await requireAdmin(request, env);
+  const { user } = await adminUser(request);
+  const result = await env.DB.prepare("DELETE FROM tokens WHERE user = ?").bind(user).run();
+  console.log(JSON.stringify({ event: "tokens_revoked", user, count: result.meta.changes }));
+  return json({ revoked: result.meta.changes });
+}
+
+// DELETE /api/v1/me/token: the token the request is made with.
+export async function revokeOwnToken(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const token = bearer(request)!;
+  await env.DB.prepare("DELETE FROM tokens WHERE hash = ?").bind(await sha256Hex(token)).run();
+  console.log(JSON.stringify({ event: "token_revoked", user }));
+  return ok();
 }

@@ -50,7 +50,7 @@ Status legend: **done**, **in progress**, **planned**. Only items marked done ex
 
 Still open from this phase: cross-compilation, and linking without a C compiler.
 
-**Current milestone: the road to 1.0.** Concurrency is built (`std.task`).
+**Current milestone: the road to 1.0** (below). Concurrency is built (`std.task`).
 
 ## Phase 5: Runtime and standard library (in progress)
 
@@ -88,7 +88,14 @@ Still open from this phase: cross-compilation, and linking without a C compiler.
 - **Done:** stability rules per edition, a release process and release binaries for Linux, macOS and Windows (`docs/releasing.md`).
 - **Done:** fuzzing: a mutation fuzzer in the test suite (frontend, formatter, interpreter) and cargo-fuzz targets run weekly.
 - **Done:** a documentation site (`site/`, built with mdBook): introduction, getting started, a tour, projects and tools, and the reference documents. Its examples run in the tests.
-- **Done:** benchmarks and performance work (`benches/`), incremental builds with a cache, `brim doc`, and an online playground.
+- **Done:** benchmarks and performance work (`benches/`), incremental builds with a cache, `brim doc`, and the interpreter as WebAssembly.
+
+## The road to 1.0
+
+- **Done:** the specification describes the whole language, and its open questions are decided (`language-spec.md`, sections 11 and 12).
+- **Done:** the edition policy and what 1.0 keeps stable (`releasing.md`).
+- **Done:** a security review of the runtime, the package client and the registry, with its findings fixed or recorded (`design/security-review.md`).
+- Release candidates (`1.0.0-rc.N`), then 1.0.0.
 
 ## Phase 8: Self-hosting (optional)
 

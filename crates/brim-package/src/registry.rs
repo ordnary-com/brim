@@ -66,12 +66,29 @@ struct ErrorBody {
 #[derive(Clone, Debug)]
 pub struct Registry {
     pub url: String,
+    /// Never use the network (see `Options::offline`).
+    pub offline: bool,
+}
+
+/// The most a registry response may hold: archives are at most 10 MiB.
+const MAX_RESPONSE: usize = 32 * 1024 * 1024;
+
+/// Whether a URL is plain `http://` to another machine, where a token would
+/// travel readably.
+fn insecure(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("http://") else {
+        return false;
+    };
+    let host = rest.split(['/', '?']).next().unwrap_or("");
+    let host = host.rsplit_once(':').map_or(host, |(h, _)| h);
+    !matches!(host, "localhost" | "127.0.0.1" | "[::1]")
 }
 
 impl Registry {
     pub fn new(url: &str) -> Registry {
         Registry {
             url: url.trim_end_matches('/').to_string(),
+            offline: false,
         }
     }
 
@@ -149,7 +166,10 @@ impl Registry {
         checksum: &str,
     ) -> Result<(PathBuf, bool), String> {
         let dir = self.source_dir(home, name, version);
-        if dir.join(brim_manifest::MANIFEST_FILE).is_file() {
+        // The cache is used only for an archive with this very checksum.
+        if dir.join(brim_manifest::MANIFEST_FILE).is_file()
+            && cached_checksum(&dir).as_deref() == Some(checksum)
+        {
             return Ok((dir, false));
         }
         let response = self.get(&format!("/api/v1/download/{name}/{version}"))?;
@@ -168,6 +188,7 @@ impl Registry {
         unpack(&archive, &format!("{name}-{version}"), &tmp)?;
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::rename(&tmp, &dir).map_err(|e| e.to_string())?;
+        std::fs::write(checksum_file(&dir), checksum).map_err(|e| e.to_string())?;
         Ok((dir, true))
     }
 
@@ -215,6 +236,9 @@ impl Registry {
     }
 
     fn get(&self, path: &str) -> Result<Response, String> {
+        if self.offline {
+            return Err("it is not fetched yet: run `brim check` to fetch dependencies".into());
+        }
         self.send("GET", path, None, &[])
     }
 
@@ -237,6 +261,12 @@ impl Registry {
                     body: br#"{"error": "not found"}"#.to_vec(),
                 },
             });
+        }
+        if token.is_some() && insecure(&self.url) {
+            return Err(format!(
+                "not sending an API token to {} over plain http: use https",
+                self.url
+            ));
         }
         http::send(method, &format!("{}{path}", self.url), token, body)
     }
@@ -291,6 +321,10 @@ mod http {
             {
                 let mut transfer = easy.transfer();
                 transfer.write_function(|data| {
+                    // A larger answer stops the transfer: no registry sends one.
+                    if out.len() + data.len() > super::MAX_RESPONSE {
+                        return Ok(0);
+                    }
                     out.extend_from_slice(data);
                     Ok(data.len())
                 })?;
@@ -395,4 +429,16 @@ pub fn pack(
     }
     let gz = tar.into_inner().map_err(|e| e.to_string())?;
     gz.finish().map_err(|e| e.to_string())
+}
+
+/// The file next to an unpacked version that records its archive's checksum.
+fn checksum_file(dir: &Path) -> PathBuf {
+    dir.with_extension("sha256")
+}
+
+/// The checksum of the archive a cached version was unpacked from.
+pub fn cached_checksum(dir: &Path) -> Option<String> {
+    std::fs::read_to_string(checksum_file(dir))
+        .ok()
+        .map(|s| s.trim().to_string())
 }

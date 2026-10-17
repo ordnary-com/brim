@@ -1,6 +1,6 @@
 // The Brim package registry. The protocol is described in docs/registry.md.
 
-import { createToken, download, index, me, publish, search, setYanked } from "./api";
+import { createToken, download, index, me, publish, revokeOwnToken, revokeUserTokens, search, setYanked } from "./api";
 import { HttpError, errorResponse } from "./http";
 import { homePage, notFoundPage, packagePage, staticFile } from "./pages";
 
@@ -35,6 +35,8 @@ const routes: Route[] = [
   { method: "GET", pattern: /^\/api\/v1\/me$/, handler: (r, env) => me(r, env) },
   { method: "GET", pattern: /^\/api\/v1\/search$/, handler: (_r, env, url) => search(env, url) },
   { method: "POST", pattern: /^\/api\/v1\/admin\/tokens$/, handler: (r, env) => createToken(r, env) },
+  { method: "DELETE", pattern: /^\/api\/v1\/admin\/tokens$/, handler: (r, env) => revokeUserTokens(r, env) },
+  { method: "DELETE", pattern: /^\/api\/v1\/me\/token$/, handler: (r, env) => revokeOwnToken(r, env) },
   { method: "GET", pattern: /^\/$/, handler: (_r, env, url) => homePage(env, url) },
   {
     method: "GET",

@@ -24,8 +24,15 @@ pub(crate) fn checkout(
     url: &str,
     reference: &GitRef,
     locked: Option<&str>,
+    offline: bool,
     fetched: &mut Vec<String>,
 ) -> Result<Checkout, String> {
+    check_url(url)?;
+    let well_formed =
+        |c: &str| (c.len() == 40 || c.len() == 64) && c.bytes().all(|b| b.is_ascii_hexdigit());
+    if locked.is_some_and(|c| !well_formed(c)) {
+        return Err("brim.lock has a malformed commit; run `brim update`".into());
+    }
     let key = format!("{name}-{:016x}", fnv1a(url.as_bytes()));
     let db = home.join("git").join("db").join(&key);
     let checkouts = home.join("git").join("checkouts").join(&key);
@@ -41,11 +48,17 @@ pub(crate) fn checkout(
         }
     }
 
+    if offline {
+        return Err("it is not fetched yet: run `brim check` to fetch dependencies".into());
+    }
     let mut up_to_date = false;
     if !db.is_dir() {
         std::fs::create_dir_all(db.parent().expect("db has a parent"))
             .map_err(|e| e.to_string())?;
-        git(None, &["clone", "--bare", "--quiet", url, &path_arg(&db)])?;
+        git(
+            None,
+            &["clone", "--bare", "--quiet", "--", url, &path_arg(&db)],
+        )?;
         fetched.push(url.to_string());
         up_to_date = true;
     }
@@ -80,6 +93,7 @@ pub(crate) fn checkout(
                 "clone",
                 "--quiet",
                 "--no-checkout",
+                "--",
                 &path_arg(&db),
                 &path_arg(&tmp),
             ],
@@ -97,6 +111,7 @@ fn fetch(db: &Path, url: &str, fetched: &mut Vec<String>) -> Result<(), String> 
             "fetch",
             "--quiet",
             "--force",
+            "--",
             url,
             "+refs/heads/*:refs/heads/*",
             "+refs/tags/*:refs/tags/*",
@@ -121,6 +136,9 @@ fn rev_parse(db: &Path, reference: &GitRef) -> Result<String, String> {
         GitRef::Tag(t) => format!("refs/tags/{t}"),
         GitRef::Rev(r) => r.clone(),
     };
+    if rev.starts_with('-') || rev.contains("..") {
+        return Err(format!("`{rev}` is not a git reference"));
+    }
     git(
         Some(db),
         &[
@@ -134,13 +152,34 @@ fn rev_parse(db: &Path, reference: &GitRef) -> Result<String, String> {
     .map_err(|_| format!("the repository has no {reference}"))
 }
 
+/// Which repositories a manifest may name: `https://`, `ssh://`,
+/// `user@host:path` and, for local work and tests, `file://` and plain
+/// paths. Nothing that git would read as an option or a helper program.
+fn check_url(url: &str) -> Result<(), String> {
+    let bad = url.starts_with('-')
+        || url.contains("::")
+        || url.chars().any(|c| c.is_control())
+        || url.starts_with("ext:")
+        || url.starts_with("fd:");
+    if bad {
+        return Err(format!(
+            "`{url}` is not a git URL this version of brim accepts"
+        ));
+    }
+    Ok(())
+}
+
 /// Runs git; returns its standard output, or a message with its error.
 fn git(dir: Option<&Path>, args: &[&str]) -> Result<String, String> {
     let mut command = Command::new("git");
     if let Some(dir) = dir {
         command.arg("-C").arg(dir);
     }
-    command.args(args).env("GIT_TERMINAL_PROMPT", "0");
+    command
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        // Only the usual transports, also when a user's config allows more.
+        .env("GIT_ALLOW_PROTOCOL", "https:http:ssh:git:file");
     let output = command
         .output()
         .map_err(|e| format!("cannot run git: {e}"))?;

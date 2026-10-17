@@ -35,6 +35,9 @@ function checksumOk(header: Uint8Array): boolean {
   return sum === stored;
 }
 
+/** Names Windows gives a meaning of their own, with or without an extension. */
+const WINDOWS_DEVICES = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
+
 function checkPath(path: string, root: string, isDir: boolean): void {
   if (path.startsWith("/") || /^[A-Za-z]:/.test(path) || path.includes("\\")) {
     throw new ArchiveError(`The archive contains an absolute or non-portable path: ${JSON.stringify(path)}.`);
@@ -43,6 +46,10 @@ function checkPath(path: string, root: string, isDir: boolean): void {
   const parts = trimmed.split("/");
   if (parts.some((p) => p === ".." || p === "." || p === "")) {
     throw new ArchiveError(`The archive contains a path with an empty, \`.\` or \`..\` component: ${JSON.stringify(path)}.`);
+  }
+  // Paths every system can unpack the same way.
+  if (parts.some((p) => /[<>:"|?*\x00-\x1f]/.test(p) || /[. ]$/.test(p) || WINDOWS_DEVICES.test(p))) {
+    throw new ArchiveError(`The archive contains a path that is not portable to every system: ${JSON.stringify(path)}.`);
   }
   if (parts[0] !== root || (parts.length === 1 && !isDir)) {
     throw new ArchiveError(`The archive contains ${JSON.stringify(path)}, which is not under \`${root}/\`.`);
@@ -116,11 +123,15 @@ class Reader {
  * Checks the archive for `{name}-{version}`. Throws an [`ArchiveError`] whose
  * message is a sentence for the user when it is not acceptable.
  */
-export async function checkArchive(archive: Uint8Array, name: string, version: string): Promise<void> {
+/** The most a package's `brim.toml` may hold. */
+const MAX_MANIFEST_BYTES = 64 * 1024;
+
+export async function checkArchive(archive: Uint8Array, name: string, version: string): Promise<string> {
   const root = `${name}-${version}`;
   const stream = new Blob([archive]).stream().pipeThrough(new DecompressionStream("gzip"));
   const reader = new Reader(stream.getReader());
-  let sawManifest = false;
+  let manifest: string | null = null;
+  const seen = new Set<string>();
   try {
     for (;;) {
       const header = await reader.read(BLOCK);
@@ -148,12 +159,28 @@ export async function checkArchive(archive: Uint8Array, name: string, version: s
         );
       }
       checkPath(path, root, isDir);
+      // Paths that differ only in case are one file on Windows and macOS.
+      const folded = (isDir && path.endsWith("/") ? path.slice(0, -1) : path).toLowerCase();
+      if (seen.has(folded)) {
+        throw new ArchiveError(`The archive contains ${JSON.stringify(path)} twice, or twice in different case.`);
+      }
+      seen.add(folded);
 
       const size = octal(header, 124, 12, "size");
-      if (isFile && path === `${root}/brim.toml`) sawManifest = true;
       if (isDir && size !== 0) throw new ArchiveError(`The archive is not a valid tar file: the directory ${JSON.stringify(path)} has a size.`);
       const padded = Math.ceil(size / BLOCK) * BLOCK;
-      if (!(await reader.skip(padded))) throw new ArchiveError("The archive is truncated.");
+      if (isFile && path === `${root}/brim.toml`) {
+        if (size > MAX_MANIFEST_BYTES) throw new ArchiveError("The archive's brim.toml is larger than 64 KiB.");
+        const bytes = await reader.read(padded);
+        if (bytes === null) throw new ArchiveError("The archive is truncated.");
+        try {
+          manifest = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes.subarray(0, size));
+        } catch {
+          throw new ArchiveError("The archive's brim.toml is not UTF-8.");
+        }
+      } else if (!(await reader.skip(padded))) {
+        throw new ArchiveError("The archive is truncated.");
+      }
     }
   } catch (e) {
     await reader.cancel();
@@ -161,5 +188,30 @@ export async function checkArchive(archive: Uint8Array, name: string, version: s
     throw new ArchiveError("The archive is not a valid gzip file.");
   }
   await reader.cancel();
-  if (!sawManifest) throw new ArchiveError(`The archive has no \`${root}/brim.toml\`.`);
+  if (manifest === null) throw new ArchiveError(`The archive has no \`${root}/brim.toml\`.`);
+  return manifest;
+}
+
+/** The `brim.toml` that `brim publish` writes: its sections as key-value maps. */
+export function parsePublishedManifest(text: string): Map<string, Map<string, string>> {
+  const bad = (why: string) => new ArchiveError(`The archive's brim.toml is not as \`brim publish\` writes it: ${why}.`);
+  const sections = new Map<string, Map<string, string>>();
+  let current: Map<string, string> | null = null;
+  for (const raw of text.split("\n")) {
+    const line = raw.replace(/\r$/, "").trim();
+    if (line === "" || line.startsWith("#")) continue;
+    const header = /^\[([a-z]+)\]$/.exec(line);
+    if (header) {
+      if (sections.has(header[1]!)) throw bad(`[${header[1]}] appears twice`);
+      current = new Map();
+      sections.set(header[1]!, current);
+      continue;
+    }
+    const pair = /^([a-z][a-z0-9_-]*) = "((?:[^"\\]|\\.)*)"$/.exec(line);
+    if (!pair || current === null) throw bad(`unexpected line ${JSON.stringify(line.slice(0, 80))}`);
+    const value = JSON.parse(`"${pair[2]!.replace(/\\u([0-9A-F]{4})/g, "\\u$1")}"`) as string;
+    if (current.has(pair[1]!)) throw bad(`\`${pair[1]}\` appears twice`);
+    current.set(pair[1]!, value);
+  }
+  return sections;
 }

@@ -820,8 +820,12 @@ static char *entry_at(const BrimMap *m, int64_t i) {
     return m->entries + i * m->entry_size;
 }
 
+/* A random key for the map hash, chosen when the program starts, so keys
+ * from outside (JSON members, headers) cannot be picked to collide. */
+static uint64_t hash_seed;
+
 static uint64_t key_hash(int64_t kind, const void *key) {
-    uint64_t h = 1469598103934665603ULL;
+    uint64_t h = 1469598103934665603ULL ^ hash_seed;
     if (kind == KEY_STR) {
         const BrimStr *s = *(BrimStr *const *)key;
         for (int64_t i = 0; i < s->len; i++) {
@@ -831,6 +835,7 @@ static uint64_t key_hash(int64_t kind, const void *key) {
     }
     uint64_t v = kind == KEY_BOOL ? (uint64_t)(*(const uint8_t *)key != 0)
                                   : (uint64_t)*(const int64_t *)key;
+    v ^= hash_seed;
     v ^= v >> 33;
     v *= 0xff51afd7ed558ccdULL;
     v ^= v >> 33;
@@ -1134,6 +1139,8 @@ void brim_rt_assert_eq_str(const BrimStr *a, const BrimStr *b, const char *head,
 
 static BrimStr EMPTY_STR = {-1, 0};
 
+static void os_random(void *data, size_t n);
+
 static BrimStr *str_from(const char *data, int64_t len) {
     if (len == 0) {
         return &EMPTY_STR;
@@ -1147,11 +1154,52 @@ static BrimStr *str_from_c(const char *text) {
     return str_from(text, (int64_t)strlen(text));
 }
 
-/* A NUL-terminated copy of a string, for C library calls. */
+static int valid_utf8(const char *data, int64_t len);
+
+/* Text from outside (arguments, file names, headers) as a string: bytes
+ * that are not UTF-8 become U+FFFD, so every string stays valid UTF-8. */
+static BrimStr *str_lossy(const char *data, int64_t len) {
+    if (valid_utf8(data, len)) {
+        return str_from(data, len);
+    }
+    char *out = malloc((size_t)len * 3 + 1);
+    if (out == NULL) {
+        fatal("out of memory");
+    }
+    int64_t n = 0;
+    for (int64_t i = 0; i < len;) {
+        unsigned char c = (unsigned char)data[i];
+        int64_t want = c < 0x80 ? 1 : c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 0;
+        if (want > 0 && i + want <= len && valid_utf8(data + i, want)) {
+            memcpy(out + n, data + i, (size_t)want);
+            n += want;
+            i += want;
+        } else {
+            memcpy(out + n, "\xEF\xBF\xBD", 3);
+            n += 3;
+            i++;
+        }
+    }
+    BrimStr *s = str_from(out, n);
+    free(out);
+    return s;
+}
+
+static BrimStr *str_lossy_c(const char *text) {
+    return str_lossy(text, (int64_t)strlen(text));
+}
+
+/* A NUL-terminated copy of a string, for C library calls. A string with a
+ * NUL inside becomes "", which names no file, variable or host: cut at the
+ * NUL, "uploads/key\0.txt" would open "uploads/key". */
 static char *c_string(const BrimStr *s) {
     char *c = malloc((size_t)s->len + 1);
     if (c == NULL) {
         fatal("out of memory");
+    }
+    if (s->len > 0 && memchr(s->data, 0, (size_t)s->len) != NULL) {
+        c[0] = 0;
+        return c;
     }
     memcpy(c, s->data, (size_t)s->len);
     c[s->len] = 0;
@@ -1792,7 +1840,7 @@ BrimList *brim_rt_fs_list(const BrimStr *path) {
     qsort(names, count, sizeof *names, compare_names);
     BrimList *l = NULL;
     for (size_t i = 0; i < count; i++) {
-        l = push_str(l, str_from(names[i], (int64_t)strlen(names[i])));
+        l = push_str(l, str_lossy_c(names[i]));
         free(names[i]);
     }
     free(names);
@@ -1831,8 +1879,82 @@ uint8_t brim_rt_fs_create_dir(const BrimStr *path) {
     return 1;
 }
 
-/* Removes `name`: a file, or a directory (with its contents when `all`). */
+#ifndef _WIN32
+#if defined(__APPLE__) && !defined(O_NOFOLLOW)
+/* macOS hides it from strict POSIX programs; its value from <sys/fcntl.h>. */
+#define O_NOFOLLOW 0x00000100
+#endif
+
+/* Removes everything in the directory open as `fd` (and closes it). It
+ * works relative to that descriptor and never follows a link, so swapping
+ * a directory for a link while it runs cannot make it remove anything
+ * outside the tree. */
+static int remove_contents(int fd) {
+    DIR *dir = fdopendir(fd);
+    if (dir == NULL) {
+        int error = errno;
+        close(fd);
+        errno = error;
+        return -1;
+    }
+    struct dirent *entry;
+    int failed = 0;
+    while (!failed && (entry = readdir(dir)) != NULL) {
+        const char *name = entry->d_name;
+        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+            continue;
+        }
+        if (unlinkat(dirfd(dir), name, 0) == 0) {
+            continue;
+        }
+        /* A directory: unlink says EISDIR on Linux and EPERM on macOS. */
+        if (errno != EISDIR && errno != EPERM) {
+            failed = 1;
+            break;
+        }
+        int child = openat(dirfd(dir), name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (child < 0 || remove_contents(child) != 0 ||
+            unlinkat(dirfd(dir), name, AT_REMOVEDIR) != 0) {
+            failed = 1;
+        }
+    }
+    int error = errno;
+    closedir(dir);
+    errno = error;
+    return failed ? -1 : 0;
+}
+
+/* Removes `name`: a file or link, or a directory (with its contents when
+ * `all`). */
 static int remove_path(const char *name, int all) {
+    struct stat info;
+    if (lstat(name, &info) != 0) {
+        return -1;
+    }
+    if (!S_ISDIR(info.st_mode)) {
+        return unlink(name);
+    }
+    if (all) {
+        int fd = open(name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (fd < 0 || remove_contents(fd) != 0) {
+            return -1;
+        }
+    }
+    return rmdir(name);
+}
+#else
+/* Removes `name`: a file, or a directory (with its contents when `all`).
+ * A junction or symbolic link is removed itself, never what it points to. */
+static int remove_path(const char *name, int all) {
+    DWORD attributes = GetFileAttributesA(name);
+    if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+        BOOL removed = (attributes & FILE_ATTRIBUTE_DIRECTORY) ? RemoveDirectoryA(name) : DeleteFileA(name);
+        if (!removed) {
+            errno = win_errno();
+            return -1;
+        }
+        return 0;
+    }
     struct stat info;
     if (lstat(name, &info) != 0) {
         return -1;
@@ -1869,6 +1991,7 @@ static int remove_path(const char *name, int all) {
     }
     return rmdir(name);
 }
+#endif
 
 static uint8_t fs_remove(const BrimStr *path, int all) {
     set_error(NULL);
@@ -2035,7 +2158,7 @@ int64_t brim_rt_write_file(const BrimStr *path, const BrimStr *text) {
 BrimList *brim_rt_args(void) {
     BrimList *l = NULL;
     for (int i = 1; i < program_argc; i++) {
-        l = push_str(l, str_from_c(program_argv[i]));
+        l = push_str(l, str_lossy_c(program_argv[i]));
     }
     return l;
 }
@@ -2051,7 +2174,11 @@ BrimStr *brim_rt_env_get(const BrimStr *name) {
     char *c = c_string(name);
     const char *value = getenv(c);
     free(c);
-    return value == NULL ? &EMPTY_STR : str_from_c(value);
+    /* As the interpreter: a value that is not UTF-8 reads as "". */
+    if (value == NULL || !valid_utf8(value, (int64_t)strlen(value))) {
+        return &EMPTY_STR;
+    }
+    return str_from_c(value);
 }
 
 _Noreturn void brim_rt_exit(int64_t code) {
@@ -2135,8 +2262,62 @@ static DWORD WINAPI pipe_reader(LPVOID arg) {
     return 0;
 }
 
+/* Starting processes one at a time: a child inherits the pipe ends that
+ * exist while it starts, and must not get another task's. */
+static brim_mutex spawn_lock = BRIM_MUTEX_INIT;
+
+/* Whether `arg` could change what `cmd.exe` runs when it starts a batch
+ * file, which it reads with its own quoting rules. */
+static int unsafe_for_batch(const char *arg) {
+    return strpbrk(arg, "\"%&|<>^!()\r\n") != NULL;
+}
+
+/* The program to start: a name with a path as it is, otherwise the first
+ * match in PATH (never the current directory). Allocated; NULL if none. */
+static char *find_program(const char *name) {
+    if (strpbrk(name, "/\\:") != NULL) {
+        char *copy = malloc(strlen(name) + 1);
+        if (copy == NULL) {
+            fatal("out of memory");
+        }
+        strcpy(copy, name);
+        return copy;
+    }
+    const char *path = getenv("PATH");
+    if (path == NULL) {
+        return NULL;
+    }
+    char found[MAX_PATH];
+    if (SearchPathA(path, name, ".exe", MAX_PATH, found, NULL) == 0) {
+        return NULL;
+    }
+    char *copy = malloc(strlen(found) + 1);
+    if (copy == NULL) {
+        fatal("out of memory");
+    }
+    strcpy(copy, found);
+    return copy;
+}
+
+static int is_batch(const char *program) {
+    size_t n = strlen(program);
+    return n >= 4 && (_stricmp(program + n - 4, ".bat") == 0 || _stricmp(program + n - 4, ".cmd") == 0);
+}
+
 /* Runs `argv` with no input and collects its output; 0, or an errno. */
 static int spawn_collect(char **argv, Buffer *out, Buffer *err, int64_t *code) {
+    char *program = find_program(argv[0]);
+    if (program == NULL) {
+        return ENOENT;
+    }
+    if (is_batch(program)) {
+        for (int i = 1; argv[i] != NULL; i++) {
+            if (unsafe_for_batch(argv[i])) {
+                free(program);
+                return EINVAL;
+            }
+        }
+    }
     Buffer line = {0};
     for (int i = 0; argv[i] != NULL; i++) {
         if (i > 0) {
@@ -2148,8 +2329,11 @@ static int spawn_collect(char **argv, Buffer *out, Buffer *err, int64_t *code) {
     line.data[line.len - 1] = '\0';
     SECURITY_ATTRIBUTES inherit = {sizeof inherit, NULL, TRUE};
     HANDLE out_r = NULL, out_w = NULL, err_r = NULL, err_w = NULL;
+    mutex_lock(&spawn_lock);
     if (!CreatePipe(&out_r, &out_w, &inherit, 0) || !CreatePipe(&err_r, &err_w, &inherit, 0)) {
+        mutex_unlock(&spawn_lock);
         free(line.data);
+        free(program);
         return EIO;
     }
     SetHandleInformation(out_r, HANDLE_FLAG_INHERIT, 0);
@@ -2164,15 +2348,17 @@ static int spawn_collect(char **argv, Buffer *out, Buffer *err, int64_t *code) {
     si.hStdOutput = out_w;
     si.hStdError = err_w;
     PROCESS_INFORMATION pi;
-    BOOL started = CreateProcessA(NULL, line.data, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL,
-                                  &si, &pi);
+    BOOL started = CreateProcessA(program, line.data, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL,
+                                  NULL, &si, &pi);
     int error = started ? 0 : win_errno();
     free(line.data);
+    free(program);
     CloseHandle(out_w);
     CloseHandle(err_w);
     if (nul != INVALID_HANDLE_VALUE) {
         CloseHandle(nul);
     }
+    mutex_unlock(&spawn_lock);
     if (!started) {
         CloseHandle(out_r);
         CloseHandle(err_r);
@@ -2292,9 +2478,22 @@ static int spawn_collect(char **argv, Buffer *out_buf, Buffer *err_buf, int64_t 
     int err_pipe[2] = {-1, -1};
     int error = 0;
     pid_t pid = 0;
+    /* Close-on-exec: another task's child must not inherit these. */
     if (pipe(out_pipe) != 0 || pipe(err_pipe) != 0) {
         error = errno;
     } else {
+        for (int i = 0; i < 2; i++) {
+            fcntl(out_pipe[i], F_SETFD, FD_CLOEXEC);
+            fcntl(err_pipe[i], F_SETFD, FD_CLOEXEC);
+        }
+        /* The runtime ignores SIGPIPE; the child gets the default back. */
+        posix_spawnattr_t attr;
+        posix_spawnattr_init(&attr);
+        sigset_t defaults;
+        sigemptyset(&defaults);
+        sigaddset(&defaults, SIGPIPE);
+        posix_spawnattr_setsigdefault(&attr, &defaults);
+        posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGDEF);
         posix_spawn_file_actions_t actions;
         posix_spawn_file_actions_init(&actions);
         posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
@@ -2304,8 +2503,9 @@ static int spawn_collect(char **argv, Buffer *out_buf, Buffer *err_buf, int64_t 
             posix_spawn_file_actions_addclose(&actions, out_pipe[i]);
             posix_spawn_file_actions_addclose(&actions, err_pipe[i]);
         }
-        error = posix_spawnp(&pid, argv[0], &actions, NULL, argv, environ);
+        error = posix_spawnp(&pid, argv[0], &actions, &attr, argv, environ);
         posix_spawn_file_actions_destroy(&actions);
+        posix_spawnattr_destroy(&attr);
     }
     if (out_pipe[1] >= 0) {
         close(out_pipe[1]);
@@ -2362,7 +2562,22 @@ typedef struct Socket {
     char *buf;       /* bytes read but not yet returned */
     int64_t len;
     int64_t cap;
+    /* Under `net_lock`: the tasks using the socket now, and whether it was
+     * closed. A closed socket is shut down at once, which wakes a task
+     * waiting on it, and freed when the last user is done with it. */
+    int64_t users;
+    int closed;
+    /* Held for each operation on a connection, so two tasks never share
+     * its buffer at the same moment. */
+    brim_mutex op;
+    /* `set_timeout`, in milliseconds (0: none), and when the current
+     * operation must be done: one read may take that long in all, however
+     * the data arrives. */
+    int64_t timeout_ms;
+    int64_t deadline;
 } Socket;
+
+int64_t brim_rt_time_monotonic_millis(void);
 
 static Socket **sockets;
 static int64_t socket_count;
@@ -2417,7 +2632,7 @@ static int64_t socket_add(int fd, int listening) {
     if (s == NULL) {
         fatal("out of memory");
     }
-    *s = (Socket){fd, listening, NULL, 0, 0};
+    *s = (Socket){fd, listening, NULL, 0, 0, 0, 0, BRIM_MUTEX_INIT, 0, 0};
     mutex_lock(&net_lock);
     Socket **grown = realloc(sockets, sizeof(Socket *) * (size_t)(socket_count + 1));
     if (grown == NULL) {
@@ -2436,17 +2651,47 @@ static Socket *socket_find(int64_t handle, int listening) {
         return NULL;
     }
     Socket *s = sockets[handle - 1];
-    if (s->fd < 0 || s->listening != listening) {
+    if (s == NULL || s->closed || s->listening != listening) {
         return NULL;
     }
     return s;
 }
 
-static Socket *socket_get(int64_t handle, int listening) {
+/* With `net_lock` held: closes and frees a closed socket nobody uses. */
+static void socket_finish(int64_t handle, Socket *s) {
+    if (!s->closed || s->users > 0) {
+        return;
+    }
+    sock_close(s->fd);
+    free(s->buf);
+    free(s);
+    sockets[handle - 1] = NULL;
+}
+
+/* A socket for one operation, or NULL: the caller gives it back with
+ * `socket_done`. A connection is locked for the operation. */
+static Socket *socket_use(int64_t handle, int listening) {
     mutex_lock(&net_lock);
     Socket *s = socket_find(handle, listening);
+    if (s != NULL) {
+        s->users++;
+    }
     mutex_unlock(&net_lock);
+    if (s != NULL && !listening) {
+        mutex_lock(&s->op);
+        s->deadline = s->timeout_ms > 0 ? brim_rt_time_monotonic_millis() + s->timeout_ms : 0;
+    }
     return s;
+}
+
+static void socket_done(int64_t handle, Socket *s) {
+    if (!s->listening) {
+        mutex_unlock(&s->op);
+    }
+    mutex_lock(&net_lock);
+    s->users--;
+    socket_finish(handle, s);
+    mutex_unlock(&net_lock);
 }
 
 static int port_ok(int64_t port) {
@@ -2466,6 +2711,15 @@ static struct addrinfo *resolve(const BrimStr *host, int64_t port, int passive) 
     int failed = getaddrinfo(name, service, &hints, &found);
     free(name);
     return failed == 0 ? found : NULL;
+}
+
+/* Keeps a socket out of child processes. */
+static void no_inherit(int fd) {
+#ifdef _WIN32
+    SetHandleInformation((HANDLE)(uintptr_t)fd, HANDLE_FLAG_INHERIT, 0);
+#else
+    fcntl(fd, F_SETFD, FD_CLOEXEC);
+#endif
 }
 
 static void no_delay(int fd) {
@@ -2495,8 +2749,15 @@ int64_t brim_rt_net_listen(const BrimStr *host, int64_t port) {
             error = sock_errno();
             continue;
         }
+        no_inherit(fd);
         int on = 1;
+#ifdef _WIN32
+        /* On Windows, SO_REUSEADDR would let another program take the port
+         * over; this keeps it ours, as Rust's listener does. */
+        setsockopt(fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (const char *)&on, sizeof on);
+#else
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&on, sizeof on);
+#endif
         if (bind(fd, a->ai_addr, a->ai_addrlen) == 0 && listen(fd, 128) == 0) {
             freeaddrinfo(found);
             return socket_add(fd, 1);
@@ -2511,7 +2772,7 @@ int64_t brim_rt_net_listen(const BrimStr *host, int64_t port) {
 
 int64_t brim_rt_net_accept(int64_t listener) {
     net_start();
-    Socket *l = socket_get(listener, 1);
+    Socket *l = socket_use(listener, 1);
     if (l == NULL) {
         net_fail("invalid socket");
         return 0;
@@ -2520,10 +2781,12 @@ int64_t brim_rt_net_accept(int64_t listener) {
     do {
         fd = accept(l->fd, NULL, NULL);
     } while (fd < 0 && sock_errno() == EINTR);
+    socket_done(listener, l);
     if (fd < 0) {
         net_fail(net_reason(sock_errno()));
         return 0;
     }
+    no_inherit(fd);
     no_delay(fd);
     return socket_add(fd, 0);
 }
@@ -2546,6 +2809,7 @@ int64_t brim_rt_net_connect(const BrimStr *host, int64_t port) {
             error = sock_errno();
             continue;
         }
+        no_inherit(fd);
         if (connect(fd, a->ai_addr, a->ai_addrlen) == 0) {
             freeaddrinfo(found);
             no_delay(fd);
@@ -2562,6 +2826,21 @@ int64_t brim_rt_net_connect(const BrimStr *host, int64_t port) {
 /* Reads more bytes into the buffer: the count, 0 at the end, -1 on error
  * (with the last error set). */
 static int64_t socket_fill(Socket *s) {
+    if (s->deadline > 0) {
+        int64_t left = s->deadline - brim_rt_time_monotonic_millis();
+        if (left <= 0) {
+            net_fail("timed out");
+            return -1;
+        }
+#ifdef _WIN32
+        DWORD tv = (DWORD)left;
+#else
+        struct timeval tv;
+        tv.tv_sec = (time_t)(left / 1000);
+        tv.tv_usec = (suseconds_t)((left % 1000) * 1000);
+#endif
+        setsockopt(s->fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv);
+    }
     if (s->cap - s->len < 8192) {
         int64_t cap = s->cap * 2 + 8192;
         char *grown = realloc(s->buf, (size_t)cap);
@@ -2599,13 +2878,7 @@ static BrimStr *socket_take(Socket *s, int64_t count, int64_t drop) {
 
 #define CLOSED_EARLY "connection closed before the end of the message"
 
-BrimStr *brim_rt_net_read_until(int64_t handle, const BrimStr *delimiter, int64_t max) {
-    net_start();
-    Socket *s = socket_get(handle, 0);
-    if (s == NULL) {
-        net_fail("invalid socket");
-        return &EMPTY_STR;
-    }
+static BrimStr *brim_rt_net_read_until_on(Socket *s, const BrimStr *delimiter, int64_t max) {
     int64_t d = delimiter->len;
     if (d == 0) {
         net_fail("empty delimiter");
@@ -2642,13 +2915,19 @@ BrimStr *brim_rt_net_read_until(int64_t handle, const BrimStr *delimiter, int64_
     }
 }
 
-BrimStr *brim_rt_net_read_exact(int64_t handle, int64_t count) {
+BrimStr * brim_rt_net_read_until(int64_t handle, const BrimStr *delimiter, int64_t max) {
     net_start();
-    Socket *s = socket_get(handle, 0);
+    Socket *s = socket_use(handle, 0);
     if (s == NULL) {
         net_fail("invalid socket");
         return &EMPTY_STR;
     }
+    BrimStr *result = brim_rt_net_read_until_on(s, delimiter, max);
+    socket_done(handle, s);
+    return result;
+}
+
+static BrimStr *brim_rt_net_read_exact_on(Socket *s, int64_t count) {
     if (count < 0) {
         net_fail("invalid length");
         return &EMPTY_STR;
@@ -2666,13 +2945,19 @@ BrimStr *brim_rt_net_read_exact(int64_t handle, int64_t count) {
     return socket_take(s, count, 0);
 }
 
-BrimList *brim_rt_net_read_bytes(int64_t handle, int64_t count) {
+BrimStr * brim_rt_net_read_exact(int64_t handle, int64_t count) {
     net_start();
-    Socket *s = socket_get(handle, 0);
+    Socket *s = socket_use(handle, 0);
     if (s == NULL) {
         net_fail("invalid socket");
-        return NULL;
+        return &EMPTY_STR;
     }
+    BrimStr *result = brim_rt_net_read_exact_on(s, count);
+    socket_done(handle, s);
+    return result;
+}
+
+static BrimList *brim_rt_net_read_bytes_on(Socket *s, int64_t count) {
     if (count < 0) {
         net_fail("invalid length");
         return NULL;
@@ -2693,13 +2978,19 @@ BrimList *brim_rt_net_read_bytes(int64_t handle, int64_t count) {
     return l;
 }
 
-BrimStr *brim_rt_net_read_all(int64_t handle) {
+BrimList * brim_rt_net_read_bytes(int64_t handle, int64_t count) {
     net_start();
-    Socket *s = socket_get(handle, 0);
+    Socket *s = socket_use(handle, 0);
     if (s == NULL) {
         net_fail("invalid socket");
-        return &EMPTY_STR;
+        return NULL;
     }
+    BrimList *result = brim_rt_net_read_bytes_on(s, count);
+    socket_done(handle, s);
+    return result;
+}
+
+static BrimStr *brim_rt_net_read_all_on(Socket *s) {
     for (;;) {
         int64_t n = socket_fill(s);
         if (n < 0) {
@@ -2712,13 +3003,19 @@ BrimStr *brim_rt_net_read_all(int64_t handle) {
     return socket_take(s, s->len, 0);
 }
 
-int64_t brim_rt_net_write(int64_t handle, const BrimStr *text) {
+BrimStr * brim_rt_net_read_all(int64_t handle) {
     net_start();
-    Socket *s = socket_get(handle, 0);
+    Socket *s = socket_use(handle, 0);
     if (s == NULL) {
         net_fail("invalid socket");
-        return 0;
+        return &EMPTY_STR;
     }
+    BrimStr *result = brim_rt_net_read_all_on(s);
+    socket_done(handle, s);
+    return result;
+}
+
+static int64_t brim_rt_net_write_on(Socket *s, const BrimStr *text) {
     int64_t sent = 0;
     while (sent < text->len) {
         ssize_t n = send(s->fd, text->data + sent, (size_t)(text->len - sent), 0);
@@ -2734,13 +3031,19 @@ int64_t brim_rt_net_write(int64_t handle, const BrimStr *text) {
     return text->len;
 }
 
-int64_t brim_rt_net_write_bytes(int64_t handle, const BrimList *bytes) {
+int64_t brim_rt_net_write(int64_t handle, const BrimStr *text) {
     net_start();
-    Socket *s = socket_get(handle, 0);
+    Socket *s = socket_use(handle, 0);
     if (s == NULL) {
         net_fail("invalid socket");
         return 0;
     }
+    int64_t result = brim_rt_net_write_on(s, text);
+    socket_done(handle, s);
+    return result;
+}
+
+static int64_t brim_rt_net_write_bytes_on(Socket *s, const BrimList *bytes) {
     int64_t len;
     char *data = list_bytes(bytes, &len);
     int64_t sent = 0;
@@ -2760,6 +3063,18 @@ int64_t brim_rt_net_write_bytes(int64_t handle, const BrimList *bytes) {
     return len;
 }
 
+int64_t brim_rt_net_write_bytes(int64_t handle, const BrimList *bytes) {
+    net_start();
+    Socket *s = socket_use(handle, 0);
+    if (s == NULL) {
+        net_fail("invalid socket");
+        return 0;
+    }
+    int64_t result = brim_rt_net_write_bytes_on(s, bytes);
+    socket_done(handle, s);
+    return result;
+}
+
 /* Connections given back to a listener (HTTP keep-alive), oldest first:
  * as `idle` in brim-runtime's net.rs. */
 typedef struct Kept {
@@ -2777,7 +3092,6 @@ static void kept_remove(int64_t i) {
     kept_count--;
 }
 
-int64_t brim_rt_time_monotonic_millis(void);
 
 /* With `net_lock` held. */
 static void close_socket(int64_t handle) {
@@ -2785,7 +3099,10 @@ static void close_socket(int64_t handle) {
         return;
     }
     Socket *s = sockets[handle - 1];
-    if (s->fd >= 0 && s->listening) {
+    if (s == NULL || s->closed) {
+        return;
+    }
+    if (s->listening) {
         for (int64_t i = 0; i < kept_count;) {
             if (kept[i].listener == handle) {
                 int64_t conn = kept[i].conn;
@@ -2802,16 +3119,13 @@ static void close_socket(int64_t handle) {
             break;
         }
     }
-    if (s->fd >= 0) {
-        if (!s->listening) {
-            shutdown(s->fd, SHUT_RDWR);
-        }
-        sock_close(s->fd);
-        s->fd = -1;
-        free(s->buf);
-        s->buf = NULL;
-        s->len = s->cap = 0;
+    s->closed = 1;
+    /* Wakes a task waiting to read or write; the descriptor itself stays
+     * open until no task uses it, so its number is not reused meanwhile. */
+    if (!s->listening) {
+        shutdown(s->fd, SHUT_RDWR);
     }
+    socket_finish(handle, s);
 }
 
 void brim_rt_net_close(int64_t handle) {
@@ -2883,14 +3197,41 @@ static int kept_readiness(int64_t handle) {
     return n > 0 ? 1 : -1;
 }
 
+/* A new connection on a listener in use. */
+static int64_t accept_on(Socket *l) {
+    int fd;
+    do {
+        fd = accept(l->fd, NULL, NULL);
+    } while (fd < 0 && sock_errno() == EINTR);
+    if (fd < 0) {
+        net_fail(net_reason(sock_errno()));
+        return 0;
+    }
+    no_inherit(fd);
+    no_delay(fd);
+    return socket_add(fd, 0);
+}
+
+static int64_t next_ready_on(Socket *l, int64_t listener, int64_t idle_ms);
+
 int64_t brim_rt_net_next_ready(int64_t listener, int64_t idle_ms) {
     net_start();
-    Socket *l = socket_get(listener, 1);
+    Socket *l = socket_use(listener, 1);
     if (l == NULL) {
         net_fail("invalid socket");
         return 0;
     }
+    int64_t conn = next_ready_on(l, listener, idle_ms);
+    socket_done(listener, l);
+    return conn;
+}
+
+static int64_t next_ready_on(Socket *l, int64_t listener, int64_t idle_ms) {
     for (;;) {
+        if (l->closed) {
+            net_fail("invalid socket");
+            return 0;
+        }
         mutex_lock(&net_lock);
         int64_t now = brim_rt_time_monotonic_millis();
         int64_t wait = -1;
@@ -2922,7 +3263,7 @@ int64_t brim_rt_net_next_ready(int64_t listener, int64_t idle_ms) {
          * every few milliseconds. */
         if (wait < 0 && !threaded) {
             mutex_unlock(&net_lock);
-            return brim_rt_net_accept(listener);
+            return accept_on(l);
         }
         if (threaded && (wait < 0 || wait > 5)) {
             wait = 5;
@@ -2936,7 +3277,10 @@ int64_t brim_rt_net_next_ready(int64_t listener, int64_t idle_ms) {
         fds[0] = (struct pollfd){l->fd, POLLIN, 0};
         for (int64_t i = 0; i < kept_count; i++) {
             if (kept[i].listener == listener) {
-                fds[n++] = (struct pollfd){sockets[kept[i].conn - 1]->fd, POLLIN, 0};
+                Socket *c = socket_find(kept[i].conn, 0);
+                if (c != NULL) {
+                    fds[n++] = (struct pollfd){c->fd, POLLIN, 0};
+                }
             }
         }
         mutex_unlock(&net_lock);
@@ -2958,7 +3302,7 @@ int64_t brim_rt_net_next_ready(int64_t listener, int64_t idle_ms) {
             }
             mutex_unlock(&net_lock);
             if (!any) {
-                return brim_rt_net_accept(listener);
+                return accept_on(l);
             }
         }
     }
@@ -2966,19 +3310,22 @@ int64_t brim_rt_net_next_ready(int64_t listener, int64_t idle_ms) {
 
 int64_t brim_rt_net_local_port(int64_t handle) {
     net_start();
-    Socket *s = NULL;
-    mutex_lock(&net_lock);
-    if (handle >= 1 && handle <= socket_count && sockets[handle - 1]->fd >= 0) {
-        s = sockets[handle - 1];
+    int64_t listening = 1;
+    Socket *s = socket_use(handle, 1);
+    if (s == NULL) {
+        listening = 0;
+        s = socket_use(handle, 0);
     }
-    mutex_unlock(&net_lock);
     if (s == NULL) {
         net_fail("invalid socket");
         return 0;
     }
     struct sockaddr_storage addr;
     socklen_t size = sizeof addr;
-    if (getsockname(s->fd, (struct sockaddr *)&addr, &size) != 0) {
+    int failed = getsockname(s->fd, (struct sockaddr *)&addr, &size) != 0;
+    socket_done(handle, s);
+    (void)listening;
+    if (failed) {
         net_fail(net_reason(sock_errno()));
         return 0;
     }
@@ -2988,13 +3335,7 @@ int64_t brim_rt_net_local_port(int64_t handle) {
     return ntohs(((struct sockaddr_in *)&addr)->sin_port);
 }
 
-void brim_rt_net_set_timeout(int64_t handle, int64_t millis) {
-    net_start();
-    Socket *s = socket_get(handle, 0);
-    if (s == NULL) {
-        net_fail("invalid socket");
-        return;
-    }
+static void brim_rt_net_set_timeout_on(Socket *s, int64_t millis) {
     if (millis < 0) {
         net_fail("invalid timeout");
         return;
@@ -3009,7 +3350,20 @@ void brim_rt_net_set_timeout(int64_t handle, int64_t millis) {
     if (setsockopt(s->fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv) != 0 ||
         setsockopt(s->fd, SOL_SOCKET, SO_SNDTIMEO, (const char *)&tv, sizeof tv) != 0) {
         net_fail(net_reason(sock_errno()));
+        return;
     }
+    s->timeout_ms = millis;
+}
+
+void brim_rt_net_set_timeout(int64_t handle, int64_t millis) {
+    net_start();
+    Socket *s = socket_use(handle, 0);
+    if (s == NULL) {
+        net_fail("invalid socket");
+        return;
+    }
+    brim_rt_net_set_timeout_on(s, millis);
+    socket_done(handle, s);
 }
 
 /* ---- URLs (std.http) ------------------------------------------------------ */
@@ -3108,6 +3462,11 @@ int64_t brim_rt_char_code(const BrimStr *s) {
     if (p[0] < 0x80) {
         return p[0];
     }
+    /* Strings are valid UTF-8; this only guards the bounds. */
+    int64_t need = p[0] < 0xE0 ? 2 : p[0] < 0xF0 ? 3 : 4;
+    if (s->len < need) {
+        return 0xFFFD;
+    }
     if (p[0] < 0xE0) {
         return ((int64_t)(p[0] & 0x1F) << 6) | (p[1] & 0x3F);
     }
@@ -3125,7 +3484,7 @@ void brim_rt_internal_set_error(const char *reason) {
 }
 
 BrimStr *brim_rt_internal_str(const char *data, int64_t len) {
-    return str_from(data, len);
+    return str_lossy(data, len);
 }
 
 int brim_rt_internal_valid_utf8(const char *data, int64_t len) {
@@ -4077,6 +4436,7 @@ int main(int argc, char **argv) {
 #endif
     program_argc = argc;
     program_argv = argv;
+    os_random(&hash_seed, sizeof hash_seed);
     const char *check = getenv("BRIM_RT_CHECK");
     checking = check != NULL && strcmp(check, "1") == 0;
     frames = malloc(sizeof(const char *) * (size_t)brim_max_call_depth);

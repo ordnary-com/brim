@@ -1552,6 +1552,7 @@ fn package_options(update: bool, ctx: &mut Context<'_>) -> Result<brim_package::
         home,
         update,
         registry: None,
+        offline: false,
     })
 }
 

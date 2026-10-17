@@ -100,6 +100,10 @@ pub struct Options {
     pub update: bool,
     /// The registry's URL; `None` for [`registry::default_url`].
     pub registry: Option<String>,
+    /// Use only the lock file and what is in the cache: never clone, fetch
+    /// or download, and never write the lock file. Editors resolve so, so
+    /// opening a file runs nothing a repository asks for.
+    pub offline: bool,
 }
 
 /// Why resolving failed: a diagnostic and the manifest or lock file it
@@ -207,7 +211,7 @@ pub fn resolve(
     let graph = Graph {
         packages: resolver.packages,
     };
-    if graph.packages.len() > 1 {
+    if graph.packages.len() > 1 && !options.offline {
         let text = lock::render(&graph);
         let full = options.cwd.join(&lock_path);
         if std::fs::read_to_string(&full).ok().as_deref() != Some(text.as_str()) {
@@ -263,6 +267,7 @@ impl Resolver<'_> {
                     url,
                     reference,
                     locked,
+                    self.options.offline,
                     &mut self.report.fetched,
                 )
                 .map_err(|message| {
@@ -351,7 +356,8 @@ impl Resolver<'_> {
             .registry
             .clone()
             .unwrap_or_else(registry::default_url);
-        let reg = registry::Registry::new(&url);
+        let mut reg = registry::Registry::new(&url);
+        reg.offline = self.options.offline;
         for w in wanted {
             if let Some((index, _)) = self.by_name.get(&w.name) {
                 let file = self.packages[w.from].manifest_file.clone();
