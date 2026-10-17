@@ -4,34 +4,36 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-17
+
 ### Added
 
 - Tasks: `std.task` runs functions at the same time, each on a thread of its own, in the interpreter and in native code. `task.spawn(f)` gives a `Task[T]` to `join`, `task.detach(f)` starts a task that is never joined, and channels (`task.channel()`, `task.bounded(n)`) carry values between tasks with `send`, `receive` and `close`. Tasks share no changeable memory, so there are no data races: values are shared until one side changes them, as before. A run-time error in a task stops the program with that task's call stack; joining a task twice is `R0012`. The design is in `docs/design/concurrency.md`.
 - HTTP servers handle requests at the same time with a task per request; `Server.next()` and `Request.respond` work from different tasks, keep-alive included.
-
 - Version requirements and a package registry: `router = "1.2"` in `[dependencies]` picks the newest version that meets every requirement on the package in the project (`^`, `~`, `=`, comparisons and `*`, as in `docs/registry.md`), records it with its checksum in `brim.lock` and works offline from there. Conflicts say who requires what (`M0014`). `brim update` picks the newest versions again.
 - `brim publish` (with `--dry-run`), `brim login` and `brim yank NAME@VERSION [--undo]`. A path dependency can carry a `version` for publishing: `shared = { path = "../shared", version = "0.1" }`. `[package]` takes `description`, `license` and `repository`.
 - The registry service itself, in `registry/`: index, downloads, publishing with API tokens, yanking, search and package pages.
 - Calling C: `extern fn cos(x: f64) -> f64` declares a C function, with `i64`, `i32`, `u8`, `u64`, `f64`, `bool` and `string` (`const char *`) parameters and results. `[build] c-sources` compiles C files into native builds and `[build] link` links libraries. `brim run` builds and runs programs that call C; the interpreter stops at such a call with `R0011`.
 - Workspaces: `[workspace] members = ["apps/*", "shared"]` in a root `brim.toml`, with one `brim.lock` for all members. At the root, `check`, `test`, `build` and `doc` work on every member; `-p NAME` (`--package`) picks one.
-
-### Changed
-
-- `brim check` on a library without `main` checks its library root instead of asking for `main`.
-
-- Native code releases values right after their last use instead of at the end of the block, so a list or map changed by several `mut self` methods in a row is changed in place instead of copied (a `StringBuilder` with two `add`s per loop went from 6 s to a few ms for 100,000 parts).
-- `brim build` keeps the compiled runtime in `~/.brim/cache` (`$BRIM_HOME/cache`): builds after the first are about ten times faster.
-- `sorted()` on lists of integers and strings is done by the runtime: about 25 times faster in the interpreter.
-- The interpreter frees numbers and shared values without extra work: loops run about 15% faster.
-
-### Added
-
 - Native builds on Windows: the C runtime has a Windows version (Winsock, Win32 files, processes, clocks and random numbers, UTF-8 console output and arguments), `brim build` links with `clang`, and releases have a `windows-x86_64-native` archive, which `install.ps1` prefers. HTTPS requests in native Windows programs go through WinHTTP, the system's own HTTP client, with the same results and error messages as libcurl elsewhere.
 - The interpreter compiled to WebAssembly (`crates/brim-playground`, `wasm32-wasip1`) runs programs in a browser or in Node, with standard input and a step limit.
 - `brim build` skips programs whose sources, options, C compiler and `brim` did not change since they were last built (`(up to date)`), with the cache in `$BRIM_HOME/cache`; `BRIM_NO_CACHE=1` turns all build caches off.
 - Debug information: native builds without `--release` carry DWARF line tables, a subprogram per Brim function and the variables of type `i64`, `f64` and `bool`, so lldb and gdb can stop at a Brim line, step, show the call stack with Brim names and print those variables (on macOS in a `.dSYM` next to the executable). The one `unsafe` call this needs lives in the small crate `brim-llvm-extra`.
 - `brim doc`: HTML documentation from doc comments (the `//` lines above `pub` items, and the comment at the top of each module), with linked types and a search box. `brim doc --std` documents the standard library; the site publishes that reference under `/docs/std/`.
 - The language server completes names, a module's items after `module.` and the fields and methods of a value's type after `value.`; finds references; renames across files; shows signature help in calls; offers quick fixes for diagnostics whose help says what to write (a similar name, `let mut`, a missing import, `2.0`); and shows inferred types on hover. It uses a new index from the checker (`brim_semantic::index_modules`) of what every name refers to, which is there also for programs with errors.
+
+### Changed
+
+- `brim check` on a library without `main` checks its library root instead of asking for `main`.
+- Native code releases values right after their last use instead of at the end of the block, so a list or map changed by several `mut self` methods in a row is changed in place instead of copied (a `StringBuilder` with two `add`s per loop went from 6 s to a few ms for 100,000 parts).
+- `brim build` keeps the compiled runtime in `~/.brim/cache` (`$BRIM_HOME/cache`): builds after the first are about ten times faster.
+- `sorted()` on lists of integers and strings is done by the runtime: about 25 times faster in the interpreter.
+- The interpreter frees numbers and shared values without extra work: loops run about 15% faster.
+- The default registry is `https://registry.brimlang.com`, and the install scripts live at `https://brimlang.com/install.sh` and `install.ps1`.
+
+### Fixed
+
+- `brim fmt` keeps the space in `0 .5` (a field of an integer), which it used to join into the float `0.5`.
 
 ## [0.4.0] - 2026-10-15
 
