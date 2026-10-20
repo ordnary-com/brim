@@ -19,10 +19,18 @@
         "extensions": [".brim"],
         "configuration": "./language-configuration.json",
         "icon": { "light": "./icons/brim-file.svg", "dark": "./icons/brim-file-dark.svg" }
+      },
+      {
+        "id": "brimproj",
+        "aliases": ["Brim project"],
+        "filenames": [".brimproj", "brim.toml"],
+        "configuration": "./brimproj-configuration.json",
+        "icon": { "light": "./icons/brimproj-file.svg", "dark": "./icons/brimproj-file-dark.svg" }
       }
     ],
     "grammars": [
-      { "language": "brim", "scopeName": "source.brim", "path": "./syntaxes/brim.tmLanguage.json" }
+      { "language": "brim", "scopeName": "source.brim", "path": "./syntaxes/brim.tmLanguage.json" },
+      { "language": "brimproj", "scopeName": "source.brimproj", "path": "./syntaxes/brimproj.tmLanguage.json" }
     ],
     "configuration": {
       "title": "Brim",

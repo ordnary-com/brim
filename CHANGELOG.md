@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- The VS Code extension gives `.brimproj` (and `brim.toml`) its own file icon, the Brim mark with a gear, and highlights it as TOML.
+
 ## [1.0.0-rc.2] - 2026-10-17
 
 ### Changed

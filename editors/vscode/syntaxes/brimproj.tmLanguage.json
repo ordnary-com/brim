@@ -1,0 +1,46 @@
+{
+  "name": "Brim project",
+  "scopeName": "source.brimproj",
+  "patterns": [{ "include": "#line" }],
+  "repository": {
+    "line": {
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#table" },
+        { "include": "#pair" },
+        { "include": "#value" }
+      ]
+    },
+    "comment": { "match": "#.*$", "name": "comment.line.number-sign.brimproj" },
+    "table": {
+      "match": "^\\s*(\\[\\[?)\\s*([^\\]]*?)\\s*(\\]\\]?)",
+      "captures": {
+        "1": { "name": "punctuation.definition.table.brimproj" },
+        "2": { "name": "entity.name.section.brimproj" },
+        "3": { "name": "punctuation.definition.table.brimproj" }
+      }
+    },
+    "pair": {
+      "match": "([A-Za-z0-9_.\\-]+|\"[^\"]*\")\\s*(=)",
+      "captures": {
+        "1": { "name": "variable.other.key.brimproj" },
+        "2": { "name": "keyword.operator.assignment.brimproj" }
+      }
+    },
+    "value": {
+      "patterns": [
+        { "begin": "\"\"\"", "end": "\"\"\"", "name": "string.quoted.triple.brimproj" },
+        { "begin": "'''", "end": "'''", "name": "string.quoted.triple.literal.brimproj" },
+        {
+          "begin": "\"", "end": "\"", "name": "string.quoted.double.brimproj",
+          "patterns": [{ "match": "\\\\.", "name": "constant.character.escape.brimproj" }]
+        },
+        { "begin": "'", "end": "'", "name": "string.quoted.single.brimproj" },
+        { "match": "\\b(true|false)\\b", "name": "constant.language.boolean.brimproj" },
+        { "match": "[+-]?\\b[0-9][0-9_]*(\\.[0-9_]+)?([eE][+-]?[0-9]+)?\\b", "name": "constant.numeric.brimproj" },
+        { "begin": "\\{", "end": "\\}", "patterns": [{ "include": "#pair" }, { "include": "#value" }] },
+        { "begin": "\\[", "end": "\\]", "patterns": [{ "include": "#comment" }, { "include": "#value" }] }
+      ]
+    }
+  }
+}
