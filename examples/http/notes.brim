@@ -5,12 +5,10 @@
 //   curl localhost:8080/notes
 //   curl localhost:8080/notes/1
 //   curl -X DELETE localhost:8080/notes/1
-// Written with `import` so that the released brim in the Dockerfile builds
-// it; `brim fmt` turns these into `use @std/...`.
-import std.http
-import std.json
-import std.log
-import std.time
+use @std/http
+use @std/json
+use @std/log
+use @std/time
 
 struct Notes {
     texts: Map[i64, string],
