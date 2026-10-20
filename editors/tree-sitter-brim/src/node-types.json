@@ -3543,6 +3543,10 @@
         {
           "type": "trait_declaration",
           "named": true
+        },
+        {
+          "type": "use_declaration",
+          "named": true
         }
       ]
     }
@@ -4167,6 +4171,46 @@
     }
   },
   {
+    "type": "use_declaration",
+    "named": true,
+    "fields": {
+      "alias": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "path": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "use_path",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "visibility",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "value_call_expression",
     "named": true,
     "fields": {
@@ -4772,6 +4816,14 @@
   {
     "type": "u8",
     "named": false
+  },
+  {
+    "type": "use",
+    "named": false
+  },
+  {
+    "type": "use_path",
+    "named": true
   },
   {
     "type": "visibility",

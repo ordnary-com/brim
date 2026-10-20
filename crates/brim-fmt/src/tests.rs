@@ -15,8 +15,8 @@ fn spaces_between_tokens() {
         "fn main() { let xs: List[i64] = [1, 2]\n    let m: Map[string, i64] = [:]\n    print(xs[0] - 1) }\n"
     );
     assert_eq!(
-        fmt("import text . format.{ pad , Report }\nfn main(){}\n"),
-        "import text.format.{pad, Report}\nfn main() {}\n"
+        fmt("use text / format( pad , Report )\nuse @ std/json\nfn main(){}\n"),
+        "use text/format (pad, Report)\nuse @std/json\nfn main() {}\n"
     );
     assert_eq!(
         fmt(
@@ -142,5 +142,23 @@ fn fstrings_keep_their_text() {
     assert_eq!(
         fmt("fn main() {\n    print(f\"{a+b}\")\n}\n"),
         "fn main() {\n    print(f\"{a + b}\")\n}\n"
+    );
+}
+
+#[test]
+fn old_imports_become_use() {
+    // Without the project, only the standard library is known.
+    assert_eq!(
+        fmt("import std.json\nimport a.b.{X, y}\nfn main() {}\n"),
+        "use @std/json\nimport a.b.{X, y}\nfn main() {}\n"
+    );
+    let deps = vec!["router".to_string()];
+    assert_eq!(
+        format_with(
+            "import std.json\nimport router.mw as m\npub import a.b.{X, y}\nimport c\nfn main() {}\n",
+            Some(&deps)
+        )
+        .unwrap(),
+        "use @std/json\nuse @router/mw as m\npub use a/b (X, y)\nuse c\nfn main() {}\n"
     );
 }

@@ -19,7 +19,7 @@ const { loadBrim } = require(path.join(__dirname, 'brim-wasm.js'));
   check('fn main() {\n    print([3, 1, 2].sorted())\n}\n', '', '[1, 2, 3]\n');
   check('fn main() {\n    match read_line() {\n        Some(l) => print(l)\n        None => {}\n    }\n}\n', 'hi\n', 'hi\n');
   check(
-    'import std.json\nimport std.random\nimport std.time\nfn main() {\n    time.sleep(10)\n    print(random.int(0, 3) < 3)\n    print(json.encode([1]))\n}\n',
+    'use @std/json\nuse @std/random\nuse @std/time\nfn main() {\n    time.sleep(10)\n    print(random.int(0, 3) < 3)\n    print(json.encode([1]))\n}\n',
     '',
     'true\n[1]\n',
   );

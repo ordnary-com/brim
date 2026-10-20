@@ -37,10 +37,29 @@ module.exports = grammar({
   ],
 
   rules: {
-    source_file: ($) => repeat(choice($.import_declaration, $._item, ';')),
+    source_file: ($) =>
+      repeat(choice($.use_declaration, $.import_declaration, $._item, ';')),
 
     comment: (_) => token(seq('//', /.*/)),
 
+    // `use @std/json`, `use text/format (pad, Report)`, `use geometry as geo`
+    use_declaration: ($) =>
+      seq(
+        optional($.visibility),
+        'use',
+        field('path', $.use_path),
+        optional(
+          choice(
+            seq('(', commaSep($.identifier), ')'),
+            seq('as', field('alias', $.identifier)),
+          ),
+        ),
+      ),
+
+    // One token: `@` before a package, `/` between modules.
+    use_path: (_) => /@?[A-Za-z_][A-Za-z0-9_]*(\/[A-Za-z_][A-Za-z0-9_]*)*/,
+
+    // `import a.b.{X}`: the spelling before `use`.
     import_declaration: ($) =>
       seq(
         optional($.visibility),

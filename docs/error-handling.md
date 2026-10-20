@@ -108,7 +108,7 @@ Guidelines for writing diagnostics:
 | E0239 | `self` parameter outside an `impl` block |
 | E0240 | Method with `self` called on the type, or method without `self` called on a value |
 | E0241 | Use of another module's item that is not `pub` |
-| E0242 | Module not found, or imported item not found in its module |
+| E0242 | Module not found, imported item not found in its module, a package used without `@` (`use std/json`), or `@name` for a package the project does not depend on |
 | E0243 | Two imports with the same name, or an import whose name is already defined |
 | E0244 | A test function (`fn test_...`) with parameters or a return type (only reported by `brim test`) |
 | E0245 | The alternatives of a `p \| q` pattern bind different names, or a name with different types |
@@ -129,6 +129,7 @@ Guidelines for writing diagnostics:
 | W0002 | Value of a non-call expression statement is unused |
 | W0003 | Variable declared `mut` but never reassigned |
 | W0004 | Unreachable `match` arm, or alternative of `\|`: earlier patterns already cover it |
+| W0005 | An import written with `import` instead of `use` (`brim fmt` rewrites it) |
 
 ### Manifest errors (`brim-manifest`)
 

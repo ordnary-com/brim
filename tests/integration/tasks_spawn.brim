@@ -1,5 +1,5 @@
 // `spawn` runs functions at the same time; `join` gives their results.
-import std.task
+use @std/task
 
 fn fib(n: i64) -> i64 {
     return if n < 2 { n } else { fib(n - 1) + fib(n - 2) }

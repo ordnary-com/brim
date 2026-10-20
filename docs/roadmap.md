@@ -70,7 +70,7 @@ Still open from this phase: cross-compilation, and linking without a C compiler.
 
 ## Phase 6: Package manager and project tooling (done, first version)
 
-- **Done:** multi-file programs: every file is a module, `import` with aliases and item lists, `pub` visibility, diagnostics across files.
+- **Done:** multi-file programs: every file is a module, `use` (formerly `import`) with aliases and item lists, `pub` visibility, diagnostics across files.
 - **Done:** `brim new`, and `brim test` with `assert` and `assert_eq`.
 - **Done:** `brim fmt`, a token-based formatter that keeps comments and line breaks.
 - **Done:** `[dependencies]` from directories and git repositories, `.brimlock`, `brim update`.

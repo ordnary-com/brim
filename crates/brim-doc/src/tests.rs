@@ -3,7 +3,7 @@ use super::*;
 const SOURCE: &str = "// Notes, kept in memory.
 //
 //   let n = notes.new_note(\"milk\")
-import shapes
+use shapes
 
 // A note.
 pub struct Note {

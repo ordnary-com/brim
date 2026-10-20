@@ -295,6 +295,7 @@ impl Parser {
                 | TokenKind::Const
                 | TokenKind::Pub
                 | TokenKind::Import
+                | TokenKind::Use
                 | TokenKind::Eof
         ) {
             self.bump();
@@ -340,7 +341,7 @@ impl Parser {
             let token = self.peek().clone();
             match &token.kind {
                 TokenKind::Eof => break,
-                TokenKind::Import => match self.import_decl() {
+                TokenKind::Import | TokenKind::Use => match self.import_decl() {
                     Ok(i) => imports.push(i),
                     Err(Reported) => self.recover_item(),
                 },
@@ -389,25 +390,25 @@ impl Parser {
                             }
                             Err(Reported) => self.recover_item(),
                         },
-                        // `pub import a.{X}` re-exports `X`.
-                        TokenKind::Import => match self.import_decl() {
+                        // `pub use a (X)` re-exports `X`.
+                        TokenKind::Import | TokenKind::Use => match self.import_decl() {
                             Ok(mut i) if i.items.is_some() => {
                                 i.public = true;
                                 imports.push(i);
                             }
                             Ok(i) => {
                                 self.report(
-                                    Diagnostic::error("`pub import` re-exports items, not modules")
+                                    Diagnostic::error("`pub use` re-exports items, not modules")
                                         .with_code("E0100")
                                         .with_primary(i.span, "")
-                                        .with_help("name the items: `pub import module.{Item}`"),
+                                        .with_help("name the items: `pub use module (Item)`"),
                                 );
                             }
                             Err(Reported) => self.recover_item(),
                         },
                         _ => {
                             self.error_unexpected(
-                                "`fn`, `struct`, `enum`, `trait`, `const` or `import` after `pub`",
+                                "`fn`, `struct`, `enum`, `trait`, `const` or `use` after `pub`",
                             );
                             self.recover_item();
                         }
@@ -489,8 +490,81 @@ impl Parser {
         }
     }
 
-    /// `import a.b`, `import a.b as c` or `import a.b.{X, y}`.
+    /// `use a/b`, `use a/b as c`, `use a/b (X, y)`, `use @std/json`, or
+    /// the old spelling with `import`.
     fn import_decl(&mut self) -> PResult<ImportDecl> {
+        if self.at(&TokenKind::Import) {
+            return self.legacy_import_decl();
+        }
+        let use_token = self.bump();
+        let external = self.eat(&TokenKind::At).is_some();
+        let first = if external {
+            self.expect_ident("a package name after `@`, such as `@std`")?
+        } else {
+            self.expect_ident("a module name, or `@` and a package name")?
+        };
+        let mut path = vec![first];
+        let mut end = path[0].span;
+        while self.eat(&TokenKind::Slash).is_some() {
+            let part = self.expect_ident("a module name after `/`")?;
+            end = part.span;
+            path.push(part);
+        }
+        if self.at(&TokenKind::Dot) {
+            let span = self.peek().span;
+            let written = path
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>()
+                .join("/");
+            return Err(self.report(
+                Diagnostic::error("modules in a `use` path are separated by `/`")
+                    .with_code("E0100")
+                    .with_primary(span, "expected `/`")
+                    .with_help(format!(
+                        "write `use {}{written}/...`",
+                        if external { "@" } else { "" }
+                    )),
+            ));
+        }
+        let mut items = None;
+        let mut alias = None;
+        if self.at(&TokenKind::LParen) {
+            self.bump();
+            let (names, close) = self.in_parens(|p| {
+                let mut names = Vec::new();
+                while !p.at(&TokenKind::RParen) {
+                    names.push(p.expect_ident("a name to use")?);
+                    if p.eat(&TokenKind::Comma).is_none() {
+                        break;
+                    }
+                }
+                if !p.at(&TokenKind::RParen) {
+                    return Err(p.error_unexpected("`,` or `)`"));
+                }
+                Ok((names, p.bump()))
+            })?;
+            items = Some(names);
+            end = close.span;
+        } else if self.eat(&TokenKind::As).is_some() {
+            let name = self.expect_ident("a name after `as`")?;
+            end = name.span;
+            alias = Some(name);
+        }
+        Ok(ImportDecl {
+            path,
+            external,
+            legacy: false,
+            alias,
+            items,
+            public: false,
+            span: use_token.span.to(end),
+        })
+    }
+
+    /// `import a.b`, `import a.b as c` or `import a.b.{X, y}`: the spelling
+    /// before `use`, still accepted (the driver warns about it).
+    fn legacy_import_decl(&mut self) -> PResult<ImportDecl> {
         let import_token = self.bump();
         let mut path = vec![self.expect_ident("a module name")?];
         let mut items = None;
@@ -528,6 +602,8 @@ impl Parser {
         };
         Ok(ImportDecl {
             path,
+            external: false,
+            legacy: true,
             alias,
             items,
             public: false,

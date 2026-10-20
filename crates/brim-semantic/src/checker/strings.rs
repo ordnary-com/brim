@@ -508,7 +508,7 @@ impl<'a> Checker<'a> {
                 Diagnostic::error("`serve_api` needs `std.http`")
                     .with_code("E0213")
                     .with_primary(span, "")
-                    .with_help("add `import std.http`"),
+                    .with_help("add `use @std/http`"),
             );
             return error_expr(span);
         };
@@ -519,7 +519,7 @@ impl<'a> Checker<'a> {
                 Diagnostic::error("the first argument of `serve_api` must be a module")
                     .with_code("E0206")
                     .with_primary(module_arg.span, "not an imported module")
-                    .with_help("import the module with the API functions and pass its name: `serve_api(api, request)`"),
+                    .with_help("use the module with the API functions and pass its name: `serve_api(api, request)`"),
             );
             return error_expr(span);
         };

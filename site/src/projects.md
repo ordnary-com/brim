@@ -12,7 +12,7 @@ edition = "2026"
 ```
 
 The program starts in `src/main.brim`; a library's root is `src/lib.brim`.
-Other modules live next to them: `import text.format` is
+Other modules live next to them: `use text/format` is
 `src/text/format.brim`. Inside the project, `brim run`, `brim build`,
 `brim check`, `brim test` and `brim fmt` need no path.
 
@@ -68,8 +68,11 @@ geometry = { path = "../geometry" }
 http = { git = "https://github.com/example/brim-http.git", tag = "v1.0.0" }
 ```
 
-`import geometry` then refers to the library root of `geometry`
-(`src/lib.brim`), and `import geometry.shapes` to its `src/shapes.brim`.
+`use @geometry` then refers to the library root of `geometry`
+(`src/lib.brim`), and `use @geometry/shapes` to its `src/shapes.brim`.
+The `@` marks a package; a path without it is a module of your own
+project, so `use shapes` and `use @geometry/shapes` never get mixed up.
+The standard library is the package `@std`.
 
 ### Versions
 

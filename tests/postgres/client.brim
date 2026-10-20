@@ -1,7 +1,7 @@
 // std.postgres against a real server, whose URL is in BRIM_TEST_POSTGRES.
 // Temporary tables keep runs apart and leave nothing behind.
-import std.json
-import std.postgres
+use @std/json
+use @std/postgres
 
 struct Note {
     id: i64

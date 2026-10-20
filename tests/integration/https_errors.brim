@@ -1,6 +1,6 @@
 // https:// requests go through libcurl (WinHTTP on Windows); these fail without needing the
 // internet, and must fail the same way in the interpreter and natively.
-import std.http
+use @std/http
 
 fn show(url: string) {
     match http.get(url) {

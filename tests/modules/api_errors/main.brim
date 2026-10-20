@@ -1,6 +1,6 @@
 // exit: 1
-import std.http
-import bad_api
+use @std/http
+use bad_api
 
 fn main() {
     let request = http.new_request("POST", "/api/x", "")

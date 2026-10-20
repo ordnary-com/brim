@@ -5,8 +5,8 @@
 //   brim gen ts --angular examples/http/api -o client.ts
 //
 // API functions share no state, so the notes are kept in a JSON file.
-import std.fs
-import std.json
+use @std/fs
+use @std/json
 
 const FILE: string = "notes.json"
 

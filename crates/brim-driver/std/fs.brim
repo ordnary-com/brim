@@ -1,6 +1,6 @@
 // Files and directories:
 //
-//   import std.fs
+//   use @std/fs
 //
 //   fs.create_dir("out/logs")?
 //   fs.write("out/logs/today.txt", "started\n")?
@@ -11,7 +11,7 @@
 //
 // Paths are relative to the working directory. Errors are messages such as
 // `cannot list directory "out": not found`.
-import std.time
+use @std/time
 
 // Whether a file or directory exists at `path`.
 pub fn exists(path: string) -> bool {

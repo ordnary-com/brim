@@ -1,7 +1,7 @@
 // Time: the current date and time in UTC, measuring durations, and
 // waiting.
 //
-//   import std.time
+//   use @std/time
 //
 //   print(time.now().iso())          // 2026-10-15T08:30:01.123Z
 //   let start: i64 = time.millis()

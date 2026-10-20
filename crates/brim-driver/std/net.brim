@@ -1,6 +1,6 @@
 // TCP connections: listening, connecting, and reading and writing text.
 //
-//   import std.net
+//   use @std/net
 //
 //   let listener: net.Listener = net.listen("127.0.0.1", 8080)?
 //   let conn: net.Conn = listener.accept()?

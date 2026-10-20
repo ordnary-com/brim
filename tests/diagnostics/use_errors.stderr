@@ -1,0 +1,35 @@
+error[E0242]: `std` is the standard library
+ --> tests/diagnostics/use_errors.brim:1:5
+  |
+1 | use std/json
+  |     ^^^
+  |
+  = help: packages are written with `@`: `use @std/json`
+
+error[E0242]: there is no package `@nope`
+ --> tests/diagnostics/use_errors.brim:2:6
+  |
+2 | use @nope/thing
+  |      ^^^^
+  |
+  = help: add `nope` to [dependencies] in .brimproj, or write `@std` for the standard library
+
+warning[W0005]: `import` is now written `use`
+ --> tests/diagnostics/use_errors.brim:3:1
+  |
+3 | import std.time
+  | ^^^^^^^^^^^^^^^
+  |
+  = note: `brim fmt` rewrites every import
+  = help: write `use @std/time`
+
+warning[W0005]: `import` is now written `use`
+ --> tests/diagnostics/use_errors.brim:4:5
+  |
+4 | pub import std.json.{Json}
+  |     ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `brim fmt` rewrites every import
+  = help: write `pub use @std/json (Json)`
+
+error: could not compile tests/diagnostics/use_errors.brim due to 2 errors; 2 warnings emitted

@@ -751,7 +751,8 @@ fn fmt(paths: &[PathBuf], check: bool, ctx: &mut Context<'_>) -> CmdResult {
             return Err(exit::INPUT);
         }
         let file = SourceFile::new("<stdin>", text);
-        return match brim_fmt::format(file.text()) {
+        let deps = brim_manifest::dependency_names(&ctx.cwd);
+        return match brim_fmt::format_with(file.text(), deps.as_deref()) {
             Ok(formatted) if check => {
                 if formatted == file.text() {
                     Ok(())
@@ -811,7 +812,9 @@ fn fmt(paths: &[PathBuf], check: bool, ctx: &mut Context<'_>) -> CmdResult {
     let mut result = Ok(());
     for path in files {
         let file = read_text(&path, ctx)?;
-        match brim_fmt::format(file.text()) {
+        let full = ctx.cwd.join(&path);
+        let deps = brim_manifest::dependency_names(full.parent().unwrap_or(&ctx.cwd));
+        match brim_fmt::format_with(file.text(), deps.as_deref()) {
             Ok(formatted) if formatted == file.text() => {}
             Ok(_) if check => {
                 let _ = writeln!(ctx.stdout, "{}", path.display());

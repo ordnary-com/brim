@@ -1,7 +1,7 @@
 // An HTTP server within one program: a raw client writes requests, the
 // server parses and answers them, and the client reads the responses.
-import std.http
-import std.net
+use @std/http
+use @std/net
 
 // `raw` with `Connection: close` after the request line, so the client
 // can read the response to the end.

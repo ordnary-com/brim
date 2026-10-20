@@ -117,8 +117,8 @@ Hello, world!</code></pre>
       <p>The standard library comes with an HTTP server and client, JSON, PostgreSQL, logging and files, so a service needs no framework to get started.</p>
       <p>Write an API as plain functions and <code>brim gen ts --angular</code> generates the TypeScript types and an Angular client to call it.</p>
     </div>
-<pre><code><span class="k">import</span> std.http
-<span class="k">import</span> std.log
+<pre><code><span class="k">use</span> @std/http
+<span class="k">use</span> @std/log
 
 <span class="k">fn</span> <span class="f">serve</span>(port: <span class="t">i64</span>) -&gt; <span class="t">Result</span>[<span class="t">bool</span>, <span class="t">string</span>] {
     <span class="k">let</span> server = http.<span class="f">serve</span>(<span class="s">"127.0.0.1"</span>, port)?

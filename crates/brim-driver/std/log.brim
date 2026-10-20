@@ -1,10 +1,10 @@
 // Log lines on standard error, with the time and a level:
 //
-//   import std.log
+//   use @std/log
 //
 //   log.info("listening on port 8080")
 //   // 2026-10-15T08:30:01.123Z INFO listening on port 8080
-import std.time
+use @std/time
 
 pub fn info(message: string) {
     write("INFO", message)

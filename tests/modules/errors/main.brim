@@ -1,6 +1,6 @@
 // exit: 1
-import lib
-import lib.{secret, Hidden, nothing}
+use lib
+use lib (secret, Hidden, nothing)
 
 fn main() {
     print(lib.secret())

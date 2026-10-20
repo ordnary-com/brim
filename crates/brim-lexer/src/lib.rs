@@ -454,6 +454,7 @@ impl Lexer<'_> {
             '.' if self.eat('.') => TokenKind::DotDot,
             '.' => TokenKind::Dot,
             '?' => TokenKind::Question,
+            '@' => TokenKind::At,
             '+' if self.eat('=') => TokenKind::PlusEq,
             '+' => TokenKind::Plus,
             '*' if self.eat('=') => TokenKind::StarEq,
@@ -757,10 +758,10 @@ mod tests {
 
     #[test]
     fn invalid_characters_are_reported_and_skipped() {
-        let (tokens, diags) = lex("a @ b # é &");
+        let (tokens, diags) = lex("a $ b # é &");
         let codes: Vec<_> = diags.iter().map(|d| d.code.unwrap().0).collect();
         assert_eq!(codes, vec!["E0001"; 4]);
-        assert_eq!(diags[0].message, "unexpected character `@`");
+        assert_eq!(diags[0].message, "unexpected character `$`");
         assert_eq!(diags[3].help, vec!["logical AND is written `&&`"]);
         let kinds: Vec<_> = tokens.into_iter().map(|t| t.kind).collect();
         use TokenKind::Unknown;

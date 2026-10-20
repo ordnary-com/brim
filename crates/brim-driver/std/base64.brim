@@ -1,6 +1,6 @@
 // Base64 (RFC 4648), the standard alphabet with `=` padding:
 //
-//   import std.base64
+//   use @std/base64
 //
 //   let text = base64.encode("hello".bytes())       // "aGVsbG8="
 //   let bytes = base64.decode(text)?

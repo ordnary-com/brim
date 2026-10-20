@@ -7,6 +7,7 @@
   (match_statement)
   (struct_expression)
   (import_declaration)
+  (use_declaration)
 
   ; (/)
   (parameters)

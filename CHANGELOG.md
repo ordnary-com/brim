@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- Modules are brought in with `use` instead of `import`, and paths say where a module comes from: `use @std/json` for the standard library, `use @router/middleware` for a dependency, and `use text/format` for a module of your own project. Items are listed in parentheses (`use text/format (pad, Report)`), and `pub use` re-exports them. `import` keeps working with warning `W0005` (not for dependencies), and `brim fmt` rewrites it. A package written without `@` (`use std/json`), or `@name` for a package the project does not depend on, is `E0242`.
+- The editor packages highlight `use` and `@package`, and no longer mark `const`, `loop` and `trait` as reserved.
+
 ### Added
 
 - `brim icons` gives `.brim` and `.brimproj` files their own icons in Finder, File Explorer and Linux file managers, without changing which program opens them. The install scripts run it (`BRIM_NO_ICONS=1` skips it); `brim icons --remove` takes the icons away.

@@ -1,6 +1,6 @@
 // Random numbers:
 //
-//   import std.random
+//   use @std/random
 //
 //   let die = random.int(1, 7)            // 1 to 6
 //   let x = random.float()                // 0 up to 1

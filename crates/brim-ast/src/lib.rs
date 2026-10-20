@@ -67,19 +67,47 @@ pub struct StructDecl {
     pub span: Span,
 }
 
-/// `import a.b`, `import a.b as c` or `import a.b.{X, y}`.
+/// `use a/b`, `use a/b as c`, `use a/b (X, y)` or `use @std/json`; the
+/// old spelling is `import a.b`, `import a.b as c` or `import a.b.{X, y}`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportDecl {
-    /// The module path, e.g. `[a, b]`.
+    /// The module path, e.g. `[a, b]`; for `use @std/json`, `[std, json]`.
     pub path: Vec<Ident>,
+    /// `use @name/...`: the standard library or a dependency, rather than
+    /// a module of this package.
+    pub external: bool,
+    /// Written with `import` instead of `use`. Such imports may name the
+    /// standard library and dependencies without `@`.
+    pub legacy: bool,
     /// `as name`: the name the module is used under.
     pub alias: Option<Ident>,
-    /// `.{X, y}`: items brought into scope by their own names.
+    /// `(X, y)`: items brought into scope by their own names.
     pub items: Option<Vec<Ident>>,
-    /// `pub import a.{X}`: the items are also items of this module, for
+    /// `pub use a (X)`: the items are also items of this module, for
     /// the modules that import it.
     pub public: bool,
     pub span: Span,
+}
+
+impl ImportDecl {
+    /// The import written with `use` (without `pub`); `external` adds the
+    /// `@` of the standard library or a dependency.
+    pub fn use_text(&self, external: bool) -> String {
+        let path = self
+            .path
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>()
+            .join("/");
+        let mut text = format!("use {}{path}", if external { "@" } else { "" });
+        if let Some(items) = &self.items {
+            let names: Vec<&str> = items.iter().map(|i| i.name.as_str()).collect();
+            text.push_str(&format!(" ({})", names.join(", ")));
+        } else if let Some(alias) = &self.alias {
+            text.push_str(&format!(" as {}", alias.name));
+        }
+        text
+    }
 }
 
 /// `self` or `mut self`.

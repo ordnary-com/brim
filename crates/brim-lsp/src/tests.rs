@@ -47,7 +47,7 @@ fn scratch(name: &str) -> PathBuf {
     PathBuf::from(canonical.strip_prefix(r"\\?\").unwrap_or(&canonical))
 }
 
-const MAIN: &str = "import shapes\n\nfn main() {\n    let side: i64 = 3\n    let sq: shapes.Square = shapes.square(side)\n    print(sq.side + area(sq))\n}\n\nfn area(s: shapes.Square) -> i64 {\n    return s.side * s.side\n}\n";
+const MAIN: &str = "use shapes\n\nfn main() {\n    let side: i64 = 3\n    let sq: shapes.Square = shapes.square(side)\n    print(sq.side + area(sq))\n}\n\nfn area(s: shapes.Square) -> i64 {\n    return s.side * s.side\n}\n";
 const SHAPES: &str = "pub struct Square {\n    pub side: i64,\n}\n\npub fn square(side: i64) -> Square {\n    return Square { side: side }\n}\n";
 
 fn project(name: &str) -> (PathBuf, String) {

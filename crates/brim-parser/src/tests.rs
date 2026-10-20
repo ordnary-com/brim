@@ -455,8 +455,8 @@ fn invalid_characters_are_reported_once() {
         codes("fn main() {\n    let x: i64 = 5 $ 3\n}"),
         vec!["E0001"]
     );
-    assert_eq!(codes("@\nfn main() {}"), vec!["E0001"]);
-    assert_eq!(codes("fn main() { print(@) }"), vec!["E0001"]);
+    assert_eq!(codes("$\nfn main() {}"), vec!["E0001"]);
+    assert_eq!(codes("fn main() { print($) }"), vec!["E0001"]);
 }
 
 #[test]
@@ -730,4 +730,41 @@ fn extern_functions() {
         vec!["E0100"]
     );
     assert_eq!(codes("extern struct S {}\n"), vec!["E0100"]);
+}
+
+#[test]
+fn use_declarations() {
+    let program = parse_ok(
+        "use @std/json\nuse text/format (pad, Report)\npub use lib (X)\nuse geometry as geo\nimport std.http\nfn main() {}\n",
+    );
+    // Path, `@`, written with `import`, items, alias, `pub`.
+    let shown: Vec<String> = program
+        .imports
+        .iter()
+        .map(|i| {
+            let path: Vec<&str> = i.path.iter().map(|p| p.name.as_str()).collect();
+            format!(
+                "{} {} {} {:?} {:?} {}",
+                path.join("/"),
+                i.external,
+                i.legacy,
+                i.items.as_ref().map(Vec::len),
+                i.alias.as_ref().map(|a| a.name.as_str()),
+                i.public
+            )
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        vec![
+            "std/json true false None None false",
+            "text/format false false Some(2) None false",
+            "lib false false Some(1) None true",
+            "geometry false false None Some(\"geo\") false",
+            "std/http false true None None false",
+        ]
+    );
+    assert_eq!(codes("use a.b\nfn main() {}"), vec!["E0100"]);
+    assert_eq!(codes("use @\nfn main() {}"), vec!["E0100"]);
+    assert_eq!(codes("pub use a\nfn main() {}"), vec!["E0100"]);
 }

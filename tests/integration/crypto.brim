@@ -1,8 +1,8 @@
 // std.crypto and std.base64: known test vectors (FIPS 180-4, RFC 1321,
 // RFC 4231, RFC 8018, RFC 4648) and errors.
 
-import std.base64
-import std.crypto
+use @std/base64
+use @std/crypto
 
 fn main() {
     print(crypto.sha256_hex(""))

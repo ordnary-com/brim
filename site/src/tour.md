@@ -562,7 +562,7 @@ pub fn square(side: i64) -> i64 {
 
 ```brim
 // src/main.brim
-import geometry
+use geometry
 
 fn main() {
     print(geometry.square(4))
@@ -576,7 +576,7 @@ fn main() {
 back with `join` and talk through channels:
 
 ```brim
-import std.task
+use @std/task
 
 fn main() {
     let total = task.spawn(fn() -> i64 {

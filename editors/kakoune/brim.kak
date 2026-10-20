@@ -18,8 +18,8 @@ provide-module brim %§
     add-highlighter shared/brim/string region '"' (?<!\\)(\\\\)*" fill string
     add-highlighter shared/brim/comment region '//' '$' fill comment
 
-    add-highlighter shared/brim/code/ regex \b(fn|let|mut|return|if|else|while|for|in|match|break|continue|struct|enum|impl|pub|extern|import|as)\b 0:keyword
-    add-highlighter shared/brim/code/ regex \b(async|await|const|loop|trait|type|use)\b 0:Error
+    add-highlighter shared/brim/code/ regex \b(fn|let|mut|return|if|else|while|for|in|match|break|continue|struct|enum|impl|pub|extern|use|import|as|trait|const|loop)\b 0:keyword
+    add-highlighter shared/brim/code/ regex \b(async|await|type)\b 0:Error
     add-highlighter shared/brim/code/ regex \b(i64|i32|u8|u64|f64|bool|string|void|Option|Result|List|Map|Set|Box)\b 0:type
     add-highlighter shared/brim/code/ regex \b[A-Z][A-Za-z0-9_]*\b 0:type
     add-highlighter shared/brim/code/ regex \b(true|false|self|Some|None|Ok|Err)\b 0:value

@@ -25,19 +25,21 @@ contexts:
       captures:
         1: storage.type.brim
         2: entity.name.type.brim
-    - match: '\b(if|else|while|for|in|match|return|break|continue)\b'
+    - match: '\b(if|else|while|for|loop|in|match|return|break|continue)\b'
       scope: keyword.control.brim
-    - match: '\b(fn|struct|enum|impl|let)\b'
+    - match: '\b(fn|struct|enum|impl|trait|let|const)\b'
       scope: storage.type.brim
     - match: '\b(mut|pub|extern)\b'
       scope: storage.modifier.brim
-    - match: '\b(import|as)\b'
+    - match: '\b(use|import|as)\b'
       scope: keyword.control.import.brim
+    - match: '@[A-Za-z_][A-Za-z0-9_]*'
+      scope: entity.name.namespace.brim
     - match: '\b(true|false)\b'
       scope: constant.language.boolean.brim
     - match: '\bself\b'
       scope: variable.language.self.brim
-    - match: '\b(async|await|const|loop|trait|type|use)\b'
+    - match: '\b(async|await|type)\b'
       scope: invalid.illegal.reserved.brim
     - match: '\b(i64|i32|u8|u64|f64|bool|string|void)\b'
       scope: storage.type.primitive.brim

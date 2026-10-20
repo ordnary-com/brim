@@ -1,7 +1,7 @@
 // exit: 3
 // `exit` in a task ends the program, also while `main` waits.
-import std.task
-import std.time
+use @std/task
+use @std/time
 
 fn main() {
     task.detach(fn() {

@@ -1,6 +1,6 @@
 // Hashes and secure random bytes:
 //
-//   import std.crypto
+//   use @std/crypto
 //
 //   print(crypto.sha256_hex("hello"))
 //   let mac = crypto.hmac_sha256("secret".bytes(), "message".bytes())

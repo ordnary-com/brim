@@ -7,11 +7,11 @@
       <item>fn</item><item>let</item><item>mut</item><item>return</item><item>if</item>
       <item>else</item><item>while</item><item>for</item><item>in</item><item>match</item>
       <item>break</item><item>continue</item><item>struct</item><item>enum</item><item>impl</item>
-      <item>pub</item><item>extern</item><item>import</item><item>as</item>
+      <item>pub</item><item>extern</item><item>use</item><item>import</item><item>as</item>
+      <item>trait</item><item>const</item><item>loop</item>
     </list>
     <list name="reserved">
-      <item>async</item><item>await</item><item>const</item><item>loop</item><item>trait</item>
-      <item>type</item><item>use</item>
+      <item>async</item><item>await</item><item>type</item>
     </list>
     <list name="types">
       <item>i64</item><item>i32</item><item>u8</item><item>u64</item><item>f64</item><item>bool</item><item>string</item><item>void</item><item>Option</item>

@@ -473,8 +473,8 @@ pub(crate) fn fixes(diag: &Diagnostic, analysis: &Analysis) -> Vec<Value> {
                     }));
                 }
             }
-        } else if let Some(import) = between(help, "import it first: `", "`")
-            .or_else(|| between(help, "add `", "`").filter(|s| s.starts_with("import ")))
+        } else if let Some(import) = between(help, "add it first: `", "`")
+            .or_else(|| between(help, "add `", "`").filter(|s| s.starts_with("use ")))
         {
             let at = import_position(&analysis.loaded.modules[module].program, base, text);
             out.push(json!({

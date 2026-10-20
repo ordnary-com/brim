@@ -72,16 +72,17 @@
       "patterns": [
         {
           "name": "keyword.control.brim",
-          "match": "\\b(if|else|while|for|in|match|return|break|continue)\\b"
+          "match": "\\b(if|else|while|for|loop|in|match|return|break|continue)\\b"
         },
-        { "name": "storage.type.brim", "match": "\\b(fn|struct|enum|impl|let)\\b" },
+        { "name": "storage.type.brim", "match": "\\b(fn|struct|enum|impl|trait|let|const)\\b" },
         { "name": "storage.modifier.brim", "match": "\\b(mut|pub|extern)\\b" },
-        { "name": "keyword.other.import.brim", "match": "\\b(import|as)\\b" },
+        { "name": "keyword.other.import.brim", "match": "\\b(use|import|as)\\b" },
+        { "name": "entity.name.namespace.brim", "match": "@[A-Za-z_][A-Za-z0-9_]*" },
         { "name": "constant.language.boolean.brim", "match": "\\b(true|false)\\b" },
         { "name": "variable.language.self.brim", "match": "\\bself\\b" },
         {
           "name": "invalid.illegal.reserved.brim",
-          "match": "\\b(async|await|const|loop|trait|type|use)\\b"
+          "match": "\\b(async|await|type)\\b"
         }
       ]
     },

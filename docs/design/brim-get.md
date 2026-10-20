@@ -40,7 +40,7 @@ redis = { git = "https://github.com/ordnary-com/brim-redis", version = "1.4" }
 ```
 
 ```brim
-import redis
+use @redis
 ```
 
 The key defaults to the package's `[package] name`; `brim get ... --as

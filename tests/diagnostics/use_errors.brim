@@ -1,0 +1,8 @@
+use std/json
+use @nope/thing
+import std.time
+pub import std.json.{Json}
+
+fn main() {
+    print(json.encode(1))
+}

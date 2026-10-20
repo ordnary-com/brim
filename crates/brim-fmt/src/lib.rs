@@ -8,10 +8,12 @@
 //!   on a new line, plus one level for a line that continues an expression
 //!   or the contents of a bracket opened on an earlier line;
 //! - spaces between tokens on a line (`a + b`, `f(x, y)`, `-x`, `xs[0]`,
-//!   `Point { x: 1 }`, `import a.{b, c}`);
+//!   `Point { x: 1 }`, `use @std/json`, `use a/b (c, d)`);
 //! - blank lines: at most one in a row, none at the start of a block or
 //!   before its end, and none at the start or end of the file;
-//! - comments keep their text, with trailing whitespace removed.
+//! - comments keep their text, with trailing whitespace removed;
+//! - imports in the old spelling (`import std.json`) become `use`
+//!   (`use @std/json`), see [`format_with`].
 //!
 //! Only programs without syntax errors are formatted. As a safeguard, the
 //! result is lexed again and must have the same tokens and comments.
@@ -22,12 +24,24 @@ use brim_lexer::{Token, TokenKind};
 const INDENT: &str = "    ";
 
 /// Formats a Brim source file. Fails with the syntax errors of a program
-/// that does not parse.
+/// that does not parse. Old imports of the standard library are rewritten
+/// to `use`; other old imports stay, since only the project knows which of
+/// them name dependencies (see [`format_with`]).
 pub fn format(src: &str) -> Result<String, Vec<Diagnostic>> {
-    let (_, diags) = brim_parser::parse(src);
+    format_with(src, None)
+}
+
+/// Formats a Brim source file, like [`format`]. With `dependencies`, the
+/// names of the project's dependencies, every old import is rewritten to
+/// `use`: `import json.x` becomes `use @json/x` when `json` is a dependency
+/// and `use json/x` otherwise.
+pub fn format_with(src: &str, dependencies: Option<&[String]>) -> Result<String, Vec<Diagnostic>> {
+    let (program, diags) = brim_parser::parse(src);
     if brim_diagnostics::has_errors(&diags) {
         return Err(diags);
     }
+    let migrated = migrate_imports(src, &program, dependencies);
+    let src = migrated.as_str();
     let (tokens, _) = brim_lexer::lex(src);
     let lines = split_lines(src, &tokens);
     let out = render(&lines);
@@ -38,6 +52,35 @@ pub fn format(src: &str) -> Result<String, Vec<Diagnostic>> {
         ]);
     }
     Ok(out)
+}
+
+/// Rewrites the imports written with `import` to `use`. With
+/// `dependencies` unknown, only imports of the standard library.
+fn migrate_imports(
+    src: &str,
+    program: &brim_ast::Program,
+    dependencies: Option<&[String]>,
+) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut done = 0;
+    for import in &program.imports {
+        let span = import.span;
+        // A comment inside would be lost.
+        if !import.legacy || src[span.start..span.end].contains("//") {
+            continue;
+        }
+        let first = import.path[0].name.as_str();
+        let external = match dependencies {
+            _ if first == "std" => true,
+            Some(deps) => deps.iter().any(|d| d == first),
+            None => continue,
+        };
+        out.push_str(&src[done..span.start]);
+        out.push_str(&import.use_text(external));
+        done = span.end;
+    }
+    out.push_str(&src[done..]);
+    out
 }
 
 /// A source line: its tokens and its comment.
@@ -136,10 +179,14 @@ fn render(lines: &[Line<'_>]) -> String {
             out.push_str(INDENT);
         }
 
+        let in_use = matches!(
+            line.tokens.as_slice(),
+            [(TokenKind::Use, _), ..] | [(TokenKind::Pub, _), (TokenKind::Use, _), ..]
+        );
         let mut prev: Option<&TokenKind> = None;
         for (j, (kind, text)) in line.tokens.iter().enumerate() {
             if let Some(p) = prev
-                && space_between(p, kind, prev_before(&line.tokens, j), &stack)
+                && space_between(p, kind, prev_before(&line.tokens, j), &stack, in_use)
             {
                 out.push(' ');
             }
@@ -258,9 +305,18 @@ fn space_between(
     next: &TokenKind,
     before: Option<&TokenKind>,
     stack: &[Open],
+    in_use: bool,
 ) -> bool {
     use TokenKind as T;
     let tight = stack.last().is_some_and(|o| o.tight);
+    // `use @std/json`, `use a/b (c, d)`.
+    if in_use && stack.is_empty() {
+        match (prev, next) {
+            (T::At | T::Slash, _) | (_, T::Slash) => return false,
+            (_, T::LParen) => return true,
+            _ => {}
+        }
+    }
     // The values in an f-string are written as they are: `f"{a + b}"`.
     if matches!(prev, T::StrHead(_) | T::StrMid(_)) || matches!(next, T::StrMid(_) | T::StrTail(_))
     {

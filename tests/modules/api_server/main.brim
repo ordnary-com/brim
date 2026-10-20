@@ -1,6 +1,6 @@
 // serve_api: calls of a module's API functions, and requests that do not fit.
-import std.http
-import notes_api
+use @std/http
+use notes_api
 
 fn call(method: string, path: string, body: string) {
     let response = serve_api(notes_api, http.new_request(method, path, body))

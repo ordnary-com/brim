@@ -31,6 +31,24 @@ use brim_ast::Program;
 use brim_diagnostics::Diagnostic;
 use brim_stdlib::Prim;
 
+/// The modules of the standard library, as in `use @std/json` (the
+/// driver holds their sources and checks that the lists agree).
+pub const STD_LIBRARY: &[&str] = &[
+    "base64", "crypto", "fs", "http", "json", "log", "net", "postgres", "process", "random",
+    "task", "time",
+];
+
+/// How to bring a module into scope by the name it is used under: the
+/// standard library's `json` is `use @std/json`, anything else a module of
+/// the package.
+pub fn use_suggestion(alias: &str) -> String {
+    if STD_LIBRARY.contains(&alias) {
+        format!("use @std/{alias}")
+    } else {
+        format!("use {alias}")
+    }
+}
+
 pub use checked::CheckedProgram;
 pub use checker::ModuleAst;
 pub use types::{Def, NamedType, TypeTable};

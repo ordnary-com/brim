@@ -1,5 +1,5 @@
 // std.process: running programs through `sh`.
-import std.process
+use @std/process
 
 fn show(result: Result[process.Output, string]) {
     match result {

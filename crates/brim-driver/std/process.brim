@@ -1,6 +1,6 @@
 // Running other programs:
 //
-//   import std.process
+//   use @std/process
 //
 //   let out = process.run("git", ["status", "--short"])?
 //   if out.success() {

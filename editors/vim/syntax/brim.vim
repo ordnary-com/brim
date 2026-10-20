@@ -3,12 +3,13 @@ if exists("b:current_syntax")
   finish
 endif
 
-syn keyword brimKeyword if else while for in match return break continue
-syn keyword brimStorage fn struct enum impl let mut pub extern
-syn keyword brimInclude import as
+syn keyword brimKeyword if else while for loop in match return break continue
+syn keyword brimStorage fn struct enum impl trait let const mut pub extern
+syn keyword brimInclude use import as
+syn match brimPackage "@\h\w*"
 syn keyword brimBoolean true false
 syn keyword brimSelf self
-syn keyword brimReserved async await const loop trait type use
+syn keyword brimReserved async await type
 syn keyword brimType i64 i32 u8 u64 f64 bool string void Option Result List Map Set Box
 syn keyword brimConstant Some None Ok Err
 syn keyword brimBuiltin print eprint to_string to_float to_int to_i32 to_u8 to_u64 string_from_bytes from_code_point serve_api abs sqrt floor ceil round pow min max clamp read_line read_file write_file args env exit assert assert_eq
@@ -21,6 +22,7 @@ syn match brimTypeName "\<[A-Z][A-Za-z0-9_]*\>"
 hi def link brimKeyword Statement
 hi def link brimStorage StorageClass
 hi def link brimInclude Include
+hi def link brimPackage Include
 hi def link brimBoolean Boolean
 hi def link brimSelf Identifier
 hi def link brimReserved Error

@@ -1,24 +1,24 @@
 error[E0241]: `secret` is private to module `lib`
- --> tests/modules/errors/main.brim:3:13
+ --> tests/modules/errors/main.brim:3:10
   |
-3 | import lib.{secret, Hidden, nothing}
-  |             ^^^^^^ not visible here
+3 | use lib (secret, Hidden, nothing)
+  |          ^^^^^^ not visible here
   |
   = help: declare it with `pub` in `lib` to use it elsewhere
 
 error[E0241]: `Hidden` is private to module `lib`
- --> tests/modules/errors/main.brim:3:21
+ --> tests/modules/errors/main.brim:3:18
   |
-3 | import lib.{secret, Hidden, nothing}
-  |                     ^^^^^^ not visible here
+3 | use lib (secret, Hidden, nothing)
+  |                  ^^^^^^ not visible here
   |
   = help: declare it with `pub` in `lib` to use it elsewhere
 
 error[E0242]: module `lib` has no item `nothing`
- --> tests/modules/errors/main.brim:3:29
+ --> tests/modules/errors/main.brim:3:26
   |
-3 | import lib.{secret, Hidden, nothing}
-  |                             ^^^^^^^
+3 | use lib (secret, Hidden, nothing)
+  |                          ^^^^^^^
 
 error[E0241]: `secret` is private to module `lib`
  --> tests/modules/errors/main.brim:6:15

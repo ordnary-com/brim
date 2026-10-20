@@ -10,7 +10,7 @@ error[E0206]: the first argument of `serve_api` must be a module
 9 |     print(serve_api(main, request).status)
   |                     ^^^^ not an imported module
   |
-  = help: import the module with the API functions and pass its name: `serve_api(api, request)`
+  = help: use the module with the API functions and pass its name: `serve_api(api, request)`
 
 error[E0206]: mismatched types
   --> tests/modules/api_errors/main.brim:10:30

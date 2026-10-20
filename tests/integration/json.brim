@@ -1,5 +1,5 @@
 // std.json: parsing, reading values, building values and writing them.
-import std.json
+use @std/json
 
 fn show(text: string) {
     match json.parse(text) {

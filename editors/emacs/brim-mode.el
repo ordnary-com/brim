@@ -31,9 +31,9 @@
 
 (defconst brim-keywords
   '("fn" "let" "mut" "return" "if" "else" "while" "for" "in" "match" "break"
-    "continue" "struct" "enum" "impl" "pub" "extern" "import" "as"))
+    "continue" "struct" "enum" "impl" "pub" "extern" "use" "import" "as" "trait" "const" "loop"))
 
-(defconst brim-reserved '("async" "await" "const" "loop" "trait" "type" "use"))
+(defconst brim-reserved '("async" "await" "type"))
 
 (defconst brim-types '("i64" "i32" "u8" "u64" "f64" "bool" "string" "void" "Option" "Result" "List" "Map" "Set" "Box"))
 

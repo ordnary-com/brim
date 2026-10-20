@@ -2,7 +2,7 @@
 //
 // A server handles one request at a time:
 //
-//   import std.http
+//   use @std/http
 //
 //   let server: http.Server = http.serve("127.0.0.1", 8080)?
 //   while true {
@@ -29,8 +29,8 @@
 // `serve_api(module, request)` answers requests for a module's `pub fn`s,
 // `POST /api/<name>` with the parameters as a JSON object; see the
 // section on API functions below.
-import std.json as js
-import std.net
+use @std/json as js
+use @std/net
 
 // A request a server received.
 pub struct Request {

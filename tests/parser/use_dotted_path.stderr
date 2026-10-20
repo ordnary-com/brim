@@ -1,0 +1,9 @@
+error[E0100]: modules in a `use` path are separated by `/`
+ --> tests/parser/use_dotted_path.brim:1:9
+  |
+1 | use text.format
+  |         ^ expected `/`
+  |
+  = help: write `use text/...`
+
+error: could not compile tests/parser/use_dotted_path.brim due to 1 error

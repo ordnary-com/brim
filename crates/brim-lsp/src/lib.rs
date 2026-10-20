@@ -236,7 +236,10 @@ impl Server {
         else {
             return Ok(Value::Null);
         };
-        match brim_fmt::format(&text) {
+        let deps = Path::new(&path)
+            .parent()
+            .and_then(brim_manifest::dependency_names);
+        match brim_fmt::format_with(&text, deps.as_deref()) {
             // Files with syntax errors are left alone.
             Err(_) => Ok(Value::Null),
             Ok(formatted) if formatted == text => Ok(json!([])),

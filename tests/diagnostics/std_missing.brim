@@ -1,4 +1,4 @@
-import std.nope
+use @std/nope
 
 fn main() {
 }

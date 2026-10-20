@@ -1,6 +1,6 @@
 // JSON: reading JSON text into values, and writing values as JSON text.
 //
-//   import std.json
+//   use @std/json
 //
 //   let value: json.Json = json.parse("{\"name\": \"Ada\", \"tags\": [\"x\"]}")?
 //   match value.get("name") {

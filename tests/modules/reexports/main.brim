@@ -1,8 +1,8 @@
 // `pub import` re-exports items of another module, and fields without
 // `pub` stay inside their module.
 
-import api
-import api.{Item, MAX_ITEMS}
+use api
+use api (Item, MAX_ITEMS)
 
 fn main() {
     let items: List[Item] = [api.item("tea", 3), api.item("cake", 4)]

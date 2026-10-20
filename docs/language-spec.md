@@ -60,13 +60,16 @@ Keywords:
 
 ```
 fn  let  mut  return  if  else  while  break  continue  true  false  struct
-enum  match  for  in  impl  trait  const  loop  self  import  pub  as  extern
+enum  match  for  in  impl  trait  const  loop  self  use  import  pub  as
+extern
 ```
+
+`import` is the old spelling of `use` (section 9.2).
 
 Reserved words for planned features. They cannot be used as identifiers, and using one produces error `E0101`:
 
 ```
-async  await  type  use
+async  await  type
 ```
 
 The type names `i64`, `bool`, `string` and `void` are **not** keywords. They are predeclared type names, resolved during semantic analysis.
@@ -119,8 +122,10 @@ An **f-string** puts values in text: `f"Hello, {name}! Next year you are {age + 
 ```
 +  -  *  /  %  ==  !=  <  <=  >  >=  &&  ||  !
 =  +=  -=  *=  /=  %=
-(  )  {  }  [  ]  ,  :  ;  ->  .  ..  =>  ?
+(  )  {  }  [  ]  ,  :  ;  ->  .  ..  =>  ?  @
 ```
+
+`@` only appears in `use` (section 9.2), before the name of a package.
 
 Any other character outside a string or comment is error `E0001`. Single `&` and `|` are errors too, with a hint to use `&&` and `||`.
 
@@ -130,7 +135,8 @@ The grammar below uses EBNF. `NEWLINE` is a newline token; `EOF` is the end of i
 
 ```ebnf
 program     = { separator } { ( import | item ) { separator } } EOF ;
-import      = [ "pub" ] "import" path [ "." "{" identifier { "," identifier } [ "," ] "}" | "as" identifier ] ;
+import      = [ "pub" ] "use" [ "@" ] identifier { "/" identifier } [ "(" identifier { "," identifier } [ "," ] ")" | "as" identifier ]
+            | [ "pub" ] "import" path [ "." "{" identifier { "," identifier } [ "," ] "}" | "as" identifier ] ;
 item        = [ "pub" ] ( function | extern_fn | struct | enum | trait | const ) | impl ;
 extern_fn   = "extern" "fn" identifier "(" [ param { "," param } [ "," ] ] ")" [ "->" type ] ;
 impl        = "impl" [ path "for" ] identifier [ type_params ] "{" { separator } { [ "pub" ] function { separator } } "}" ;
@@ -778,8 +784,9 @@ Integers never wrap silently. `docs/error-handling.md` lists every code with an 
 
 ```brim
 // main.brim
-import geometry
-import text.format.{pad, Report}
+use @std/json
+use geometry
+use text/format (pad, Report)
 
 fn main() {
     print(geometry.area(geometry.square(3)))
@@ -790,19 +797,21 @@ pub fn square(side: i64) -> Shape { ... }
 fn helper() { ... }          // private to geometry
 ```
 
-Every `.brim` file is a module. `import a.b` loads the module in `a/b.brim`, relative to the directory of the root file (`src/` in a project).
+Every `.brim` file is a module. `use a/b` loads the module in `a/b.brim`, relative to the directory of the root file (`src/` in a project). A path that starts with `@` names a package instead: `@std` for the standard library and `@name` for a dependency, so the source of every module shows in its `use`.
 
-- `import a.b` makes the module usable as `b`: `b.function(...)`, `b.Type`, `b.Type { ... }`, `b.Enum.Variant(...)`, `b.Type.method(...)`. `import a.b as c` uses the name `c` instead.
-- `import a.b.{X, y}` brings the named items (functions, types and constants) into the module's scope under their own names.
-- `pub import a.b.{X, y}` also **re-exports** them: modules that import this one can use them as `this.X` or import them by name, as if they were declared here. Only item lists can be re-exported.
+- `use a/b` makes the module usable as `b`: `b.function(...)`, `b.Type`, `b.Type { ... }`, `b.Enum.Variant(...)`, `b.Type.method(...)`. `use a/b as c` uses the name `c` instead.
+- `use a/b (X, y)` brings the named items (functions, types and constants) into the module's scope under their own names.
+- `pub use a/b (X, y)` also **re-exports** them: modules that use this one can use them as `this.X` or bring them in by name, as if they were declared here. Only item lists can be re-exported.
+- A path without `@` that starts with `std` or the name of a dependency is `E0242`, with the spelling with `@` as help; `@name` for a package the project does not depend on is `E0242` too.
+- `import` is the spelling from before 1.0: `import a.b`, `import a.b as c` and `import a.b.{X, y}`, where `a` may be `std` or a dependency without `@`. It still works, with warning `W0005` in the program's own package (not in its dependencies); `brim fmt` rewrites it to `use`.
 - A module's functions, structs, enums, traits and constants are **private** unless declared `pub`; using a private item of another module is `E0241`. Methods are private unless declared `pub fn` inside the `impl` block (methods of `impl Trait for Type` are as visible as the trait).
 - **Fields** are private too unless declared `pub name: type`: outside the struct's module, reading, assigning or giving a private field (so creating the struct with a literal) is `E0241`. A struct with private fields is made by functions of its module.
 - Methods can only be added in the module that declares the type (`E0237`).
-- A missing module or item is `E0242`; importing two modules under the same name, or an item whose name is already taken, is `E0243`.
-- Modules may import each other in cycles. Every module is loaded once.
+- A missing module or item is `E0242`; using two modules under the same name, or an item whose name is already taken, is `E0243`.
+- Modules may use each other in cycles. Every module is loaded once.
 - `main` must be in the root module. Function names of other modules appear qualified (`geometry.area`) in messages and run-time call stacks.
 - Modules can also come from other packages: see `[dependencies]` in Appendix A.
-- `import std.x` imports a module of the standard library, which is built into the compiler (section 10.2). The name `std` is reserved for it.
+- `use @std/x` loads a module of the standard library, which is built into the compiler (section 10.2). The name `std` is reserved for it.
 
 ### 9.3 Tests
 
@@ -879,7 +888,7 @@ The C code comes from the files in `[build] c-sources` (compiled with the C comp
 `std.task` runs functions at the same time, each on a thread of its own:
 
 ```brim
-import std.task
+use @std/task
 
 fn main() {
     let a = task.spawn(fn() -> i64 { return 6 * 7 })
@@ -966,7 +975,7 @@ Strings can be compared with `<`, `<=`, `>` and `>=`, byte by byte.
 
 ### 10.2 Standard library modules
 
-Some of the standard library is written in Brim and built into the compiler. Its modules are imported like any other: `import std.http` makes `http.get(...)`, `http.Request` and so on available.
+Some of the standard library is written in Brim and built into the compiler. Its modules are used like any other: `use @std/http` makes `http.get(...)`, `http.Request` and so on available.
 
 | Module | Contents |
 |--------|----------|
@@ -1006,7 +1015,7 @@ The questions that were open before 1.0, and how 1.0 answers them. Each answer i
 7. **Statement termination.** A newline ends a statement, except after an operator, inside brackets and before a line that starts with `.` (section 6.1).
 8. **`main`.** `fn main()` takes nothing and returns nothing; arguments come from `args()` and the exit code from `exit`. A `main` returning `Result` may be added later.
 9. **Identifiers.** ASCII letters, digits and `_`. Unicode identifiers may be allowed later.
-10. **Modules.** A file is a module; items and fields are private unless `pub`; `pub import` re-exports named items. Packages come from the registry by version, from directories or from git (Appendix A).
+10. **Modules.** A file is a module; items and fields are private unless `pub`; `use @package/module` names packages, and `pub use` re-exports named items. Packages come from the registry by version, from directories or from git (Appendix A).
 11. **Loops.** `while`, `loop` and `for` over lists, sets and ranges, with `break` and `continue` for the innermost loop. Labeled loops are not in 1.0.
 12. **Struct literals.** Every field is written out: `Point { x: x, y: y }`. Shorthand and default values are not in 1.0.
 13. **Patterns.** Literals, names, `_`, variants, tuples, `|` and guards, nested to any depth, checked for exhaustiveness (section 6.10). Struct patterns, ranges and `name @ pattern` are not in 1.0.
@@ -1056,8 +1065,8 @@ members = ["apps/*", "shared"]
 - Unknown tables and keys are errors, to catch typos.
 - A dependency comes from the package registry (a version requirement: `router = "1.2"` or `router = { version = "1.2" }`; see `docs/registry.md` for the forms), from a directory with a `.brimproj` (`path`, relative to this manifest), or from a git repository (`git`, with at most one of `tag`, `branch` and `rev`; without them, the default branch). A `path` dependency may also have a `version`, which `brim publish` keeps; `version` cannot be combined with `git` (`M0006`).
 - Every registry package has one version in a project: the newest non-yanked version that meets every requirement on it (`M0014` when none does; `M0013` for a package the registry does not have).
-- A dependency's name is the name of its package, and is used in `import`, so it contains no `-` (`M0007`). All packages of a project have different names (`M0009`).
-- A package is used as a library through its library root: `import geometry` is the module in `src/lib.brim` of the package `geometry`, and `import geometry.shapes` the module in `src/shapes.brim` next to it. Inside the package, its modules import each other as usual (`import shapes`). The project's own modules cannot have the name of a dependency.
+- A dependency's name is the name of its package, and is used in `use @name`, so it contains no `-` (`M0007`). All packages of a project have different names (`M0009`).
+- A package is used as a library through its library root: `use @geometry` is the module in `src/lib.brim` of the package `geometry`, and `use @geometry/shapes` the module in `src/shapes.brim` next to it. Inside the package, its modules use each other as usual (`use shapes`). The project's own modules cannot have the name of a dependency.
 - A package without `src/main.brim` but with a library root is a library: `brim check` and `brim test` work on its library root.
 - `brim test` runs only the tests of the project's own modules.
 - **`.brimlock`.** The first build writes the commit of every git dependency and the version and checksum of every registry dependency to `.brimlock`, next to `.brimproj` (at the root of a workspace); later builds use those, without the network when they are cached. `brim update` picks the newest commits and versions. Commit `.brimlock` for programs, so every build uses the same versions. Git repositories are cached in `$BRIM_HOME/git` (by default `~/.brim/git`) and only fetched when a commit is missing.

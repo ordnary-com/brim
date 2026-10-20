@@ -1,5 +1,5 @@
 // Encoding and decoding typed JSON.
-import std.json
+use @std/json
 
 struct Item {
     id: i64

@@ -1,6 +1,6 @@
 // std.random with a seed gives the same numbers on every run, in the
 // interpreter and in native code.
-import std.random
+use @std/random
 
 fn main() {
     random.seed(2026)

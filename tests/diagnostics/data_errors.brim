@@ -1,4 +1,4 @@
-import std.json
+use @std/json
 
 struct Holder {
     f: fn(i64) -> i64

@@ -83,6 +83,7 @@ const FRAGMENTS: &[&str] = &[
     "impl",
     "pub",
     "import a",
+    "use @a/b",
     "as",
     "_",
     "Some(",

@@ -619,6 +619,21 @@ pub fn find(start: &Path) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
+/// The names of the dependencies of the package a source file in `dir`
+/// belongs to: those of the nearest manifest. Empty without a manifest;
+/// `None` when the manifest cannot be read.
+pub fn dependency_names(dir: &Path) -> Option<Vec<String>> {
+    let Some(path) = find(dir) else {
+        return Some(Vec::new());
+    };
+    let root = parse_root(&std::fs::read_to_string(path).ok()?).ok()?;
+    Some(
+        root.package
+            .map(|m| m.dependencies.into_iter().map(|d| d.name).collect())
+            .unwrap_or_default(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

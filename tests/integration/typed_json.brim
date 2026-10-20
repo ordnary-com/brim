@@ -1,5 +1,5 @@
 // json.encode and json.decode: every shape, round trips and errors.
-import std.json
+use @std/json
 
 struct Note {
     id: i64

@@ -1,7 +1,7 @@
 // Tasks and channels (std.task): results by join, values over channels,
 // bounded channels, worker pools, copies, nested tasks, and a program
 // that ends while a detached task still runs.
-import std.task
+use @std/task
 
 fn producer(out: task.Channel[i64], n: i64) {
     for i in 0..n {

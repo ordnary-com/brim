@@ -94,7 +94,7 @@ cannot read file "does-not-exist.txt": file not found
 | `read(path)`, `write(path, text)`, `append(path, text)` | | `read` and `write` are `read_file` and `write_file` |
 
 ```brim
-import std.fs
+use @std/fs
 
 fn main() {
     match fs.list("no-such-dir") {
@@ -471,7 +471,7 @@ error: 3 is odd
 
 ## Networking: std.net
 
-`import std.net` gives TCP connections. Everything that can fail returns a
+`use @std/net` gives TCP connections. Everything that can fail returns a
 `Result` whose error says what went wrong, such as
 `cannot connect to example.com:81: connection refused`.
 
@@ -491,7 +491,7 @@ error: 3 is odd
 | `close()` | | on a listener or a connection |
 
 ```brim
-import std.net
+use @std/net
 
 fn main() {
     match greet() {
@@ -513,14 +513,14 @@ fn greet() -> Result[i64, string] {
 
 ## HTTP: std.http
 
-`import std.http` gives an HTTP/1.1 server and client for text, such as
+`use @std/http` gives an HTTP/1.1 server and client for text, such as
 HTML and JSON. The server handles one request at a time: ask for the next
 request, decide what to answer, and respond. Connections stay open for the
 client's next request (keep-alive), and a quiet one keeps no other client
 waiting.
 
 ```brim
-import std.http
+use @std/http
 
 fn main() {
     match serve() {
@@ -583,12 +583,12 @@ and `http.decode` percent-encode and decode parts of URLs.
 
 ## JSON: std.json
 
-`import std.json` reads and writes JSON. A value is a `json.Json`:
+`use @std/json` reads and writes JSON. A value is a `json.Json`:
 `Null`, `Bool`, `Number` (kept as the text it was written with), `Str`,
 `Array` or `Object`.
 
 ```brim
-import std.json
+use @std/json
 
 fn main() {
     match age_next_year("{\"name\": \"Ada\", \"age\": 36}") {
@@ -634,7 +634,7 @@ reads it back into the type that is expected. Structs become objects,
 the same shapes `brim gen ts` declares for TypeScript.
 
 ```brim
-import std.json
+use @std/json
 
 struct Note {
     id: i64
@@ -677,7 +677,7 @@ JSON API.
 `query_as` reads each row into a struct whose fields are the columns.
 
 ```brim
-import std.postgres
+use @std/postgres
 
 struct Note {
     id: i64
@@ -723,8 +723,8 @@ read like `postgres: ERROR: relation "x" does not exist [42P01]`.
 Bytes are `List[u8]`: `text.bytes()` and `string_from_bytes(bytes)` convert.
 
 ```brim
-import std.base64
-import std.crypto
+use @std/base64
+use @std/crypto
 
 fn main() {
     print(crypto.sha256_hex("abc"))
@@ -740,7 +740,7 @@ aGVsbG8=
 ## Random numbers: std.random
 
 ```brim
-import std.random
+use @std/random
 
 fn main() {
     random.seed(42)
@@ -781,7 +781,7 @@ without a shell in between. It gets no input.
 stopped the program (137 for `kill -9`).
 
 ```brim
-import std.process
+use @std/process
 
 fn main() {
     match process.run("sh", ["-c", "echo hello; exit 3"]) {
@@ -803,8 +803,8 @@ cannot run "no-such-program": not found
 ## Time and logging: std.time, std.log
 
 ```brim
-import std.log
-import std.time
+use @std/log
+use @std/time
 
 fn main() {
     let start: i64 = time.millis()
@@ -833,7 +833,7 @@ share no changeable memory: a `fn` copies what it uses, and a value a task
 changes is its own copy. Tasks work together through `join` and channels.
 
 ```brim
-import std.task
+use @std/task
 
 fn square_all(numbers: List[i64]) -> i64 {
     let jobs: task.Channel[i64] = task.channel()
@@ -884,9 +884,9 @@ fn main() {
 A service handles every request on a task of its own:
 
 ```brim
-import std.http
-import std.log
-import std.task
+use @std/http
+use @std/log
+use @std/task
 
 fn serve(port: i64) -> Result[bool, string] {
     let server = http.serve("127.0.0.1", port)?

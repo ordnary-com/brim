@@ -1,5 +1,5 @@
 // TCP within one program: it connects to its own listener.
-import std.net
+use @std/net
 
 fn run() -> Result[i64, string] {
     let listener: net.Listener = net.listen("127.0.0.1", 0)?

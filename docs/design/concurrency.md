@@ -32,7 +32,7 @@ task only.
 ## The API: `std.task`
 
 ```brim
-import std.task
+use @std/task
 
 fn fib(n: i64) -> i64 {
     return if n < 2 { n } else { fib(n - 1) + fib(n - 2) }

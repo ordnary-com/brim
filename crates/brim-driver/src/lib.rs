@@ -10,7 +10,7 @@ use brim_diagnostics::{Diagnostic, SourceFile, SourceMap, Span};
 use brim_semantic::ModuleAst;
 
 /// The standard library modules, written in Brim and built into the
-/// compiler: `import std.net`.
+/// compiler: `use @std/net`.
 pub const STD_MODULES: &[(&str, &str)] = &[
     ("std.base64", include_str!("../std/base64.brim")),
     ("std.crypto", include_str!("../std/crypto.brim")),
@@ -50,13 +50,15 @@ pub struct Loaded {
 }
 
 /// Parses `root` and finds and parses the modules it imports, directly or
-/// through other modules. In the root package, `import a.b` refers to
-/// `a/b.brim` in the directory of the root file. `import dep` refers to the
-/// library root of a dependency, and `import dep.a.b` to `a/b.brim` next to
-/// it.
+/// through other modules. In the root package, `use a/b` refers to
+/// `a/b.brim` in the directory of the root file. `use @std/json` is a module
+/// of the standard library, `use @dep` the library root of a dependency,
+/// and `use @dep/a/b` the file `a/b.brim` next to it. The old spelling,
+/// `import a.b`, names the standard library and dependencies without `@`;
+/// the root package gets a warning for it (`W0005`).
 ///
 /// Imports are rewritten to the full module names: inside the package
-/// `geometry`, `import shapes` becomes `import geometry.shapes`.
+/// `geometry`, `use shapes` becomes the module `geometry.shapes`.
 ///
 /// `read` reads a file, given its path as shown in messages (with `/`).
 pub fn load(
@@ -74,7 +76,13 @@ pub fn load(
         None => String::new(),
     };
     let mut pending = VecDeque::new();
-    pending.extend(locate_imports(&mut program, 0, graph, &root_dir));
+    pending.extend(locate_imports(
+        &mut program,
+        0,
+        graph,
+        &root_dir,
+        &mut diags,
+    ));
     // Every program has the prelude, behind methods such as `xs.sorted()`.
     pending.push_back(ModuleFile {
         name: PRELUDE.to_string(),
@@ -101,18 +109,20 @@ pub fn load(
             Some(text) => Ok(text.as_bytes().to_vec()),
             None if name.starts_with("std.") || name == "std" => {
                 diags.push(
-                    Diagnostic::error(format!("the standard library has no module `{name}`"))
-                        .with_code("E0242")
-                        .with_primary(span, "")
-                        .with_note(format!(
-                            "its modules are {}",
-                            STD_MODULES
-                                .iter()
-                                .filter(|(n, _)| *n != PRELUDE)
-                                .map(|(n, _)| format!("`{n}`"))
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        )),
+                    Diagnostic::error(format!(
+                        "the standard library has no module `@{}`",
+                        name.replace('.', "/")
+                    ))
+                    .with_code("E0242")
+                    .with_primary(span, "")
+                    .with_note(format!(
+                        "its modules are {}",
+                        brim_semantic::STD_LIBRARY
+                            .iter()
+                            .map(|n| format!("`@std/{n}`"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )),
                 );
                 continue;
             }
@@ -143,7 +153,13 @@ pub fn load(
         let file = &map.files()[map.files().len() - 1];
         let (mut program, module_diags) = brim_parser::parse_at(file.text(), base);
         diags.extend(module_diags);
-        pending.extend(locate_imports(&mut program, package, graph, &root_dir));
+        pending.extend(locate_imports(
+            &mut program,
+            package,
+            graph,
+            &root_dir,
+            &mut diags,
+        ));
         modules.push(ModuleAst { name, program });
     }
     diags.sort_by_key(|d| d.span().map_or(usize::MAX, |s| s.start));
@@ -167,26 +183,81 @@ struct ModuleFile {
 }
 
 /// Finds the files of the modules `program` imports, a module of package
-/// `package`, and rewrites its imports to full module names.
+/// `package`, and rewrites its imports to full module names. Imports that
+/// name no package are reported and left out.
 fn locate_imports(
     program: &mut brim_ast::Program,
     package: usize,
     graph: Option<&brim_package::Graph>,
     root_dir: &str,
+    diags: &mut Vec<Diagnostic>,
 ) -> Vec<ModuleFile> {
     let slash = |p: PathBuf| p.display().to_string().replace('\\', "/");
+    let dependency = |name: &str| graph.and_then(|g| g.packages[package].dependency(name));
     let mut files = Vec::new();
-    for import in &mut program.imports {
+    let mut unknown = Vec::new();
+    for (index, import) in program.imports.iter_mut().enumerate() {
         let parts: Vec<String> = import.path.iter().map(|p| p.name.clone()).collect();
+        let first = parts[0].as_str();
+        let external = if import.legacy {
+            let external = first == "std" || dependency(first).is_some();
+            // Only the program's own package is asked to change; its
+            // dependencies are someone else's code.
+            if package == 0 {
+                diags.push(
+                    Diagnostic::warning("`import` is now written `use`")
+                        .with_code("W0005")
+                        .with_primary(import.span, "")
+                        .with_help(format!(
+                            "write `{}{}`",
+                            if import.public { "pub " } else { "" },
+                            import.use_text(external)
+                        ))
+                        .with_note("`brim fmt` rewrites every import"),
+                );
+            }
+            external
+        } else {
+            import.external
+        };
+        if !external && (first == "std" || dependency(first).is_some()) {
+            let what = if first == "std" {
+                "the standard library".to_string()
+            } else {
+                format!("the dependency `{first}`")
+            };
+            diags.push(
+                Diagnostic::error(format!("`{first}` is {what}"))
+                    .with_code("E0242")
+                    .with_primary(import.path[0].span, "")
+                    .with_help(format!(
+                        "packages are written with `@`: `{}`",
+                        import.use_text(true)
+                    )),
+            );
+        }
+        // Read on as if it had the `@`, to avoid follow-up errors.
+        let external = external || first == "std" || dependency(first).is_some();
+        if external && first != "std" && dependency(first).is_none() {
+            diags.push(
+                Diagnostic::error(format!("there is no package `@{first}`"))
+                    .with_code("E0242")
+                    .with_primary(import.path[0].span, "")
+                    .with_help(format!(
+                        "add `{first}` to [dependencies] in {}, or write `@std` for the standard library",
+                        brim_manifest::MANIFEST_FILE
+                    )),
+            );
+            unknown.push(index);
+            continue;
+        }
         let mut target = 0;
         let mut prefix = None;
         let shown = match graph {
             // The standard library, built into the compiler.
-            _ if parts[0] == "std" => format!("{}.brim", parts.join("/")),
-            Some(g) if g.packages[package].dependency(&parts[0]).is_some() => {
-                target = g.packages[package]
-                    .dependency(&parts[0])
-                    .unwrap_or_default();
+            _ if external && first == "std" => format!("{}.brim", parts.join("/")),
+            Some(g) if external => {
+                target = dependency(first).unwrap_or_default();
                 let dep = &g.packages[target];
                 if parts.len() == 1 {
                     slash(dep.lib_file())
@@ -215,6 +286,10 @@ fn locate_imports(
             package: target,
         });
     }
+    // Reported already: the checker need not look for these.
+    for index in unknown.into_iter().rev() {
+        program.imports.remove(index);
+    }
     files
 }
 
@@ -225,4 +300,19 @@ fn module_name(import: &brim_ast::ImportDecl) -> String {
         .map(|p| p.name.as_str())
         .collect::<Vec<_>>()
         .join(".")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_std_library_lists_agree() {
+        let names: Vec<String> = STD_MODULES
+            .iter()
+            .filter(|(n, _)| *n != PRELUDE)
+            .map(|(n, _)| n.trim_start_matches("std.").to_string())
+            .collect();
+        assert_eq!(names, brim_semantic::STD_LIBRARY);
+    }
 }

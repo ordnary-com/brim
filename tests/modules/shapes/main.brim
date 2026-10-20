@@ -1,8 +1,8 @@
 // A program of several modules: `import geometry` makes `geometry.x`
 // available; `import text.format.{pad}` brings `pad` in by name.
 
-import geometry
-import text.format.{pad, Report}
+use geometry
+use text/format (pad, Report)
 
 fn main() {
     let shapes: List[geometry.Shape] = [

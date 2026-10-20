@@ -11,6 +11,7 @@ authors.workspace = true
 [dependencies]
 brim-diagnostics.workspace = true
 brim-lexer.workspace = true
+brim-ast.workspace = true
 brim-parser.workspace = true
 
 [lints]

@@ -1,6 +1,6 @@
 //! The examples on the documentation site (`site/src`) run and print what
 //! the page says: a ```brim block with `fn main` must run, and a ```text
-//! block right after it is its expected output. Blocks that import other
+//! block right after it is its expected output. Blocks that use other
 //! modules are skipped. `BLESS=1` updates the outputs.
 
 use std::fs;
@@ -58,7 +58,7 @@ fn site_examples_run() {
             }
             let name = path.file_name().unwrap().to_string_lossy();
             // Programs that use the network or call C are checked, not run.
-            if code.contains("import std.") || code.contains("extern fn") {
+            if code.lines().any(|l| l.starts_with("use @std/")) || code.contains("extern fn") {
                 let file = dir.join(format!("example{ran}.brim"));
                 fs::write(&file, code).unwrap();
                 ran += 1;
@@ -75,7 +75,10 @@ fn site_examples_run() {
                 }
                 continue;
             }
-            if code.contains("import ") {
+            if code
+                .lines()
+                .any(|l| l.starts_with("use ") || l.starts_with("pub use "))
+            {
                 continue;
             }
             let file = dir.join(format!("example{ran}.brim"));

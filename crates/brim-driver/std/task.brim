@@ -1,6 +1,6 @@
 // Tasks: running functions at the same time, and channels between them.
 //
-//   import std.task
+//   use @std/task
 //
 //   let a = task.spawn(fn() -> i64 { return slow_sum(1) })
 //   let b = task.spawn(fn() -> i64 { return slow_sum(2) })

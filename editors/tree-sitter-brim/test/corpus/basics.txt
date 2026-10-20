@@ -2,7 +2,7 @@
 Function with index, generic call and struct literal
 ==================
 
-import geo.{Point}
+use @geo (Point)
 
 pub fn f(xs: List[i64]) -> i64 {
     let a: i64 = xs[2]
@@ -14,8 +14,8 @@ pub fn f(xs: List[i64]) -> i64 {
 ---
 
 (source_file
-  (import_declaration
-    path: (module_path)
+  (use_declaration
+    path: (use_path)
     (identifier))
   (function_declaration
     (visibility)
@@ -478,7 +478,7 @@ fn divmod(a: i64, b: i64) -> (i64, i64) {
 Public fields and re-exports
 ==================
 
-pub import store.models.{Item, MAX}
+pub use store/models (Item, MAX)
 
 pub struct User {
     pub name: string
@@ -488,9 +488,9 @@ pub struct User {
 ---
 
 (source_file
-  (import_declaration
+  (use_declaration
     (visibility)
-    (module_path)
+    (use_path)
     (identifier)
     (identifier))
   (struct_declaration
@@ -545,3 +545,26 @@ fn main() {
           (arguments
             (string)
             (boolean)))))))
+
+==================
+Imports in both spellings
+==================
+
+use @std/json
+use geometry as geo
+import std.http
+import text.format.{pad}
+
+---
+
+(source_file
+  (use_declaration
+    path: (use_path))
+  (use_declaration
+    path: (use_path)
+    alias: (identifier))
+  (import_declaration
+    path: (module_path))
+  (import_declaration
+    path: (module_path)
+    (identifier)))

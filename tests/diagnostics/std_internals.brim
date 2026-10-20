@@ -1,4 +1,4 @@
-import std.net
+use @std/net
 
 fn main() {
     let handle: i64 = __net_listen("127.0.0.1", 80)

@@ -82,6 +82,7 @@ version = "1.0.0-rc.2"
 dependencies = [
  "brim-ast",
  "brim-diagnostics",
+ "brim-manifest",
  "brim-package",
  "brim-parser",
  "brim-semantic",
@@ -91,6 +92,7 @@ dependencies = [
 name = "brim-fmt"
 version = "1.0.0-rc.2"
 dependencies = [
+ "brim-ast",
  "brim-diagnostics",
  "brim-lexer",
  "brim-parser",

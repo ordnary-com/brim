@@ -372,7 +372,7 @@ fn new_creates_a_project_that_builds_and_tests() {
     assert!(stderr(&out).contains("`Hello` cannot be a package name"));
 }
 
-const TESTED_PROGRAM: &str = r#"import shapes
+const TESTED_PROGRAM: &str = r#"use shapes
 
 fn double(n: i64) -> i64 {
     return n * 2
@@ -525,13 +525,13 @@ fn path_dependencies() {
     .unwrap();
     fs::write(
         dir.join("app/src/main.brim"),
-        "import geometry\nimport geometry.shapes.{square}\n\nfn main() {\n    print(geometry.area(square(3)))\n}\n\nfn test_app() {\n    assert(true)\n}\n",
+        "use @geometry\nuse @geometry/shapes (square)\n\nfn main() {\n    print(geometry.area(square(3)))\n}\n\nfn test_app() {\n    assert(true)\n}\n",
     )
     .unwrap();
     fs::write(dir.join("geometry/.brimproj"), manifest("geometry", "")).unwrap();
     fs::write(
         dir.join("geometry/src/lib.brim"),
-        "import shapes.{Square}\n\npub fn area(s: Square) -> i64 {\n    return s.side * s.side\n}\n\nfn test_area() {\n    assert(false)\n}\n",
+        "use shapes (Square)\n\npub fn area(s: Square) -> i64 {\n    return s.side * s.side\n}\n\nfn test_area() {\n    assert(false)\n}\n",
     )
     .unwrap();
     fs::write(
@@ -561,7 +561,7 @@ fn path_dependencies() {
     // A module of a dependency can be imported on its own.
     fs::write(
         dir.join("app/src/main.brim"),
-        "import geometry.shapes\n\nfn main() {\n    let s: shapes.Square = shapes.square(1)\n    print(s.side)\n}\n",
+        "use @geometry/shapes\n\nfn main() {\n    let s: shapes.Square = shapes.square(1)\n    print(s.side)\n}\n",
     )
     .unwrap();
     let out = brim_with_home(&app, &home, &["run"]);
@@ -633,7 +633,7 @@ fn git_dependencies_and_update() {
     .unwrap();
     fs::write(
         app.join("src/main.brim"),
-        "import greet\n\nfn main() {\n    print(greet.hello())\n}\n",
+        "use @greet\n\nfn main() {\n    print(greet.hello())\n}\n",
     )
     .unwrap();
 
@@ -676,7 +676,7 @@ fn gen_ts_matches_the_example() {
     let dir = scratch("gen_ts");
     fs::write(
         dir.join("a.brim"),
-        "import b\n\npub struct Item {\n    x: i64,\n}\n\npub struct Pair {\n    first: b.Item,\n}\n",
+        "use b\n\npub struct Item {\n    x: i64,\n}\n\npub struct Pair {\n    first: b.Item,\n}\n",
     )
     .unwrap();
     fs::write(dir.join("b.brim"), "pub struct Item {\n    y: i64,\n}\n").unwrap();
@@ -734,7 +734,7 @@ fn gen_ts_angular_matches_the_example() {
     );
 }
 
-const HTTP_SERVER: &str = r#"import std.http
+const HTTP_SERVER: &str = r#"use @std/http
 
 fn main() {
     match serve() {
@@ -767,7 +767,7 @@ fn match_name(request: http.Request) -> string {
 }
 "#;
 
-const HTTP_CLIENT: &str = r#"import std.http
+const HTTP_CLIENT: &str = r#"use @std/http
 
 fn main() {
     let base: string = "http://127.0.0.1:" + args()[0]
@@ -839,7 +839,7 @@ fn workspaces() {
     .unwrap();
     fs::write(
         ws.join("apps/api/src/main.brim"),
-        "import shared\n\nfn main() {\n    print(shared.banner(\"api\"))\n}\n",
+        "use @shared\n\nfn main() {\n    print(shared.banner(\"api\"))\n}\n",
     )
     .unwrap();
     fs::write(ws.join("apps/tool/.brimproj"), manifest("tool", "")).unwrap();

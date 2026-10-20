@@ -1,6 +1,6 @@
 // A PostgreSQL client:
 //
-//   import std.postgres
+//   use @std/postgres
 //
 //   let db = postgres.connect("postgres://app:secret@127.0.0.1:5432/notes")?
 //   db.execute("insert into notes (text) values ($1)", [postgres.text("milk")])?
@@ -14,10 +14,10 @@
 // values never become part of the SQL text. Logins use SCRAM-SHA-256, MD5
 // or a plain password, whatever the server asks for. Connections are not
 // encrypted: use it on the same machine, a private network or a tunnel.
-import std.base64
-import std.crypto
-import std.json
-import std.net
+use @std/base64
+use @std/crypto
+use @std/json
+use @std/net
 
 // A connection to a database.
 pub struct Client {

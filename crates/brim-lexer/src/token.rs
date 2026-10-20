@@ -51,7 +51,9 @@ pub enum TokenKind {
     Loop,
     /// `self`, the receiver of a method.
     SelfValue,
+    /// `import`, the old spelling of `use`.
     Import,
+    Use,
     Pub,
     As,
     Extern,
@@ -76,6 +78,8 @@ pub enum TokenKind {
     FatArrow,
     /// `?`, which propagates an error or a missing value.
     Question,
+    /// `@`, before a package name in `use @std/json`.
+    At,
 
     // Operators.
     Plus,
@@ -134,6 +138,7 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("loop", TokenKind::Loop),
     ("self", TokenKind::SelfValue),
     ("import", TokenKind::Import),
+    ("use", TokenKind::Use),
     ("pub", TokenKind::Pub),
     ("as", TokenKind::As),
     ("extern", TokenKind::Extern),
@@ -141,7 +146,7 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
 
 /// Words reserved for planned features. They cannot be used as identifiers,
 /// which lets those features be added later without breaking programs.
-pub const RESERVED: &[&str] = &["async", "await", "type", "use"];
+pub const RESERVED: &[&str] = &["async", "await", "type"];
 
 impl TokenKind {
     /// A short description used in diagnostics, e.g. "`(`" or "identifier".
@@ -195,6 +200,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Loop => "loop",
             TokenKind::SelfValue => "self",
             TokenKind::Import => "import",
+            TokenKind::Use => "use",
             TokenKind::Pub => "pub",
             TokenKind::As => "as",
             TokenKind::Extern => "extern",
@@ -213,6 +219,7 @@ impl fmt::Display for TokenKind {
             TokenKind::DotDot => "..",
             TokenKind::FatArrow => "=>",
             TokenKind::Question => "?",
+            TokenKind::At => "@",
             TokenKind::Plus => "+",
             TokenKind::Minus => "-",
             TokenKind::Star => "*",

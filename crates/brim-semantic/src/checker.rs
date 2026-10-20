@@ -716,7 +716,7 @@ impl<'a> Checker<'a> {
                                 .with_code("E0243")
                                 .with_primary(item.span, "imported here")
                                 .with_help(format!(
-                                    "import the module instead and write `{}.{}`",
+                                    "use the module instead and write `{}.{}`",
                                     path.last().expect("a path"),
                                     item.name
                                 )),
@@ -778,7 +778,7 @@ impl<'a> Checker<'a> {
                 Diagnostic::error(format!("unknown module `{alias}`"))
                     .with_code("E0242")
                     .with_primary(span, "")
-                    .with_help(format!("import it first: `import {alias}`")),
+                    .with_help(format!("add it first: `{}`", crate::use_suggestion(alias))),
             );
             return Err(());
         };

@@ -46,6 +46,7 @@
 ((variant_pattern name: (identifier) @constructor)
   (#match? @constructor "^[A-Z]"))
 (module_path) @namespace
+(use_path) @namespace
 
 [
   "fn" "struct" "enum" "impl" "trait" "const" "let"
@@ -64,7 +65,7 @@
 "return" @keyword.control.return
 
 [
-  "import" "as"
+  "use" "import" "as"
 ] @keyword.control.import
 
 (visibility) @keyword.storage.modifier

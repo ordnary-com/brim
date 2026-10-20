@@ -5,9 +5,9 @@
 //   curl -X POST localhost:8080/api/list_notes
 //
 // An Angular app calls it through the generated client.ts.
-import std.http
-import std.log
-import notes
+use @std/http
+use @std/log
+use notes
 
 fn main() {
     let port = match env("PORT") {

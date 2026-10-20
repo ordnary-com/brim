@@ -1,7 +1,7 @@
 // std.fs: directories, files, sizes and errors. Each run works in its own
 // directory under target/, so runs can happen at the same time.
-import std.fs
-import std.random
+use @std/fs
+use @std/random
 
 fn main() {
     match run(f"target/brim-fs-{random.int(0, 1000000000)}") {

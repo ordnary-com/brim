@@ -11,6 +11,7 @@ authors.workspace = true
 [dependencies]
 brim-ast.workspace = true
 brim-diagnostics.workspace = true
+brim-manifest.workspace = true
 brim-package.workspace = true
 brim-parser.workspace = true
 brim-semantic.workspace = true
