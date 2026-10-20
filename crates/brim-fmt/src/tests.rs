@@ -106,7 +106,9 @@ fn formatting_is_idempotent() {
             let src = std::fs::read_to_string(&path).unwrap();
             let once = fmt(&src);
             assert_eq!(fmt(&once), once, "{}", path.display());
-            if dir == "examples" {
+            // The container example keeps `import` for the released brim in
+            // its Dockerfile, which `format` would turn into `use`.
+            if dir == "examples" && !path.ends_with("http/notes.brim") {
                 assert_eq!(once, src, "{} is not formatted", path.display());
             }
             checked += 1;
