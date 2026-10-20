@@ -22,6 +22,12 @@ with `brim build`; they need a C compiler to link: `cc` on Linux and
 macOS, and on Windows `clang` (from LLVM) with the Visual Studio C++ build
 tools.
 
+The scripts also give `.brim` and `.brimproj` files their own icons in
+Finder, File Explorer and Linux file managers, with `brim icons`. Files
+still open in the editor you use for them. Run `brim icons` yourself after
+installing another way (Homebrew, an archive, from source), and
+`brim icons --remove` to take the icons away again.
+
 Or build it from source with Rust 1.88 or newer:
 
 ```sh

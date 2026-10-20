@@ -46,6 +46,13 @@ class Brim < Formula
     bin.install "brim"
   end
 
+  def caveats
+    <<~EOS
+      To show Brim's file icons for .brim and .brimproj files in Finder, run:
+        brim icons
+    EOS
+  end
+
   test do
     (testpath/"hello.brim").write <<~BRIM
       fn main() {

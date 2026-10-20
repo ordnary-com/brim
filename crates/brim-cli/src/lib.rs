@@ -5,6 +5,7 @@
 //! explicit output streams and returns an exit code (see [`exit`]).
 
 pub mod args;
+mod icons;
 mod publish;
 
 use std::io::{self, Write};
@@ -120,6 +121,7 @@ pub fn run(args: &[String], ctx: &mut Context<'_>) -> i32 {
             dry_run,
         } => publish::publish(&Target::new(&input, &package), dry_run, ctx),
         Command::Login { token } => publish::login(token, ctx),
+        Command::Icons { remove } => icons::icons(remove, ctx),
         Command::Yank {
             name,
             version,

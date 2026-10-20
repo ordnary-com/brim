@@ -99,6 +99,10 @@ pub enum Command {
         version: String,
         undo: bool,
     },
+    /// `brim icons [--remove]`: file icons in the system's file manager.
+    Icons {
+        remove: bool,
+    },
     Fmt {
         /// Files and directories; empty for the current project.
         paths: Vec<PathBuf>,
@@ -123,7 +127,7 @@ impl fmt::Display for UsageError {
 
 const COMMANDS: &[&str] = &[
     "check", "run", "build", "test", "new", "fmt", "update", "publish", "login", "yank", "gen",
-    "doc", "lsp", "help", "version",
+    "doc", "lsp", "icons", "help", "version",
 ];
 
 /// Parses the arguments after the program name.
@@ -225,6 +229,14 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
                 std: parsed.std,
             }))
         }
+        "icons" => match rest {
+            [] => Ok(Command::Icons { remove: false }),
+            [flag] if flag == "--remove" => Ok(Command::Icons { remove: true }),
+            [flag, ..] if flag == "-h" || flag == "--help" => {
+                Ok(Command::Help(Some("icons".into())))
+            }
+            [other, ..] => Err(unexpected(other, Some("icons"))),
+        },
         "lsp" => match rest.first().map(String::as_str) {
             None => Ok(Command::Lsp),
             Some("-h" | "--help") => Ok(Command::Help(Some("lsp".into()))),
@@ -484,6 +496,7 @@ Commands:
   gen ts [PATH]  Generate TypeScript types for the program's API
   doc [PATH]     Write HTML documentation from the doc comments
   lsp            Run the language server for editors
+  icons          Show Brim's file icons in the system's file manager
   help [COMMAND] Show help for a command
   version        Show the compiler version
 
@@ -636,6 +649,25 @@ Usage: brim lsp [--stdio]
 
 Options:
   -h, --help  Show help
+"
+        }
+        "icons" => {
+            "\
+Show Brim's file icons in the system's file manager
+
+Gives `.brim` and `.brimproj` files their icons in Finder, File Explorer
+and Linux desktops, for the current user. The install scripts run it.
+Files keep opening in the program that opened them before.
+
+macOS: `~/Applications/Brim.app` declares the file types and their icons.
+Windows: the file types are registered under HKEY_CURRENT_USER, with icons
+in `$BRIM_HOME/icons`. Linux: MIME types and icons in `~/.local/share`.
+
+Usage: brim icons [--remove]
+
+Options:
+      --remove  Remove the icons again
+  -h, --help    Show help
 "
         }
         "update" => {
@@ -854,6 +886,12 @@ mod tests {
             })
         );
         assert_eq!(p(&["lsp", "--stdio"]), Ok(Command::Lsp));
+        assert_eq!(p(&["icons"]), Ok(Command::Icons { remove: false }));
+        assert_eq!(
+            p(&["icons", "--remove"]),
+            Ok(Command::Icons { remove: true })
+        );
+        assert!(p(&["icons", "--other"]).is_err());
         assert_eq!(
             p(&["build", "-p", "server", "--release"]),
             Ok(Command::Build {
@@ -916,7 +954,7 @@ mod tests {
         let msg = |args: &[&str]| p(args).unwrap_err().message;
         assert_eq!(
             msg(&["frobnicate"]),
-            "unknown command `frobnicate` (available: check, run, build, test, new, fmt, update, publish, login, yank, gen, doc, lsp, help, version)"
+            "unknown command `frobnicate` (available: check, run, build, test, new, fmt, update, publish, login, yank, gen, doc, lsp, icons, help, version)"
         );
         assert_eq!(
             msg(&["check", "a.brim", "b.brim"]),

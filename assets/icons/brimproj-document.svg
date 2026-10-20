@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <path fill="#FFFFFF" stroke="#C9D3E3" stroke-width="12" d="M204 70H652L858 276V922a32 32 0 0 1-32 32H198a32 32 0 0 1-32-32V108a38 38 0 0 1 38-38z"/>
+  <path fill="#DCE5F3" stroke="#C9D3E3" stroke-width="12" stroke-linejoin="round" d="M652 70V244a32 32 0 0 0 32 32H858z"/>
+  <svg x="282" y="320" width="460" height="460" viewBox="0 0 32 32">
+  <defs>
+    <mask id="pcut">
+      <rect width="32" height="32" fill="#fff"/>
+      <circle cx="24" cy="24" r="9" fill="#000"/>
+    </mask>
+    <mask id="phole">
+      <rect width="32" height="32" fill="#fff"/>
+      <circle cx="24" cy="24" r="2.2" fill="#000"/>
+    </mask>
+  </defs>
+  <g mask="url(#pcut)">
+    <path fill="#015EFE" transform="translate(0 0) scale(0.1143) translate(-185 -407)" d="M268 428h62l-66 158 54-81h67l-55 92H195z"/>
+  </g>
+  <g fill="#6B7280" mask="url(#phole)">
+    <circle cx="24" cy="24" r="5"/>
+    <circle cx="24" cy="24" r="6" fill="none" stroke="#6B7280" stroke-width="2.6" stroke-dasharray="2.36 2.35"/>
+  </g>
+  </svg>
+</svg>

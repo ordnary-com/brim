@@ -4,6 +4,7 @@
 #
 # $env:BRIM_VERSION picks a version (default: the latest release) and
 # $env:BRIM_INSTALL the directory (default: %LOCALAPPDATA%\Programs\brim).
+# $env:BRIM_NO_ICONS = "1" skips the file icons in File Explorer (`brim icons`).
 $ErrorActionPreference = "Stop"
 $repo = "ordnary-com/brim"
 
@@ -46,6 +47,9 @@ try {
         Write-Host "added $dir to your PATH; open a new terminal to use it"
     }
     Write-Host "installed $(& "$dir\brim.exe" --version) in $dir"
+    if ($env:BRIM_NO_ICONS -ne "1" -and -not $env:CI) {
+        & "$dir\brim.exe" icons
+    }
     if ($platform -like "*-native" -and -not (Get-Command clang -ErrorAction SilentlyContinue)) {
         Write-Host "brim build needs clang and the Visual Studio C++ build tools to link; brim run works without them"
     }

@@ -8,6 +8,8 @@
 #   BRIM_INSTALL   the directory for brim (default: /usr/local/bin if it is
 #                  writable, else ~/.local/bin)
 #   BRIM_NATIVE    0 for the build without the LLVM backend (no `brim build`)
+#   BRIM_NO_ICONS  1 to skip the file icons for Finder and Linux desktops
+#                  (`brim icons`)
 set -eu
 
 repo="ordnary-com/brim"
@@ -83,6 +85,11 @@ cp "$tmp/brim-$version-$platform/brim" "$dir/brim"
 chmod 755 "$dir/brim"
 
 echo "installed $("$dir/brim" --version) in $dir"
+# File icons for .brim and .brimproj files, except on servers and in CI.
+if [ "${BRIM_NO_ICONS:-0}" != "1" ] && [ -z "${CI:-}" ] \
+    && { [ "$os" = "Darwin" ] || [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; }; then
+    "$dir/brim" icons || true
+fi
 case ":$PATH:" in
     *":$dir:"*) ;;
     *) echo "note: $dir is not on your PATH; add it, for example in ~/.zshrc or ~/.bashrc:"

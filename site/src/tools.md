@@ -154,3 +154,13 @@ JetBrains IDEs, Kate, Kakoune, nano, micro and Notepad++ in `editors/`,
 each with its own instructions. Other editors can use the TextMate grammar
 (`editors/vscode/syntaxes/brim.tmLanguage.json`) or the tree-sitter grammar
 (`editors/tree-sitter-brim`), and start `brim lsp` from any LSP client.
+
+## File icons
+
+`brim icons` gives `.brim` and `.brimproj` files their own icons in the
+system's file manager, for the current user: on macOS through
+`~/Applications/Brim.app`, which declares the file types without opening
+them; on Windows through the file types under `HKEY_CURRENT_USER`; on Linux
+through MIME types and icons in `~/.local/share`. The install scripts run
+it; `brim icons --remove` undoes it. A `.brimproj` file starts with a dot,
+so Finder and Linux file managers hide it unless hidden files are shown.
