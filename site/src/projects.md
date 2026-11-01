@@ -74,6 +74,23 @@ The `@` marks a package; a path without it is a module of your own
 project, so `use shapes` and `use @geometry/shapes` never get mixed up.
 The standard library is the package `@std`.
 
+### Adding and removing
+
+`brim add` writes the entry for you, fetches the package and updates
+`.brimlock`:
+
+```sh
+brim search router                 # find packages in the registry
+brim add router                    # router = "^1.2.0", the newest version
+brim add router@1.2 json_extra     # a requirement of your own, several at once
+brim add geometry --path ../geometry
+brim add http --git https://github.com/example/brim-http.git --tag v1.0.0
+brim remove router                 # or brim rm
+```
+
+Comments and the order of `.brimproj` stay as they are, and when a package
+cannot be fetched the file is left unchanged.
+
 ### Versions
 
 `router = "1.2"` means any version from 1.2.0 up to, but not including,
