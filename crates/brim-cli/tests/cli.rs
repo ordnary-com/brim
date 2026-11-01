@@ -612,8 +612,9 @@ fn add_and_remove_dependencies() {
         &["add", "geometry", "--path", "../../libs/geometry"],
     );
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    // Paths in messages use the platform's separator.
     assert_eq!(
-        stderr(&out),
+        stderr(&out).replace('\\', "/"),
         "updated ../.brimlock\nadded geometry (path ../libs/geometry)\n"
     );
     assert_eq!(
