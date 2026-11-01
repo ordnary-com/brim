@@ -208,7 +208,10 @@ pub(crate) fn spin(ctx: &Context<'_>, message: &str) -> Spinner {
     stop();
     let stop_flag = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&stop_flag);
-    let message = message.to_string();
+    // Leading spaces indent the spinner too, so it lines up with the
+    // marks that replace it.
+    let indent = message.len() - message.trim_start().len();
+    let (indent, message) = (message[..indent].to_string(), message[indent..].to_string());
     let ui = Ui { on: true };
     let spawned = std::thread::Builder::new()
         .name("brim-spinner".into())
@@ -223,7 +226,7 @@ pub(crate) fn spin(ctx: &Context<'_>, message: &str) -> Spinner {
                     // Hide the cursor while spinning; `\x1b[2K` clears the line.
                     let _ = write!(
                         err,
-                        "{}\r\x1b[2K{} {} {}",
+                        "{}\r\x1b[2K{indent}{} {} {}",
                         if shown { "" } else { "\x1b[?25l" },
                         ui.brand(FRAMES[frame % FRAMES.len()]),
                         message,
