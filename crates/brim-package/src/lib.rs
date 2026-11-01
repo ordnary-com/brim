@@ -211,9 +211,11 @@ pub fn resolve(
     let graph = Graph {
         packages: resolver.packages,
     };
-    if graph.packages.len() > 1 && !options.offline {
+    let full = options.cwd.join(&lock_path);
+    // Without dependencies there is nothing to lock, but a lock file left
+    // from earlier ones is brought up to date rather than kept stale.
+    if (graph.packages.len() > 1 || full.is_file()) && !options.offline {
         let text = lock::render(&graph);
-        let full = options.cwd.join(&lock_path);
         if std::fs::read_to_string(&full).ok().as_deref() != Some(text.as_str()) {
             std::fs::write(&full, text).map_err(|e| {
                 Failure::new(Diagnostic::error(format!(

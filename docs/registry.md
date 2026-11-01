@@ -195,6 +195,15 @@ every token of the user: `200` with `{"revoked": <count>}`.
 
 ## On the client
 
+- `brim search [TEXT]` lists packages through `GET /api/v1/search`.
+- `brim add NAME[@VERSION]...` writes dependencies into the nearest
+  `.brimproj`: without a version, `^` and the newest non-yanked release
+  (`http_router = "^1.2.0"`); with one, the requirement as given. `--path DIR`
+  and `--git URL [--tag|--branch|--rev X]` add a package from a directory or
+  a repository. The manifest is edited as text, so comments and order stay;
+  when the package cannot be fetched, the manifest is put back.
+- `brim remove NAME...` (or `brim rm`) takes dependencies out again and
+  updates `.brimlock`.
 - `brim login` reads a token (from standard input, or `--token`) and stores
   it in `$BRIM_HOME/credentials.toml`; `BRIM_REGISTRY_TOKEN` overrides it.
 - `brim publish [--dry-run]` checks the package, builds the archive (the

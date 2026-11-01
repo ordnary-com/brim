@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- `brim add NAME` adds a dependency to the project, as `npm install` or `cargo add` do: it looks up the newest version in the registry, writes `NAME = "^X.Y.Z"` into `.brimproj` (keeping its comments and order), fetches the package and updates `.brimlock`. `brim add NAME@1.2` writes a requirement of your own, several names add several packages, and `--path DIR` or `--git URL` (with `--tag`, `--branch` or `--rev`) adds a package from a directory or a repository. When the package cannot be fetched, `.brimproj` is left as it was.
+- `brim remove NAME` (or `brim rm`) takes a dependency out of `.brimproj` and `.brimlock`.
+- `brim search TEXT` lists the registry's packages whose name or description contains the text, with their newest version.
+
+### Fixed
+
+- `.brimlock` no longer keeps packages after the last dependency is removed.
+
 ### Changed
 
 - At a terminal, `brim` output has colors, spinners and timings: `brim check`, `run`, `build` and `publish` show a spinner while they work and end with a `✓` line, `brim test` prints a badge per run with a mark and time per test, `brim new` shows the created files and the next steps, `brim fmt` lists what it changed, and the help is colored. Output that is piped, or with `NO_COLOR` set, stays the same plain lines as before.

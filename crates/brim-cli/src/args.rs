@@ -99,6 +99,21 @@ pub enum Command {
         version: String,
         undo: bool,
     },
+    /// `brim add NAME[@REQ]...`: new entries in `[dependencies]`.
+    Add {
+        /// `NAME` or `NAME@REQUIREMENT`; one when `source` is set.
+        specs: Vec<String>,
+        /// `--path` or `--git` (with `--tag`, `--branch` or `--rev`).
+        source: Option<AddSource>,
+    },
+    /// `brim remove NAME...`: entries out of `[dependencies]`.
+    Remove {
+        names: Vec<String>,
+    },
+    /// `brim search [TEXT]`: packages in the registry.
+    Search {
+        query: String,
+    },
     /// `brim icons [--remove]`: file icons in the system's file manager.
     Icons {
         remove: bool,
@@ -108,6 +123,17 @@ pub enum Command {
         paths: Vec<PathBuf>,
         /// `--check`: report unformatted files instead of changing them.
         check: bool,
+    },
+}
+
+/// Where `brim add` takes a dependency from, when not the registry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AddSource {
+    Path(PathBuf),
+    Git {
+        url: String,
+        /// `("tag" | "branch" | "rev", value)`.
+        reference: Option<(&'static str, String)>,
     },
 }
 
@@ -126,8 +152,8 @@ impl fmt::Display for UsageError {
 }
 
 const COMMANDS: &[&str] = &[
-    "check", "run", "build", "test", "new", "fmt", "update", "publish", "login", "yank", "gen",
-    "doc", "lsp", "icons", "help", "version",
+    "check", "run", "build", "test", "new", "fmt", "add", "remove", "search", "update", "publish",
+    "login", "yank", "gen", "doc", "lsp", "icons", "help", "version",
 ];
 
 /// Parses the arguments after the program name.
@@ -308,6 +334,45 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
                 }),
             }
         }
+        "add" => parse_add(rest),
+        "remove" | "rm" => {
+            let mut names = Vec::new();
+            for arg in rest {
+                match arg.as_str() {
+                    "-h" | "--help" => return Ok(Command::Help(Some("remove".into()))),
+                    a if a.starts_with('-') => {
+                        return Err(UsageError {
+                            message: format!("unknown option `{a}` for `brim remove`"),
+                            command: Some("remove"),
+                        });
+                    }
+                    _ => names.push(arg.clone()),
+                }
+            }
+            if names.is_empty() {
+                return Err(UsageError {
+                    message:
+                        "`brim remove` needs the name of a dependency, e.g. `brim remove router`"
+                            .into(),
+                    command: Some("remove"),
+                });
+            }
+            Ok(Command::Remove { names })
+        }
+        "search" => {
+            if rest.iter().any(|a| a == "-h" || a == "--help") {
+                return Ok(Command::Help(Some("search".into())));
+            }
+            if let Some(a) = rest.iter().find(|a| a.starts_with('-')) {
+                return Err(UsageError {
+                    message: format!("unknown option `{a}` for `brim search`"),
+                    command: Some("search"),
+                });
+            }
+            Ok(Command::Search {
+                query: rest.join(" "),
+            })
+        }
         "fmt" => {
             let mut paths = Vec::new();
             let mut check = false;
@@ -336,6 +401,75 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
         }),
         other => Err(unknown_command(other)),
     }
+}
+
+fn parse_add(args: &[String]) -> Result<Command, UsageError> {
+    let usage = |message: String| UsageError {
+        message,
+        command: Some("add"),
+    };
+    let mut specs = Vec::new();
+    let mut path = None;
+    let mut git = None;
+    let mut reference: Option<(&'static str, String)> = None;
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        let (flag, inline) = match arg.split_once('=') {
+            Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_string())),
+            _ => (arg.as_str(), None),
+        };
+        let mut value = |what: &str| {
+            inline
+                .clone()
+                .or_else(|| iter.next().cloned())
+                .ok_or_else(|| usage(format!("`{flag}` needs a value: {what}")))
+        };
+        match flag {
+            "-h" | "--help" => return Ok(Command::Help(Some("add".into()))),
+            "--path" => path = Some(PathBuf::from(value("the package's directory")?)),
+            "--git" => git = Some(value("the repository's URL")?),
+            "--tag" | "--branch" | "--rev" => {
+                let kind = &flag[2..];
+                let kind = match kind {
+                    "tag" => "tag",
+                    "branch" => "branch",
+                    _ => "rev",
+                };
+                if reference.is_some() {
+                    return Err(usage("use one of `--tag`, `--branch` and `--rev`".into()));
+                }
+                reference = Some((kind, value("a git reference")?));
+            }
+            a if a.starts_with('-') => {
+                return Err(usage(format!("unknown option `{a}` for `brim add`")));
+            }
+            _ => specs.push(arg.clone()),
+        }
+    }
+    if specs.is_empty() {
+        return Err(usage(
+            "`brim add` needs the name of a package, e.g. `brim add router`".into(),
+        ));
+    }
+    if reference.is_some() && git.is_none() {
+        return Err(usage(
+            "`--tag`, `--branch` and `--rev` go with `--git`".into(),
+        ));
+    }
+    let source = match (path, git) {
+        (Some(_), Some(_)) => {
+            return Err(usage("a dependency has either `--path` or `--git`".into()));
+        }
+        (Some(path), None) => Some(AddSource::Path(path)),
+        (None, Some(url)) => Some(AddSource::Git { url, reference }),
+        (None, None) => None,
+    };
+    if source.is_some() && specs.len() > 1 {
+        return Err(usage(
+            "`--path` and `--git` add one package at a time".into(),
+        ));
+    }
+    Ok(Command::Add { specs, source })
 }
 
 fn unknown_command(cmd: &str) -> UsageError {
@@ -489,6 +623,9 @@ Commands:
   test [PATH]    Run a program's tests
   new <PATH>     Create a new project
   fmt [PATH...]  Format source files
+  add NAME...    Add dependencies to the project
+  remove NAME... Remove dependencies from the project
+  search [TEXT]  Find packages in the registry
   update [PATH]  Pick the newest dependency versions for .brimlock
   publish [PATH] Publish the package to the registry
   login          Store a token for the registry
@@ -668,6 +805,60 @@ Usage: brim icons [--remove]
 Options:
       --remove  Remove the icons again
   -h, --help    Show help
+"
+        }
+        "add" => {
+            "\
+Add dependencies to the project
+
+Writes each package into `[dependencies]` of the nearest `.brimproj`, then
+fetches it and updates `.brimlock`. A registry package without a version
+gets a requirement for its newest version (`router` becomes `^1.2.0`);
+`router@1.2` or `router@=1.2.3` writes the requirement given. A package
+that is already a dependency gets the new requirement. When the package
+cannot be fetched, `.brimproj` is left as it was.
+
+Usage: brim add [OPTIONS] NAME[@VERSION]...
+
+Options:
+  --path <DIR>       A package in a directory instead of the registry
+  --git <URL>        A package in a git repository instead of the registry
+  --tag <TAG>        With --git: a tag
+  --branch <BRANCH>  With --git: a branch
+  --rev <COMMIT>     With --git: a commit
+  -h, --help         Show help
+
+Examples:
+  brim add router
+  brim add router@1.2 json_extra
+  brim add geometry --path ../geometry
+  brim add http --git https://example.com/http.git --tag v1.0.0
+"
+        }
+        "remove" => {
+            "\
+Remove dependencies from the project
+
+Takes each package out of `[dependencies]` of the nearest `.brimproj` and
+updates `.brimlock`. `brim rm` is the same command.
+
+Usage: brim remove NAME...
+
+Options:
+  -h, --help  Show help
+"
+        }
+        "search" => {
+            "\
+Find packages in the registry
+
+Lists up to 50 packages whose name or description contains TEXT, with
+their newest version; without TEXT, the newest packages.
+
+Usage: brim search [TEXT]
+
+Options:
+  -h, --help  Show help
 "
         }
         "update" => {
@@ -950,11 +1141,54 @@ mod tests {
     }
 
     #[test]
+    fn add_remove_search() {
+        assert_eq!(
+            p(&["add", "router@1.2", "json"]),
+            Ok(Command::Add {
+                specs: vec!["router@1.2".into(), "json".into()],
+                source: None,
+            })
+        );
+        assert_eq!(
+            p(&["add", "http", "--git=https://x/h.git", "--tag", "v1"]),
+            Ok(Command::Add {
+                specs: vec!["http".into()],
+                source: Some(AddSource::Git {
+                    url: "https://x/h.git".into(),
+                    reference: Some(("tag", "v1".into())),
+                }),
+            })
+        );
+        assert_eq!(
+            p(&["add", "geo", "--path", "../geo"]),
+            Ok(Command::Add {
+                specs: vec!["geo".into()],
+                source: Some(AddSource::Path("../geo".into())),
+            })
+        );
+        assert!(p(&["add"]).is_err());
+        assert!(p(&["add", "a", "b", "--path", "x"]).is_err());
+        assert!(p(&["add", "a", "--tag", "v1"]).is_err());
+        assert_eq!(
+            p(&["rm", "router"]),
+            Ok(Command::Remove {
+                names: vec!["router".into()]
+            })
+        );
+        assert_eq!(
+            p(&["search", "http", "router"]),
+            Ok(Command::Search {
+                query: "http router".into()
+            })
+        );
+    }
+
+    #[test]
     fn usage_errors() {
         let msg = |args: &[&str]| p(args).unwrap_err().message;
         assert_eq!(
             msg(&["frobnicate"]),
-            "unknown command `frobnicate` (available: check, run, build, test, new, fmt, update, publish, login, yank, gen, doc, lsp, icons, help, version)"
+            "unknown command `frobnicate` (available: check, run, build, test, new, fmt, add, remove, search, update, publish, login, yank, gen, doc, lsp, icons, help, version)"
         );
         assert_eq!(
             msg(&["check", "a.brim", "b.brim"]),

@@ -5,6 +5,7 @@
 //! explicit output streams and returns an exit code (see [`exit`]).
 
 pub mod args;
+mod deps;
 mod icons;
 mod publish;
 mod ui;
@@ -131,6 +132,9 @@ pub fn run(args: &[String], ctx: &mut Context<'_>) -> i32 {
         } => test(&Target::new(&input, &package), filter.as_deref(), ctx),
         Command::New { path } => new_project(&path, ctx),
         Command::Fmt { paths, check } => fmt(&paths, check, ctx),
+        Command::Add { specs, source } => deps::add(&specs, source.as_ref(), ctx),
+        Command::Remove { names } => deps::remove(&names, ctx),
+        Command::Search { query } => deps::search(&query, ctx),
         Command::Update { input, package } => update(&Target::new(&input, &package), ctx),
         Command::Publish {
             input,

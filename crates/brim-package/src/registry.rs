@@ -57,6 +57,21 @@ struct RawIndexVersion {
     yanked: bool,
 }
 
+/// A package found by [`Registry::search`].
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct Found {
+    pub name: String,
+    /// The newest non-yanked version.
+    pub version: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RawSearch {
+    packages: Vec<Found>,
+}
+
 #[derive(Deserialize)]
 struct ErrorBody {
     error: String,
@@ -153,6 +168,23 @@ impl Registry {
         }
         versions.sort_by(|a, b| a.version.cmp(&b.version));
         Ok(Some(versions))
+    }
+
+    /// Up to 50 packages whose name or description contains `query`,
+    /// newest first.
+    pub fn search(&self, query: &str) -> Result<Vec<Found>, String> {
+        let mut encoded = String::new();
+        for byte in query.bytes() {
+            if byte.is_ascii_alphanumeric() || b"-_.~".contains(&byte) {
+                encoded.push(char::from(byte));
+            } else {
+                encoded.push_str(&format!("%{byte:02X}"));
+            }
+        }
+        let body = self.get(&format!("/api/v1/search?q={encoded}"))?.ok()?;
+        let raw: RawSearch = serde_json::from_slice(&body)
+            .map_err(|e| format!("the registry sent an invalid search result: {e}"))?;
+        Ok(raw.packages)
     }
 
     /// The directory with `name` `version` unpacked, downloading it when it

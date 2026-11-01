@@ -581,6 +581,78 @@ fn path_dependencies() {
     );
 }
 
+#[test]
+fn add_and_remove_dependencies() {
+    let dir = scratch("add_remove");
+    let home = dir.join("home");
+    fs::create_dir_all(dir.join("app/src")).unwrap();
+    fs::create_dir_all(dir.join("libs/geometry/src")).unwrap();
+    let app = "# The app\n[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2026\"\n";
+    fs::write(dir.join("app/.brimproj"), app).unwrap();
+    fs::write(
+        dir.join("app/src/main.brim"),
+        "use @geometry\n\nfn main() {\n    print(geometry.area(3))\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("libs/geometry/.brimproj"),
+        manifest("geometry", ""),
+    )
+    .unwrap();
+    fs::write(
+        dir.join("libs/geometry/src/lib.brim"),
+        "pub fn area(side: i64) -> i64 {\n    return side * side\n}\n",
+    )
+    .unwrap();
+
+    // From a subdirectory: the path is written relative to the manifest.
+    let out = brim_with_home(
+        &dir.join("app/src"),
+        &home,
+        &["add", "geometry", "--path", "../../libs/geometry"],
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out),
+        "updated ../.brimlock\nadded geometry (path ../libs/geometry)\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.join("app/.brimproj")).unwrap(),
+        format!("{app}\n[dependencies]\ngeometry = {{ path = \"../libs/geometry\" }}\n")
+    );
+    let out = brim_with_home(&dir.join("app"), &home, &["run"]);
+    assert_eq!(stdout(&out), "9\n");
+
+    // A wrong name leaves the manifest alone.
+    let out = brim_with_home(
+        &dir.join("app"),
+        &home,
+        &["add", "shapes", "--path", "../libs/geometry"],
+    );
+    assert_eq!(out.status.code(), Some(2));
+    assert!(stderr(&out).contains("the package in ../libs/geometry is `geometry`, not `shapes`"));
+
+    let out = brim_with_home(&dir.join("app"), &home, &["remove", "geometry"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "updated .brimlock\nremoved geometry\n");
+    assert_eq!(
+        fs::read_to_string(dir.join("app/.brimproj")).unwrap(),
+        format!("{app}\n[dependencies]\n")
+    );
+    assert!(
+        !fs::read_to_string(dir.join("app/.brimlock"))
+            .unwrap()
+            .contains("geometry")
+    );
+
+    let out = brim_with_home(&dir.join("app"), &home, &["rm", "geometry"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(
+        stderr(&out),
+        "error: `geometry` is not a dependency of `app`\n  = help: the project has no dependencies\n"
+    );
+}
+
 fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
         .arg("-C")
