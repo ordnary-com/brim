@@ -6,7 +6,7 @@ use brim_diagnostics::Diagnostic;
 use brim_manifest::{Manifest, Source};
 use brim_package::registry::{self, Registry};
 
-use crate::{CmdResult, Context, Input, Target, exit, input_error, load_input};
+use crate::{CmdResult, Context, Input, Target, exit, input_error, load_input, ui};
 
 /// The file with registry tokens, in `$BRIM_HOME`.
 const CREDENTIALS_FILE: &str = "credentials.toml";
@@ -178,10 +178,17 @@ pub(crate) fn publish(target: &Target<'_>, dry_run: bool, ctx: &mut Context<'_>)
         for file in listed {
             let _ = writeln!(ctx.stdout, "{file}");
         }
-        let _ = writeln!(
-            ctx.stderr,
-            "wrote {} (dry run: nothing was uploaded)",
-            out.display()
+        let ui = ui::Ui::new(ctx);
+        ui::done(
+            ctx,
+            &format!("wrote {} (dry run: nothing was uploaded)", out.display()),
+            "Packed",
+            &format!(
+                "{} {}",
+                out.display(),
+                ui.dim("(dry run: nothing was uploaded)")
+            ),
+            None,
         );
         return Ok(());
     }
@@ -202,9 +209,25 @@ pub(crate) fn publish(target: &Target<'_>, dry_run: bool, ctx: &mut Context<'_>)
         "license": manifest.package.license,
         "repository": manifest.package.repository,
     });
-    match reg.publish(&token, &metadata.to_string(), &archive) {
+    let start = std::time::Instant::now();
+    let spinner = ui::spin(ctx, &format!("Publishing {name} {version}"));
+    let published = reg.publish(&token, &metadata.to_string(), &archive);
+    drop(spinner);
+    match published {
         Ok(()) => {
-            let _ = writeln!(ctx.stderr, "published {name} {version} to {}", reg.url);
+            let ui = ui::Ui::new(ctx);
+            ui::done(
+                ctx,
+                &format!("published {name} {version} to {}", reg.url),
+                "Published",
+                &format!(
+                    "{} {} {}",
+                    ui.brand(&name),
+                    ui.bold(&version),
+                    ui.dim(&format!("to {}", reg.url))
+                ),
+                Some(start.elapsed()),
+            );
             Ok(())
         }
         Err(e) => {
@@ -375,7 +398,18 @@ pub(crate) fn login(token: Option<String>, ctx: &mut Context<'_>) -> CmdResult {
         return Err(exit::INPUT);
     }
     restrict(&path);
-    let _ = writeln!(ctx.stderr, "logged in to {} as {user}", reg.url);
+    let ui = ui::Ui::new(ctx);
+    ui::done(
+        ctx,
+        &format!("logged in to {} as {user}", reg.url),
+        "Logged in",
+        &format!(
+            "as {} {}",
+            ui.brand(&user),
+            ui.dim(&format!("to {}", reg.url))
+        ),
+        None,
+    );
     Ok(())
 }
 
@@ -384,8 +418,18 @@ pub(crate) fn yank(name: &str, version: &str, undo: bool, ctx: &mut Context<'_>)
     let token = token_for(&reg, ctx)?;
     match reg.yank(&token, name, version, undo) {
         Ok(()) => {
-            let done = if undo { "unyanked" } else { "yanked" };
-            let _ = writeln!(ctx.stderr, "{done} {name} {version}");
+            let (done, verb) = if undo {
+                ("unyanked", "Unyanked")
+            } else {
+                ("yanked", "Yanked")
+            };
+            ui::done(
+                ctx,
+                &format!("{done} {name} {version}"),
+                verb,
+                &format!("{name} {version}"),
+                None,
+            );
             Ok(())
         }
         Err(e) => {

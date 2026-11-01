@@ -7,9 +7,11 @@
 pub mod args;
 mod icons;
 mod publish;
+mod ui;
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use args::{Command, Emit};
 use brim_diagnostics::{
@@ -63,7 +65,8 @@ pub fn run(args: &[String], ctx: &mut Context<'_>) -> i32 {
     let command = match args::parse(args) {
         Ok(command) => command,
         Err(err) => {
-            let _ = writeln!(ctx.stderr, "error: {err}");
+            let ui = ui::Ui::new(ctx);
+            let _ = writeln!(ctx.stderr, "{} {err}", ui.red(&ui.bold("error:")));
             let hint = match err.command {
                 Some(cmd) => format!("brim {cmd} --help"),
                 None => "brim --help".to_string(),
@@ -73,18 +76,32 @@ pub fn run(args: &[String], ctx: &mut Context<'_>) -> i32 {
         }
     };
     let result = match command {
-        Command::Help(None) => write_out(ctx.stdout, args::MAIN_HELP),
-        Command::Help(Some(cmd)) => write_out(ctx.stdout, args::command_help(&cmd)),
+        Command::Help(cmd) => {
+            let text = match &cmd {
+                Some(cmd) => args::command_help(cmd),
+                None => args::MAIN_HELP,
+            };
+            let text = ui::Ui::stdout(ctx).help(text);
+            write_out(ctx.stdout, &text)
+        }
         Command::Version => {
             let backend = if brim_codegen::LlvmBackend::AVAILABLE {
                 "native backend: LLVM 22"
             } else {
                 "no native backend"
             };
-            write_out(
-                ctx.stdout,
-                &format!("brim {} ({backend})\n", env!("CARGO_PKG_VERSION")),
-            )
+            let ui = ui::Ui::stdout(ctx);
+            let line = if ui.on {
+                format!(
+                    "{} {}  {}\n",
+                    ui.badge(ui::Badge::Brand, "brim"),
+                    ui.bold(env!("CARGO_PKG_VERSION")),
+                    ui.dim(backend)
+                )
+            } else {
+                format!("brim {} ({backend})\n", env!("CARGO_PKG_VERSION"))
+            };
+            write_out(ctx.stdout, &line)
         }
         Command::Check {
             input,
@@ -171,8 +188,25 @@ fn write_out(out: &mut dyn Write, text: &str) -> CmdResult {
 
 fn check(target: &Target<'_>, emit: Option<Emit>, ctx: &mut Context<'_>) -> CmdResult {
     let mut result = Ok(());
+    let ui = ui::Ui::new(ctx);
     for input in load_inputs(target, false, ctx)? {
-        match compile(&input, emit, input.lib, ctx) {
+        let start = Instant::now();
+        let spinner = ui::spin(ctx, &format!("Checking {}", input.name()));
+        let compiled = compile(&input, emit, input.lib, ctx);
+        drop(spinner);
+        match compiled {
+            Ok(_) if ui.on => {
+                let detail = if input.packages.is_some() {
+                    format!("{} {}", input.name(), ui.dim(input.file.name()))
+                } else {
+                    input.file.name().to_string()
+                };
+                let _ = writeln!(
+                    ctx.stderr,
+                    "{}",
+                    ui.success("No errors in", &detail, Some(start.elapsed()))
+                );
+            }
             Ok(_) => {
                 let _ = writeln!(ctx.stderr, "ok: no errors found in {}", input.file.name());
             }
@@ -224,7 +258,9 @@ pub fn run_source(name: &str, text: &str, max_steps: Option<u64>, ctx: &mut Cont
 
 fn run_program(target: &Target<'_>, args: Vec<String>, ctx: &mut Context<'_>) -> CmdResult {
     let input = load_input(target, ctx)?;
+    let spinner = ui::spin(ctx, &format!("Compiling {}", input.name()));
     let (module, map, _) = compile(&input, None, false, ctx)?;
+    drop(spinner);
     // The interpreter cannot call C: build programs with `extern fn`s and
     // run the executable instead.
     let calls_c = module
@@ -265,7 +301,7 @@ fn run_native(
     ctx: &mut Context<'_>,
 ) -> CmdResult {
     let shown = input.default_output.clone();
-    built_executable(input, module, map, None, false, ctx)?;
+    built_executable(input, module, map, None, false, Instant::now(), ctx)?;
     let mut child = match std::process::Command::new(ctx.cwd.join(&shown))
         .args(&args)
         .current_dir(&ctx.cwd)
@@ -311,7 +347,7 @@ fn test(target: &Target<'_>, filter: Option<&str>, ctx: &mut Context<'_>) -> Cmd
     let several = inputs.len() > 1;
     let mut result = Ok(());
     for input in inputs {
-        if several {
+        if several && !ui::Ui::stdout(ctx).on {
             let _ = writeln!(ctx.stderr, "testing {}", input.name());
         }
         result = result.and(test_one(&input, filter, ctx));
@@ -320,7 +356,11 @@ fn test(target: &Target<'_>, filter: Option<&str>, ctx: &mut Context<'_>) -> Cmd
 }
 
 fn test_one(input: &Input, filter: Option<&str>, ctx: &mut Context<'_>) -> CmdResult {
+    let ui = ui::Ui::stdout(ctx);
+    let started = Instant::now();
+    let spinner = ui::spin(ctx, &format!("Compiling {}", input.name()));
     let (module, map, tests) = compile(input, None, true, ctx)?;
+    drop(spinner);
     // The tests of dependencies are theirs to run.
     let dependencies: Vec<&str> = input
         .packages
@@ -337,12 +377,29 @@ fn test_one(input: &Input, filter: Option<&str>, ctx: &mut Context<'_>) -> CmdRe
         })
         .filter(|&t| filter.is_none_or(|f| module.function(t).name.contains(f)))
         .collect();
-    let _ = writeln!(ctx.stdout, "\nrunning {}", brim_plural(tests.len(), "test"));
+    if ui.on {
+        let _ = writeln!(
+            ctx.stdout,
+            "\n{} {} {}\n",
+            ui.badge(ui::Badge::Brand, "RUN"),
+            ui.bold(input.name()),
+            ui.dim(&brim_plural(tests.len(), "test"))
+        );
+    } else {
+        let _ = writeln!(ctx.stdout, "\nrunning {}", brim_plural(tests.len(), "test"));
+    }
     let mut failures = Vec::new();
     for &t in &tests {
         let name = &module.function(t).name;
-        let _ = write!(ctx.stdout, "test {name} ... ");
-        let _ = ctx.stdout.flush();
+        let test_start = Instant::now();
+        let spinner = if ui.on {
+            let _ = ctx.stdout.flush();
+            Some(ui::spin(ctx, &format!("  {name}")))
+        } else {
+            let _ = write!(ctx.stdout, "test {name} ... ");
+            let _ = ctx.stdout.flush();
+            None
+        };
         let mut out = Vec::new();
         let mut err = Vec::new();
         let mut host = brim_interp::Host {
@@ -359,6 +416,25 @@ fn test_one(input: &Input, filter: Option<&str>, ctx: &mut Context<'_>) -> CmdRe
             Ok(code) => Some(Diagnostic::error(format!("the test called `exit({code})`"))),
             Err(trap) => Some(trap_diagnostic(&trap)),
         };
+        drop(spinner);
+        if ui.on {
+            let took = ui.dim(&ui::duration(test_start.elapsed()));
+            let mark = if failure.is_none() {
+                ui.green("✓")
+            } else {
+                ui.red("✗")
+            };
+            let shown = if failure.is_none() {
+                name.clone()
+            } else {
+                ui.red(name)
+            };
+            let _ = writeln!(ctx.stdout, "  {mark} {shown} {took}");
+            if let Some(diag) = failure {
+                failures.push((name.clone(), out, err, diag));
+            }
+            continue;
+        }
         match failure {
             None => {
                 let _ = writeln!(ctx.stdout, "ok");
@@ -370,9 +446,17 @@ fn test_one(input: &Input, filter: Option<&str>, ctx: &mut Context<'_>) -> CmdRe
         }
     }
     if !failures.is_empty() {
-        let _ = writeln!(ctx.stdout, "\nfailures:");
+        if ui.on {
+            let _ = writeln!(ctx.stdout, "\n{}", ui.badge(ui::Badge::Fail, "FAILURES"));
+        } else {
+            let _ = writeln!(ctx.stdout, "\nfailures:");
+        }
         for (name, out, err, diag) in &failures {
-            let _ = writeln!(ctx.stdout, "\n---- {name} ----");
+            if ui.on {
+                let _ = writeln!(ctx.stdout, "\n{} {}", ui.red("✗"), ui.bold(name));
+            } else {
+                let _ = writeln!(ctx.stdout, "\n---- {name} ----");
+            }
             let _ = ctx.stdout.write_all(out);
             let _ = ctx.stdout.write_all(err);
             let _ = ctx.stdout.flush();
@@ -380,6 +464,32 @@ fn test_one(input: &Input, filter: Option<&str>, ctx: &mut Context<'_>) -> CmdRe
         }
     }
     let passed = tests.len() - failures.len();
+    if ui.on {
+        let badge = if failures.is_empty() {
+            ui.badge(ui::Badge::Pass, "PASS")
+        } else {
+            ui.badge(ui::Badge::Fail, "FAIL")
+        };
+        let mut counts = ui.green(&format!("{passed} passed"));
+        if !failures.is_empty() {
+            counts = format!(
+                "{}, {counts}",
+                ui.red(&format!("{} failed", failures.len()))
+            );
+        }
+        let _ = writeln!(
+            ctx.stdout,
+            "\n{badge} {counts} {}  {}",
+            ui.dim(&format!("({})", tests.len())),
+            ui.dim(&ui::duration(started.elapsed()))
+        );
+        let _ = ctx.stdout.flush();
+        return if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(exit::RUNTIME_ERROR)
+        };
+    }
     let _ = writeln!(
         ctx.stdout,
         "\ntest result: {}. {passed} passed; {} failed",
@@ -392,6 +502,11 @@ fn test_one(input: &Input, filter: Option<&str>, ctx: &mut Context<'_>) -> CmdRe
     } else {
         Err(exit::RUNTIME_ERROR)
     }
+}
+
+/// `wrote PATH`, after a command writes its output file.
+fn wrote(path: &str, ctx: &mut Context<'_>) {
+    ui::done(ctx, &format!("wrote {path}"), "Wrote", path, None);
 }
 
 fn brim_plural(n: usize, word: &str) -> String {
@@ -455,7 +570,42 @@ fn new_project(path: &Path, ctx: &mut Context<'_>) -> CmdResult {
             ));
         }
     }
-    let _ = writeln!(ctx.stderr, "created project `{name}` in {shown}");
+    let ui = ui::Ui::new(ctx);
+    if !ui.on {
+        let _ = writeln!(ctx.stderr, "created project `{name}` in {shown}");
+        return Ok(());
+    }
+    let tree = [brim_manifest::MANIFEST_FILE, "src/main.brim", ".gitignore"];
+    let mut text = format!(
+        "{}\n\n  {}\n",
+        ui.success(
+            "Created",
+            &format!("{} {}", ui.brand(&name), ui.dim(&format!("in {shown}"))),
+            None
+        ),
+        ui.bold(&format!("{shown}/"))
+    );
+    for (i, file) in tree.iter().enumerate() {
+        let branch = if i + 1 == tree.len() {
+            "└──"
+        } else {
+            "├──"
+        };
+        text.push_str(&format!("  {} {file}\n", ui.dim(branch)));
+    }
+    text.push_str(&format!("\n{}\n", ui.bold("Next steps:")));
+    for (command, what) in [
+        (format!("cd {shown}"), ""),
+        ("brim run".to_string(), "run the program"),
+        ("brim test".to_string(), "run its tests"),
+    ] {
+        text.push_str(&format!(
+            "  {} {}\n",
+            ui.brand(&format!("{command:<12}")),
+            ui.dim(what)
+        ));
+    }
+    let _ = write!(ctx.stderr, "{text}");
     Ok(())
 }
 
@@ -503,7 +653,7 @@ fn gen_ts(
                     Diagnostic::error(format!("cannot write file: {e}")),
                 ));
             }
-            let _ = writeln!(ctx.stderr, "wrote {}", path.display());
+            wrote(&path.display().to_string(), ctx);
             Ok(())
         }
     }
@@ -645,7 +795,7 @@ fn doc_one(
             ));
         }
     }
-    let _ = writeln!(ctx.stderr, "wrote {}", dir.join("index.html").display());
+    wrote(&dir.join("index.html").display().to_string(), ctx);
     Ok(())
 }
 
@@ -735,7 +885,16 @@ fn update(target: &Target<'_>, ctx: &mut Context<'_>) -> CmdResult {
     } else {
         "dependencies"
     };
-    let _ = writeln!(ctx.stderr, "ok: {count} {what} up to date");
+    let ui = ui::Ui::new(ctx);
+    if ui.on {
+        let _ = writeln!(
+            ctx.stderr,
+            "{}",
+            ui.success(&format!("{count} {what}"), "up to date", None)
+        );
+    } else {
+        let _ = writeln!(ctx.stderr, "ok: {count} {what} up to date");
+    }
     Ok(())
 }
 
@@ -809,6 +968,10 @@ fn fmt(paths: &[PathBuf], check: bool, ctx: &mut Context<'_>) -> CmdResult {
             ));
         }
     }
+    let ui = ui::Ui::new(ctx);
+    let start = Instant::now();
+    let total = files.len();
+    let mut changed = 0;
     let mut result = Ok(());
     for path in files {
         let file = read_text(&path, ctx)?;
@@ -829,7 +992,12 @@ fn fmt(paths: &[PathBuf], check: bool, ctx: &mut Context<'_>) -> CmdResult {
                         Diagnostic::error(format!("cannot write file: {e}")),
                     ));
                 }
-                let _ = writeln!(ctx.stderr, "formatted {}", path.display());
+                changed += 1;
+                if ui.on {
+                    let _ = writeln!(ctx.stderr, "  {} {}", ui.brand("✎"), path.display());
+                } else {
+                    let _ = writeln!(ctx.stderr, "formatted {}", path.display());
+                }
             }
             Err(diags) => {
                 let mut map = SourceMap::new();
@@ -838,6 +1006,18 @@ fn fmt(paths: &[PathBuf], check: bool, ctx: &mut Context<'_>) -> CmdResult {
                 result = Err(exit::COMPILE_ERROR);
             }
         }
+    }
+    if ui.on && !check && result.is_ok() {
+        let line = if changed == 0 {
+            ui.skipped(&brim_plural(total, "file"), "already formatted")
+        } else {
+            ui.success(
+                "Formatted",
+                &format!("{changed} of {}", brim_plural(total, "file")),
+                Some(start.elapsed()),
+            )
+        };
+        let _ = writeln!(ctx.stderr, "{line}");
     }
     result
 }
@@ -910,7 +1090,13 @@ fn build(
     for input in inputs {
         // At a workspace's root, libraries have nothing to build.
         if several && input.lib {
-            let _ = writeln!(ctx.stderr, "skipped {} (a library)", input.name());
+            let ui = ui::Ui::new(ctx);
+            if ui.on {
+                let detail = format!("{} {}", input.name(), ui.dim("(a library)"));
+                let _ = writeln!(ctx.stderr, "{}", ui.skipped("Skipped", &detail));
+            } else {
+                let _ = writeln!(ctx.stderr, "skipped {} (a library)", input.name());
+            }
             continue;
         }
         result = result.and(build_one(input, output, release, ctx));
@@ -924,8 +1110,11 @@ fn build_one(
     release: bool,
     ctx: &mut Context<'_>,
 ) -> CmdResult {
+    let start = Instant::now();
+    let spinner = ui::spin(ctx, &format!("Compiling {}", input.name()));
     let (module, map, _) = compile(&input, None, false, ctx)?;
-    built_executable(input, module, map, output, release, ctx)
+    drop(spinner);
+    built_executable(input, module, map, output, release, start, ctx)
 }
 
 /// Builds the executable of a compiled program, unless it is up to date.
@@ -935,8 +1124,10 @@ fn built_executable(
     map: SourceMap,
     output: Option<&Path>,
     release: bool,
+    start: Instant,
     ctx: &mut Context<'_>,
 ) -> CmdResult {
+    let ui = ui::Ui::new(ctx);
     let native = native_inputs(&input, &ctx.cwd);
     let Input {
         file,
@@ -964,7 +1155,12 @@ fn built_executable(
         && output.is_file()
         && std::fs::read_to_string(path).is_ok_and(|k| k == *key)
     {
-        let _ = writeln!(ctx.stderr, "built {} (up to date)", shown.display());
+        if ui.on {
+            let detail = format!("{} {}", shown.display(), ui.dim("(up to date)"));
+            let _ = writeln!(ctx.stderr, "{}", ui.skipped("Built", &detail));
+        } else {
+            let _ = writeln!(ctx.stderr, "built {} (up to date)", shown.display());
+        }
         return Ok(());
     }
     let options = brim_codegen::BuildOptions {
@@ -979,14 +1175,34 @@ fn built_executable(
         c_sources: native.c_sources,
         link: native.link,
     };
-    match brim_codegen::native_backend().build(&module, &options) {
+    let profile = if release { "release" } else { "debug" };
+    let spinner = ui::spin(
+        ctx,
+        &format!(
+            "Building {} {}",
+            file.name(),
+            ui.dim(&format!("[{profile}]"))
+        ),
+    );
+    let built = brim_codegen::native_backend().build(&module, &options);
+    drop(spinner);
+    match built {
         Ok(_) => {
             if let Some((path, key)) = stamp
                 && let Some(dir) = path.parent()
             {
                 let _ = std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&path, key));
             }
-            let _ = writeln!(ctx.stderr, "built {}", shown.display());
+            if ui.on {
+                let detail = format!("{} {}", shown.display(), ui.dim(&format!("[{profile}]")));
+                let _ = writeln!(
+                    ctx.stderr,
+                    "{}",
+                    ui.success("Built", &detail, Some(start.elapsed()))
+                );
+            } else {
+                let _ = writeln!(ctx.stderr, "built {}", shown.display());
+            }
             Ok(())
         }
         Err(brim_codegen::CodegenError::BackendUnavailable { backend, reason }) => {
@@ -1141,6 +1357,7 @@ fn report(diags: &[Diagnostic], sources: &SourceMap, ctx: &mut Context<'_>) {
     if diags.is_empty() {
         return;
     }
+    ui::stop();
     let renderer = Renderer::new(ctx.color);
     let rendered = renderer.render_all(diags, sources);
     let _ = write!(ctx.stderr, "{rendered}");
@@ -1395,7 +1612,10 @@ fn load_inputs(
         }
         let options = package_options(update, ctx)?;
         let lock = project_dir.join(brim_package::LOCK_FILE);
-        let graph = match brim_package::resolve(&project_dir, manifest, manifest_file, &options) {
+        let spinner = ui::spin(ctx, "Resolving dependencies");
+        let resolved = brim_package::resolve(&project_dir, manifest, manifest_file, &options);
+        drop(spinner);
+        let graph = match resolved {
             Ok((graph, report)) => {
                 print_report(&report, &lock, ctx);
                 graph
@@ -1457,7 +1677,10 @@ fn load_inputs(
         });
     }
     let options = package_options(update, ctx)?;
-    let graphs = match brim_package::resolve_workspace(&ws_dir, ws_file, &members, &options) {
+    let spinner = ui::spin(ctx, "Resolving dependencies");
+    let resolved = brim_package::resolve_workspace(&ws_dir, ws_file, &members, &options);
+    drop(spinner);
+    let graphs = match resolved {
         Ok((graphs, report)) => {
             print_report(&report, &ws_dir.join(brim_package::LOCK_FILE), ctx);
             graphs
@@ -1580,15 +1803,29 @@ fn package_options(update: bool, ctx: &mut Context<'_>) -> Result<brim_package::
 }
 
 fn print_report(report: &brim_package::Report, lock: &Path, ctx: &mut Context<'_>) {
+    let ui = ui::Ui::new(ctx);
     for what in &report.fetched {
-        let _ = writeln!(ctx.stderr, "fetched {what}");
+        if ui.on {
+            let _ = writeln!(ctx.stderr, "{}", ui.item("Fetched", what));
+        } else {
+            let _ = writeln!(ctx.stderr, "fetched {what}");
+        }
     }
     if report.lock_written {
-        let _ = writeln!(ctx.stderr, "updated {}", lock.display());
+        if ui.on {
+            let _ = writeln!(
+                ctx.stderr,
+                "{}",
+                ui.success("Updated", &lock.display().to_string(), None)
+            );
+        } else {
+            let _ = writeln!(ctx.stderr, "updated {}", lock.display());
+        }
     }
 }
 
 fn report_failure(failure: brim_package::Failure, ctx: &mut Context<'_>) -> i32 {
+    ui::stop();
     let file = failure
         .file
         .unwrap_or_else(|| SourceFile::new(brim_manifest::MANIFEST_FILE, ""));

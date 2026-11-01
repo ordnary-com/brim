@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- At a terminal, `brim` output has colors, spinners and timings: `brim check`, `run`, `build` and `publish` show a spinner while they work and end with a `✓` line, `brim test` prints a badge per run with a mark and time per test, `brim new` shows the created files and the next steps, `brim fmt` lists what it changed, and the help is colored. Output that is piped, or with `NO_COLOR` set, stays the same plain lines as before.
+
 ## [1.0.0-rc.3] - 2026-10-20
 
 ### Changed

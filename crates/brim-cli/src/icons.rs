@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{CmdResult, Context, exit};
+use crate::{CmdResult, Context, exit, ui};
 
 /// `brim icons [--remove]`.
 pub(crate) fn icons(remove: bool, ctx: &mut Context<'_>) -> CmdResult {
@@ -25,7 +25,19 @@ pub(crate) fn icons(remove: bool, ctx: &mut Context<'_>) -> CmdResult {
     };
     match result {
         Ok(Some(done)) => {
-            let _ = writeln!(ctx.stderr, "{done}");
+            let mut words = done.splitn(2, ' ');
+            let verb = words.next().unwrap_or_default();
+            let mut verb_cap = verb.to_string();
+            if let Some(first) = verb_cap.get_mut(0..1) {
+                first.make_ascii_uppercase();
+            }
+            ui::done(
+                ctx,
+                &done,
+                &verb_cap,
+                words.next().unwrap_or_default(),
+                None,
+            );
             Ok(())
         }
         Ok(None) => {
